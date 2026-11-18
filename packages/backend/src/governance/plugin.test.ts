@@ -1327,6 +1327,188 @@ describe('governance record access', () => {
     );
   });
 
+  it('records hosted workspace attestations independently and clears them when ownership or settings change', async () => {
+    const owner = 'user:default/owner';
+    const nextOwner = 'user:default/next';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Company' },
+              ],
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const create = (workspace: string) =>
+      api
+        .post(apps)
+        .set('Authorization', auth(owner))
+        .send({
+          name: `Hosted ${workspace}`,
+          purpose: 'Track workspace governance.',
+          sourceUrl: `https://example.com/hosted-${workspace}`,
+          type: 'provider-hosted app',
+          platform: 'Example AI',
+          owner,
+          backupOwner: 'user:default/backup',
+          team: 'group:default/platform',
+          lifecycle: 'experimental',
+          audience: 'team',
+          classification: 'internal',
+          models: ['test-model'],
+          hosted: {
+            provider: 'Example AI',
+            workspace,
+            sharing: 'private',
+            dataAccess: 'none',
+          },
+        })
+        .expect(201);
+    const { body: original } = await create('Company');
+    const { body: unapproved } = await create('Other');
+    expect(original.hostedWorkspaceAllowed).toBe(true);
+    expect(unapproved.hostedWorkspaceAllowed).toBe(false);
+    const attest = (
+      app: { id: string; updatedAt: string },
+      actor = owner,
+      confirmed = true,
+    ) =>
+      api
+        .post(`${apps}/${app.id}/hosted-attestation`)
+        .set('Authorization', auth(actor))
+        .send({ confirmed, expectedUpdatedAt: app.updatedAt });
+    await attest(unapproved).expect(400);
+    await attest(original, reviewer).expect(403);
+    await attest(original, owner, false).expect(400);
+
+    const path = `${apps}/${original.id}`;
+    const { body: active } = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: original.updatedAt })
+      .expect(200);
+    const scorecard = async () => {
+      const { body } = await api
+        .get(`${path}/scorecard`)
+        .set('Authorization', auth(reviewer))
+        .expect(200);
+      return body.checks.find(
+        (check: { name: string }) =>
+          check.name === 'Hosted workspace attestation',
+      );
+    };
+    expect(await scorecard()).toMatchObject({ status: 'attention' });
+    await attest(original).expect(409);
+    const { body: confirmed } = await attest(active)
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(confirmed).toMatchObject({
+      lifecycle: active.lifecycle,
+      reviewStatus: active.reviewStatus,
+      lastReview: active.lastReview,
+      nextReview: active.nextReview,
+      hostedAttestation: {
+        at: confirmed.updatedAt,
+        nextDue: new Date(
+          Date.parse(confirmed.updatedAt) + 90 * 86_400_000,
+        ).toISOString(),
+      },
+    });
+    expect(await scorecard()).toMatchObject({ status: 'pass' });
+    jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(confirmed.hostedAttestation.nextDue));
+    expect(await scorecard()).toMatchObject({
+      status: 'attention',
+      detail: expect.stringContaining('Overdue'),
+    });
+
+    const edit = (
+      record: { id: string; updatedAt: string },
+      changes: Record<string, unknown>,
+    ) =>
+      api
+        .put(`${apps}/${record.id}`)
+        .set('Authorization', auth(owner))
+        .send({ ...record, ...changes, expectedUpdatedAt: record.updatedAt })
+        .expect(200);
+    const { body: renamed } = await edit(confirmed, {
+      name: 'Renamed hosted app',
+    });
+    expect(renamed.hostedAttestation).toEqual(confirmed.hostedAttestation);
+    const { body: changed } = await edit(renamed, {
+      hosted: {
+        ...renamed.hosted,
+        dataAccess: 'stores input',
+        dataClassification: 'internal',
+      },
+    });
+    expect(changed).not.toHaveProperty('hostedAttestation');
+    const { body: renewed } = await attest(changed).expect(200);
+    const { body: reassigned } = await edit(renewed, { owner: nextOwner });
+    expect(reassigned).not.toHaveProperty('hostedAttestation');
+    await attest(reassigned).expect(403);
+    const { body: reattested } = await attest(reassigned, nextOwner).expect(
+      200,
+    );
+    const { body: retired } = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(nextOwner))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: reattested.updatedAt })
+      .expect(200);
+    expect(retired).not.toHaveProperty('hostedAttestation');
+    await attest(retired, nextOwner).expect(400);
+
+    const { body: corrected } = await edit(unapproved, {
+      hosted: { ...unapproved.hosted, workspace: 'Company' },
+    });
+    const { body: otherAttested } = await attest(corrected).expect(200);
+    const { body: converted } = await edit(otherAttested, {
+      type: 'app',
+      hosted: undefined,
+    });
+    expect(converted).not.toHaveProperty('hostedAttestation');
+    expect(converted).not.toHaveProperty('hostedWorkspaceAllowed');
+    await attest(converted).expect(400);
+
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(
+      history.events.map(({ event }: { event: string }) => JSON.parse(event)),
+    ).toContainEqual(
+      expect.objectContaining({
+        action: 'hosted-attested',
+        actor: nextOwner,
+        record: expect.objectContaining({
+          hostedAttestation: reattested.hostedAttestation,
+        }),
+      }),
+    );
+  });
+
   it('enforces evidence, history, and ownership permissions', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';

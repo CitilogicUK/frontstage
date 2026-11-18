@@ -22,6 +22,7 @@ type RenewalException = {
 };
 
 type AuditRecord = {
+  hostedAttestation?: { at: string; nextDue: string };
   hosted?: Partial<Record<keyof typeof hostedFields, string>>;
   owner: string;
   lifecycle?: string;
@@ -179,6 +180,17 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         if (record.nextReview) {
           details.push(
             `Next attestation due ${record.nextReview.slice(0, 10)}`,
+          );
+        }
+      }
+      if (entry.action === 'hosted-attested') {
+        action = 'Hosted workspace attestation recorded';
+        if (record.hostedAttestation) {
+          details.push(
+            `Next workspace attestation due ${record.hostedAttestation.nextDue.slice(
+              0,
+              10,
+            )}`,
           );
         }
       }

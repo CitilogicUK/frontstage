@@ -119,6 +119,7 @@ type RecordAction =
   | 'updated'
   | 'reviewed'
   | 'attested'
+  | 'hosted-attested'
   | 'renewal-exception-granted'
   | 'renewal-exception-revoked'
   | 'retirement-review-requested'
@@ -131,6 +132,11 @@ type RecordAction =
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
+const hostedAttestationIntervalMs = 90 * 86_400_000;
+const attestationInput = z.object({
+  confirmed: z.literal(true),
+  expectedUpdatedAt: z.string().datetime(),
+});
 
 function recordActor(
   principal: BackstageUserPrincipal | BackstageServicePrincipal,
@@ -158,6 +164,7 @@ export type GovernanceRecord = AppInput & {
   activeSince?: string;
   reviewNotes?: string;
   signoffs?: Signoffs;
+  hostedAttestation?: { at: string; nextDue: string };
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
@@ -492,6 +499,15 @@ export const governancePlugin = createBackendPlugin({
           );
         }
 
+        function withHostedWorkspaceStatus(record: GovernanceRecord) {
+          return record.type === 'provider-hosted app'
+            ? {
+                ...record,
+                hostedWorkspaceAllowed: hostedWorkspaceApproved(record),
+              }
+            : record;
+        }
+
         function assertHostedWorkspaceForLaunch(app: AppInput) {
           if (
             app.lifecycle === 'active' &&
@@ -796,7 +812,9 @@ export const governancePlugin = createBackendPlugin({
         ) {
           const now = Date.now();
           const result = {
-            ...record,
+            ...(principal.type === 'user'
+              ? withHostedWorkspaceStatus(record)
+              : record),
             effectiveClassification: effectiveClassification(record),
             ...(trackConfig &&
               record.tier === 3 && {
@@ -1098,7 +1116,7 @@ export const governancePlugin = createBackendPlugin({
             id: req.params.id,
             includePrivate,
           });
-          res.status(201).json(record);
+          res.status(201).json(withHostedWorkspaceStatus(record));
         });
 
         router.post('/apps', async (req, res) => {
@@ -1118,7 +1136,7 @@ export const governancePlugin = createBackendPlugin({
           await validateOwners(app);
           const record = buildRecord(app, 'registered');
           await insert([record], principal);
-          res.status(201).json(record);
+          res.status(201).json(withHostedWorkspaceStatus(record));
         });
 
         function isImportPreview(value: unknown) {
@@ -1193,7 +1211,7 @@ export const governancePlugin = createBackendPlugin({
             return;
           }
           await insert([record], principal);
-          res.status(201).json(record);
+          res.status(201).json(withHostedWorkspaceStatus(record));
         });
 
         router.post('/imports', async (req, res) => {
@@ -1256,7 +1274,7 @@ export const governancePlugin = createBackendPlugin({
             return;
           }
           await insert(records, principal);
-          res.status(201).json(records);
+          res.status(201).json(records.map(withHostedWorkspaceStatus));
         });
 
         function assertRetirementRevision(
@@ -1381,6 +1399,7 @@ export const governancePlugin = createBackendPlugin({
             lifecycle: retire ? 'retired' : record.lifecycle,
             activeSince: retire ? undefined : record.activeSince,
             graduation: retire ? undefined : record.graduation,
+            hostedAttestation: retire ? undefined : record.hostedAttestation,
             renewalException: retire ? undefined : record.renewalException,
             retirementReview: {
               ...review,
@@ -1437,6 +1456,10 @@ export const governancePlugin = createBackendPlugin({
           const updated: GovernanceRecord = {
             ...record,
             lifecycle: lifecycle.data,
+            hostedAttestation:
+              lifecycle.data === 'retired'
+                ? undefined
+                : record.hostedAttestation,
             renewalException:
               record.lifecycle === 'active' && lifecycle.data === 'active'
                 ? record.renewalException
@@ -1547,6 +1570,13 @@ export const governancePlugin = createBackendPlugin({
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           updated.graduation = graduationAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
+          updated.hostedAttestation =
+            !ownerChanged &&
+            updated.lifecycle !== 'retired' &&
+            updated.type === 'provider-hosted app' &&
+            JSON.stringify(previousInput.hosted) === JSON.stringify(app.hosted)
+              ? record.hostedAttestation
+              : undefined;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
             updated.nextReview = updated.updatedAt;
@@ -1705,12 +1735,7 @@ export const governancePlugin = createBackendPlugin({
               'Only the accountable owner can attest to this app.',
             );
           }
-          const input = z
-            .object({
-              confirmed: z.literal(true),
-              expectedUpdatedAt: z.string().datetime(),
-            })
-            .safeParse(req.body);
+          const input = attestationInput.safeParse(req.body);
           if (!input.success)
             throw new InputError(
               'Confirm the current record before attesting.',
@@ -1738,7 +1763,52 @@ export const governancePlugin = createBackendPlugin({
             nextReview: nextReview(2, at),
           };
           await save(updated, revision, principal, 'attested');
-          res.json(updated);
+          res.json(withHostedWorkspaceStatus(updated));
+        });
+
+        router.post('/apps/:id/hosted-attestation', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const { record, revision } = await load(req.params.id);
+          if (record.owner !== principal.userEntityRef)
+            throw new NotAllowedError(
+              'Only the accountable owner can attest to this hosted workspace.',
+            );
+          const input = attestationInput.safeParse(req.body);
+          if (!input.success)
+            throw new InputError('Confirm the current workspace settings.');
+          if (input.data.expectedUpdatedAt !== record.updatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before attesting.',
+            );
+          if (
+            record.type !== 'provider-hosted app' ||
+            !record.hosted ||
+            record.lifecycle === 'retired'
+          )
+            throw new InputError(
+              'Hosted workspace attestation applies to non-retired provider-hosted apps.',
+            );
+          if (hostedWorkspaceApproved(record) === false)
+            throw new InputError(
+              'Choose an approved provider workspace before attesting.',
+            );
+          const at = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt: at,
+            hostedAttestation: {
+              at,
+              nextDue: new Date(
+                Date.parse(at) + hostedAttestationIntervalMs,
+              ).toISOString(),
+            },
+          };
+          await save(updated, revision, principal, 'hosted-attested');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
         });
 
         async function loadRenewalExceptionRecord(

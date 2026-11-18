@@ -1211,16 +1211,17 @@ test('audit history shows production review and ownership handoff', async ({
   ).toBeVisible();
 });
 
-test('a hosted app owner can correct the declared workspace', async ({
+test('a hosted app owner can correct and attest to the declared workspace', async ({
   page,
 }) => {
-  let app = {
+  const initialApp = {
     id: 'hosted-app',
     name: 'Hosted demo app',
     owner: 'user:default/demo-owner',
     team: 'group:default/platform',
     purpose: 'Synthetic demo',
     type: 'provider-hosted app',
+    hostedWorkspaceAllowed: false,
     platform: 'Hosted workspace & tools',
     classification: 'internal',
     lifecycle: 'experimental',
@@ -1236,15 +1237,18 @@ test('a hosted app owner can correct the declared workspace', async ({
       dataAccess: 'none',
     },
   };
-  const original = app;
+  let app: typeof initialApp & {
+    hostedAttestation?: { at: string; nextDue: string };
+  } = initialApp;
+  const history = [{ action: 'registered', record: app }];
   await page.route('**/api/governance/apps/hosted-app/history', route =>
     route.fulfill({
       json: {
         keyEvents: [],
-        events: [original, app].map((record, index) => ({
+        events: history.map(({ action, record }, index) => ({
           digest: String(index).padStart(64, '0'),
           event: JSON.stringify({
-            action: index === 0 ? 'registered' : 'updated',
+            action,
             actor: app.owner,
             record,
           }),
@@ -1289,10 +1293,33 @@ test('a hosted app owner can correct the declared workspace', async ({
     app = {
       ...app,
       hosted: update.hosted,
+      hostedWorkspaceAllowed: true,
       updatedAt: '2025-01-02T00:00:00.000Z',
     };
+    history.push({ action: 'updated', record: app });
     return route.fulfill({ json: app });
   });
+  await page.route(
+    '**/api/governance/apps/hosted-app/hosted-attestation',
+    route => {
+      expect(route.request().method()).toBe('POST');
+      expect(route.request().postDataJSON()).toEqual({
+        confirmed: true,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      const at = Date.now();
+      app = {
+        ...app,
+        updatedAt: new Date(at).toISOString(),
+        hostedAttestation: {
+          at: new Date(at).toISOString(),
+          nextDue: new Date(at + 90 * 86_400_000).toISOString(),
+        },
+      };
+      history.push({ action: 'hosted-attested', record: app });
+      return route.fulfill({ json: app });
+    },
+  );
   await page.route('**/api/governance/reports/hosted-workspaces', route =>
     route.fulfill({
       json: {
@@ -1324,6 +1351,12 @@ test('a hosted app owner can correct the declared workspace', async ({
     details.getByRole('link', { name: 'View approved workspaces (new tab)' }),
   ).toHaveAttribute('href', '/?view=guide#hosted-workspaces-title');
 
+  const attestation = details.getByRole('region', {
+    name: 'Hosted workspace attestation',
+  });
+  await expect(attestation).toContainText('Choose an approved workspace');
+  await expect(attestation.getByRole('checkbox')).toHaveCount(0);
+
   async function saveWorkspaceCorrection() {
     await details
       .getByRole('textbox', { name: 'Workspace', exact: true })
@@ -1352,7 +1385,23 @@ test('a hosted app owner can correct the declared workspace', async ({
     details.getByRole('region', { name: 'Gateway playground' }),
   ).toHaveCount(0);
 
+  await expect(attestation).toContainText('Example AI · Company');
+  await expect(attestation).toContainText(
+    'Workspace settings have not been confirmed.',
+  );
+  await attestation.getByRole('checkbox').check();
+  await attestation
+    .getByRole('button', {
+      name: 'Record workspace attestation',
+    })
+    .click();
+  await expect(attestation).toContainText('Last confirmed');
+  await expect(attestation).toContainText('Next due');
+
   await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText(/Next workspace attestation due/),
+  ).toBeVisible();
   await expect(
     details.getByText(/Workspace changed from Personal to Company/),
   ).toBeVisible();

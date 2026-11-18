@@ -91,6 +91,8 @@ type App = {
     dataAccess: string;
     dataClassification?: string;
   };
+  hostedWorkspaceAllowed?: boolean;
+  hostedAttestation?: { at: string; nextDue: string };
   deliveryStage?: string;
   tier: number;
   reviewStatus: string;
@@ -1578,6 +1580,64 @@ export function GovernancePage() {
                   <button disabled={busy}>Record attestation</button>
                 </form>
               )}
+            {selected.hosted && selected.lifecycle !== 'retired' && (
+              <section aria-label="Hosted workspace attestation">
+                <h3>Quarterly hosted workspace attestation</h3>
+                <p>
+                  {selected.hosted.provider} · {selected.hosted.workspace} ·
+                  Sharing: {selected.hosted.sharing} · Data access:{' '}
+                  {selected.hosted.dataAccess}
+                  {selected.hosted.dataClassification &&
+                    ` (${selected.hosted.dataClassification})`}
+                </p>
+                {selected.hostedAttestation ? (
+                  <p>
+                    Last confirmed {selected.hostedAttestation.at.slice(0, 10)}.{' '}
+                    {Date.parse(selected.hostedAttestation.nextDue) <= now
+                      ? 'Overdue since'
+                      : 'Next due'}{' '}
+                    {selected.hostedAttestation.nextDue.slice(0, 10)}.
+                  </p>
+                ) : (
+                  <p>Workspace settings have not been confirmed.</p>
+                )}
+                {actor === selected.owner &&
+                  selected.hostedWorkspaceAllowed === false && (
+                    <p>
+                      Choose an approved workspace in Edit app details before
+                      confirming.
+                    </p>
+                  )}
+                {actor === selected.owner &&
+                  selected.hostedWorkspaceAllowed !== false && (
+                    <form
+                      key={`hosted-attest-${selected.id}-${selected.updatedAt}`}
+                      onSubmit={event =>
+                        submit(event, async data => {
+                          const updated = await api(
+                            `/apps/${selected.id}/hosted-attestation`,
+                            {
+                              confirmed: data.get('confirmed') === 'on',
+                              expectedUpdatedAt: selected.updatedAt,
+                            },
+                          );
+                          applySavedApp(updated);
+                          setMessage('Hosted workspace attestation recorded.');
+                        })
+                      }
+                    >
+                      <label>
+                        <input type="checkbox" name="confirmed" required />I
+                        checked the provider and confirm the workspace, sharing,
+                        and data access match this record.
+                      </label>
+                      <button disabled={busy}>
+                        Record workspace attestation
+                      </button>
+                    </form>
+                  )}
+              </section>
+            )}
             {selected.evidence &&
               evidenceFields.some(([field]) => selected.evidence?.[field]) && (
                 <section aria-label="Review evidence">
