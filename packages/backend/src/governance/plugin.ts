@@ -46,6 +46,7 @@ import {
   isOldLiveCall,
   isRetirementCandidate,
   lastSuccessfulLiveCall,
+  readRetirementCandidates,
   revokeGatewayKey,
 } from './gateway';
 import {
@@ -92,6 +93,17 @@ type RecordAction =
   | 'retirement-review-requested'
   | 'retirement-review-kept'
   | 'retirement-review-retired';
+
+const retirementReviewWritesPerRun = 50;
+const retirementReviewOwnerBatchSize = 100;
+
+function recordActor(
+  principal: BackstageUserPrincipal | BackstageServicePrincipal,
+) {
+  return principal.type === 'user'
+    ? principal.userEntityRef
+    : principal.subject;
+}
 
 const renewalWindowMs = 30 * 24 * 60 * 60 * 1_000;
 
@@ -193,6 +205,15 @@ export const governancePlugin = createBackendPlugin({
         const approvedConnectors = approvedConnectorsInput.parse(
           config.getOptional('governance.approvedConnectors'),
         );
+        const retirementReviewIntervalMinutes = z
+          .number()
+          .int()
+          .min(15)
+          .max(10_080)
+          .optional()
+          .parse(
+            config.getOptional('governance.retirementReviewIntervalMinutes'),
+          );
         const firstDecisionTargetWeekdays = z
           .number()
           .int()
@@ -447,10 +468,7 @@ export const governancePlugin = createBackendPlugin({
             .first('digest');
           const event = JSON.stringify({
             action,
-            actor:
-              principal.type === 'user'
-                ? principal.userEntityRef
-                : principal.subject,
+            actor: recordActor(principal),
             revision,
             previousDigest: previous?.digest ?? null,
             lifecycleReason,
@@ -566,9 +584,7 @@ export const governancePlugin = createBackendPlugin({
               await revokeGatewayKey(
                 transaction,
                 record.id,
-                principal.type === 'user'
-                  ? principal.userEntityRef
-                  : principal.subject,
+                recordActor(principal),
               );
             }
             await logChange(
@@ -1133,6 +1149,44 @@ export const governancePlugin = createBackendPlugin({
             );
         }
 
+        async function requestRetirementReview(
+          record: GovernanceRecord,
+          revision: number,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+          lastLiveCall: string | undefined,
+        ) {
+          if (record.retirementReview?.status === 'pending')
+            throw new ConflictError(
+              'This app already has a pending retirement review.',
+            );
+          if (!lastLiveCall || !isRetirementCandidate(record, lastLiveCall))
+            throw new InputError(
+              'This app is not a current retirement candidate.',
+            );
+          const updatedAt = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt,
+            retirementReview: {
+              requestedAt: updatedAt,
+              requestedBy: recordActor(principal),
+              owner: record.owner,
+              lastLiveCall,
+              status: 'pending',
+            },
+          };
+          await save(
+            updated,
+            revision,
+            principal,
+            'retirement-review-requested',
+            {
+              expectedRetirementActivity: lastLiveCall,
+            },
+          );
+          return updated;
+        }
+
         router.post('/apps/:id/retirement-review', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
@@ -1147,36 +1201,12 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError('Provide the current app timestamp.');
           const { record, revision } = await load(req.params.id);
           assertRetirementRevision(record, input.data);
-          if (record.retirementReview?.status === 'pending')
-            throw new ConflictError(
-              'This app already has a pending retirement review.',
-            );
-          const lastLiveCall = await lastSuccessfulLiveCall(db, record.id);
-          if (!lastLiveCall || !isRetirementCandidate(record, lastLiveCall))
-            throw new InputError(
-              'This app is not a current retirement candidate.',
-            );
           await assertRetirementOwnerActive(record.owner);
-          const updatedAt = nextRecordTimestamp(record.updatedAt);
-          const updated: GovernanceRecord = {
-            ...record,
-            updatedAt,
-            retirementReview: {
-              requestedAt: updatedAt,
-              requestedBy: principal.userEntityRef,
-              owner: record.owner,
-              lastLiveCall,
-              status: 'pending',
-            },
-          };
-          await save(
-            updated,
+          const updated = await requestRetirementReview(
+            record,
             revision,
             principal,
-            'retirement-review-requested',
-            {
-              expectedRetirementActivity: lastLiveCall,
-            },
+            await lastSuccessfulLiveCall(db, record.id),
           );
           res.json(visibleRecord(updated, principal));
         });
@@ -1644,6 +1674,63 @@ export const governancePlugin = createBackendPlugin({
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });
+
+        if (retirementReviewIntervalMinutes !== undefined) {
+          await scheduler.scheduleTask({
+            id: 'governance-retirement-review',
+            scope: 'global',
+            frequency: { minutes: retirementReviewIntervalMinutes },
+            initialDelay: { seconds: 5 },
+            timeout: { minutes: 2 },
+            async fn(signal) {
+              if (signal.aborted) return;
+              const { principal } = await auth.getOwnServiceCredentials();
+              const candidates = (
+                await readRetirementCandidates(db, table)
+              ).filter(
+                ({ record }) => record.retirementReview?.status !== 'pending',
+              );
+              let opened = 0;
+              for (
+                let index = 0;
+                index < candidates.length;
+                index += retirementReviewOwnerBatchSize
+              ) {
+                if (opened >= retirementReviewWritesPerRun || signal.aborted)
+                  return;
+                const batch = candidates.slice(
+                  index,
+                  index + retirementReviewOwnerBatchSize,
+                );
+                const unavailable = await unavailableOwners([
+                  ...new Set(batch.map(({ record }) => record.owner)),
+                ]);
+                for (const { record, revision, lastLiveCall } of batch) {
+                  if (opened >= retirementReviewWritesPerRun || signal.aborted)
+                    return;
+                  if (unavailable.has(record.owner)) continue;
+                  try {
+                    await requestRetirementReview(
+                      record,
+                      revision,
+                      principal,
+                      lastLiveCall,
+                    );
+                    opened += 1;
+                  } catch (error) {
+                    if (
+                      !(
+                        error instanceof ConflictError ||
+                        error instanceof InputError
+                      )
+                    )
+                      throw error;
+                  }
+                }
+              }
+            },
+          });
+        }
 
         const gatewayRouter = Router();
         registerGatewayRoutes({

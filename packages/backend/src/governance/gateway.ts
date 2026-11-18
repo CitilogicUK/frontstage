@@ -83,6 +83,39 @@ export async function lastSuccessfulLiveCall(db: Database, appId: string) {
   return new Date(row.lastLiveCall).toISOString();
 }
 
+export async function readRetirementCandidates(
+  db: Database,
+  appsTable: string,
+  now = Date.now(),
+) {
+  const retirementCutoff = new Date(now - retirementReviewMs);
+  const lastLiveCalls = db(usageTable)
+    .where('execution_mode', 'openai')
+    .groupBy('app_id')
+    .select('app_id')
+    .max('created_at as last_live_call')
+    .as('live');
+  const retirementRows = await db(`${appsTable} as app`)
+    .join(lastLiveCalls, 'live.app_id', 'app.id')
+    .where('live.last_live_call', '<=', retirementCutoff)
+    .orderBy('live.last_live_call')
+    .orderBy('app.id')
+    .select<
+      Array<{
+        payload: string;
+        revision: number;
+        lastLiveCall: Date | string | number;
+      }>
+    >('app.payload', 'app.revision', 'live.last_live_call as lastLiveCall');
+  return retirementRows.flatMap(row => {
+    const record = JSON.parse(row.payload) as GovernanceRecord;
+    const lastLiveCall = new Date(row.lastLiveCall).toISOString();
+    return isRetirementCandidate(record, lastLiveCall, now)
+      ? [{ record, revision: row.revision, lastLiveCall }]
+      : [];
+  });
+}
+
 const chatPath = '/gateway/chat';
 const nanosPerDollar = 1_000_000_000;
 const rate = z.number().finite().nonnegative().max(1_000_000).default(0);
@@ -1043,30 +1076,7 @@ export function registerGatewayRoutes(options: {
         'mode',
         db.raw('count(*) as ??', ['calls']),
       );
-    const now = Date.now();
-    const retirementCutoff = new Date(now - retirementReviewMs);
-    const lastLiveCalls = db(usageTable)
-      .where('execution_mode', 'openai')
-      .groupBy('app_id')
-      .select('app_id')
-      .max('created_at as last_live_call')
-      .as('live');
-    const retirementRows = await db(`${appsTable} as app`)
-      .join(lastLiveCalls, 'live.app_id', 'app.id')
-      .where('live.last_live_call', '<=', retirementCutoff)
-      .orderBy('live.last_live_call')
-      .orderBy('app.id')
-      .select<Array<{ payload: string; lastLiveCall: Date | string | number }>>(
-        'app.payload',
-        'live.last_live_call as lastLiveCall',
-      );
-    const retirementCandidates = retirementRows.flatMap(row => {
-      const app = JSON.parse(row.payload) as GovernanceRecord;
-      const lastLiveCall = new Date(row.lastLiveCall).toISOString();
-      return isRetirementCandidate(app, lastLiveCall, now)
-        ? [{ appId: app.id, lastLiveCall }]
-        : [];
-    });
+    const retirementCandidates = await readRetirementCandidates(db, appsTable);
     let monthlySpendAlerts;
     if (appSpendThresholds.size > 0) {
       const monthStart = currentUtcMonthStart();
@@ -1105,7 +1115,10 @@ export function registerGatewayRoutes(options: {
       monthlySpendAlerts,
       retirementReview: {
         days: retirementReviewDays,
-        apps: retirementCandidates,
+        apps: retirementCandidates.map(({ record, lastLiveCall }) => ({
+          appId: record.id,
+          lastLiveCall,
+        })),
       },
       blocks: blocks.map(row => ({ ...row, calls: Number(row.calls) })),
       usage: usage.map(row => ({

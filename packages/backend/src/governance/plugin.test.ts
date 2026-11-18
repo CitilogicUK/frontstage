@@ -1,3 +1,4 @@
+import type { SchedulerService } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
   mockServices,
@@ -424,6 +425,196 @@ describe('governance record access', () => {
     );
   });
 
+  it('opens scheduled retirement reviews in bounded runs with service attribution', async () => {
+    const owner = 'user:default/owner';
+    const inactiveOwner = 'user:default/inactive';
+    const reviewer = 'user:default/reviewer';
+    const catalog = jest.spyOn(CatalogClient.prototype, 'getEntitiesByRefs');
+    const entities = (refs: string[], unavailable?: string) => ({
+      items: refs.map(ref =>
+        ref === unavailable
+          ? undefined
+          : {
+              apiVersion: 'backstage.io/v1alpha1',
+              kind: ref.startsWith('group:') ? 'Group' : 'User',
+              metadata: { name: ref.split('/')[1] },
+            },
+      ),
+    });
+    catalog.mockImplementation(async ({ entityRefs }) => entities(entityRefs));
+    const scheduleTask = jest.fn<
+      Promise<void>,
+      Parameters<SchedulerService['scheduleTask']>
+    >();
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.scheduler.mock({ scheduleTask }).factory,
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              retirementReviewIntervalMinutes: 15,
+            },
+          },
+        }),
+      ],
+    });
+    expect(scheduleTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'governance-retirement-review',
+        scope: 'global',
+        frequency: { minutes: 15 },
+      }),
+    );
+    const task = scheduleTask.mock.calls[0][0];
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const now = Date.now();
+    const old = now - 91 * 86_400_000;
+    const appInput = {
+      purpose: 'Test automated dormancy review',
+      type: 'app',
+      platform: 'GitHub',
+      team: 'group:default/platform',
+      lifecycle: 'active',
+      audience: 'personal',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const names = [
+      'resumed',
+      'inactive',
+      'kept',
+      'simulation',
+      ...Array.from({ length: 51 }, (_, index) => `eligible-${index + 1}`),
+    ];
+    const { body: apps } = await api
+      .post('/api/governance/imports')
+      .set('Authorization', auth(reviewer))
+      .send({
+        apps: names.map(name => ({
+          ...appInput,
+          name,
+          owner: name === 'inactive' ? inactiveOwner : owner,
+          sourceUrl: `https://example.com/${name}`,
+        })),
+      })
+      .expect(201);
+    expect(apps).toHaveLength(names.length);
+    const [resumed, inactive, kept, simulation] = apps;
+    const usage = (
+      app: { id: string; name: string },
+      at: number,
+      mode = 'openai',
+    ) => ({
+      app_id: app.id,
+      id: `${app.name}-${at}`,
+      model: 'test-model',
+      execution_mode: mode,
+      created_at: new Date(at),
+      estimated_cost_nanos_usd: 0,
+    });
+    await db('governance_gateway_usage').insert(
+      apps.map((app: { id: string; name: string }, index: number) =>
+        usage(
+          app,
+          old + index,
+          app.name === 'simulation' ? 'simulation' : 'openai',
+        ),
+      ),
+    );
+    const keptRoute = `/api/governance/apps/${kept.id}/retirement-review`;
+    const pending = await api
+      .post(keptRoute)
+      .set('Authorization', auth(reviewer))
+      .send({ expectedUpdatedAt: kept.updatedAt })
+      .expect(200);
+    await api
+      .patch(keptRoute)
+      .set('Authorization', auth(owner))
+      .send({
+        expectedUpdatedAt: pending.body.updatedAt,
+        decision: 'keep',
+        reason: 'Continues in operation outside the gateway.',
+      })
+      .expect(200);
+
+    const readReviews = async () => {
+      const { body } = await api
+        .get('/api/governance/apps')
+        .set('Authorization', auth(reviewer))
+        .expect(200);
+      return new Map<
+        string,
+        {
+          lifecycle: string;
+          retirementReview?: { status: string; requestedBy: string };
+        }
+      >(body.apps.map((app: { name: string }) => [app.name, app]));
+    };
+    const openedBySchedule = (
+      records: Awaited<ReturnType<typeof readReviews>>,
+    ) =>
+      [...records.values()].filter(
+        record => record.retirementReview?.requestedBy === 'plugin:governance',
+      );
+
+    await task.fn(AbortSignal.abort());
+    expect(openedBySchedule(await readReviews())).toHaveLength(0);
+
+    catalog.mockImplementation(async ({ entityRefs }) =>
+      entities(entityRefs, inactiveOwner),
+    );
+    catalog.mockImplementationOnce(async ({ entityRefs }) => {
+      await db('governance_gateway_usage').insert(usage(resumed, now));
+      return entities(entityRefs, inactiveOwner);
+    });
+    await task.fn(new AbortController().signal);
+    expect(openedBySchedule(await readReviews())).toHaveLength(50);
+    await task.fn(new AbortController().signal);
+    const reviews = await readReviews();
+    const opened = openedBySchedule(reviews);
+    expect(opened).toHaveLength(51);
+    expect(
+      opened.every(
+        app =>
+          app.lifecycle === 'active' &&
+          app.retirementReview?.status === 'pending',
+      ),
+    ).toBe(true);
+    expect(reviews.get(resumed.name)).not.toHaveProperty('retirementReview');
+    expect(reviews.get(inactive.name)).not.toHaveProperty('retirementReview');
+    expect(reviews.get(simulation.name)).not.toHaveProperty('retirementReview');
+    expect(reviews.get(kept.name)?.retirementReview?.status).toBe('kept');
+    await task.fn(new AbortController().signal);
+    expect(openedBySchedule(await readReviews())).toEqual(opened);
+
+    const eligible = apps[4];
+    const { body: history } = await api
+      .get(`/api/governance/apps/${eligible.id}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(
+      history.events.map((event: { event: string }) => JSON.parse(event.event)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'retirement-review-requested',
+          actor: 'plugin:governance',
+          record: expect.objectContaining({
+            retirementReview: expect.objectContaining({
+              requestedBy: 'plugin:governance',
+              owner,
+            }),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it('requires owner confirmation and rechecks live traffic before retirement', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';
@@ -444,10 +635,12 @@ describe('governance record access', () => {
       ...process.env,
       NODE_ENV: 'development',
     });
+    const scheduleTask = jest.fn();
     const db = await databases.init('SQLITE_3');
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        mockServices.scheduler.mock({ scheduleTask }).factory,
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
           data: {
@@ -466,6 +659,7 @@ describe('governance record access', () => {
         }),
       ],
     });
+    expect(scheduleTask).not.toHaveBeenCalled();
     const api = request(server);
     const auth = (user: string) => mockCredentials.user.header(user);
     const appInput = {
