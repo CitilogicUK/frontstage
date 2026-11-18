@@ -3,6 +3,7 @@ auth:
     guest:
       userEntityRef: user:default/reviewer
 governance:
+  graduationGroups: [group:default/engineering]
   approvedHostedWorkspaces:
     - provider: Example AI
       workspace: Company sandbox
