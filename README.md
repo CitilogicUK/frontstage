@@ -59,7 +59,7 @@ The local development profile enables a simulated gateway. It exercises the same
 yarn start --config ../../app-config.reviewer.yaml
 ```
 
-In another terminal, run `yarn demo:seed` once the app and catalog are ready. It creates four demo records on behalf of the local Guest owner. Open Inventory and sign in as Guest using the reviewer profile above.
+In another terminal, run `yarn demo:seed` once the backend is running. The script waits for the local catalog’s demo identities before registering apps. It creates four demo records on behalf of the local Guest owner. Open Inventory and sign in as Guest using the reviewer profile above.
 
 1. Open **Meeting summary demo**. Issue a gateway key, select `gpt-4.1-mini`, and send a synthetic meeting prompt. The result is labelled simulated. The app record updates its all-time live, simulated, and blocked call counts. Only live calls contribute to the live cost estimate.
 2. Open **Restricted intake demo**. Issue a key and send a synthetic prompt with `gpt-4.1-mini`. The gateway blocks the call while review is pending.

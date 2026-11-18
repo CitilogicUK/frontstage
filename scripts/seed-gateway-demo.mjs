@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
 const origin = 'http://localhost:3000';
 const backend = 'http://localhost:7007';
 const governance = `${backend}/api/governance`;
@@ -32,6 +34,41 @@ if (!canReview)
   throw new Error(
     'Restart Backstage with app-config.reviewer.yaml to seed the demo scenarios.',
   );
+async function waitForDemoCatalog() {
+  const refs = [
+    'user/default/guest',
+    'user/default/backup',
+    'group/default/platform',
+  ];
+  const deadline = Date.now() + 30_000;
+  while (true) {
+    const pending = [];
+    for (const ref of refs) {
+      const response = await fetch(
+        `${backend}/api/catalog/entities/by-name/${ref}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(3_000),
+        },
+      );
+      await response.body?.cancel();
+      if (response.status === 404) pending.push(ref);
+      else if (!response.ok)
+        throw new Error(
+          `Catalog lookup for ${ref} failed (HTTP ${response.status}).`,
+        );
+    }
+    if (!pending.length) return;
+    if (Date.now() >= deadline)
+      throw new Error(
+        `Demo catalog entries were not ready: ${pending.join(', ')}.`,
+      );
+    await delay(500);
+  }
+}
+
+await waitForDemoCatalog();
+
 const base = {
   type: 'assistant',
   platform: 'Code repo',
