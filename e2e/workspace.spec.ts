@@ -296,6 +296,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             name: 'Another owner’s app',
             owner: 'user:default/another',
             backupOwner: actor,
+            team: 'group:default/operations',
             nextReview: dateInDays(-5),
           },
         ],
@@ -452,6 +453,13 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     .click();
   await page.getByLabel('Ownership').selectOption('all');
   await expect(rows).toHaveCount(4);
+  const appSearch = page.getByRole('searchbox', { name: 'Search apps' });
+  await appSearch.fill('group:default/operations');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await appSearch.fill('user:default/demo-owner');
+  await expect(rows).toHaveCount(4);
+  await appSearch.clear();
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   const lifecycleReport = page.getByRole('region', {
     name: 'Apps by lifecycle',

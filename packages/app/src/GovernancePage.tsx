@@ -670,6 +670,8 @@ export function GovernancePage() {
         app.name,
         app.purpose,
         app.owner,
+        app.backupOwner ?? '',
+        app.team,
         app.platform,
         app.effectiveClassification ?? app.classification,
         ...app.models,
@@ -758,7 +760,7 @@ export function GovernancePage() {
           <div className="gov-panel">
             <WorkspaceSearch
               label="Search apps"
-              placeholder="Search apps, owners, models…"
+              placeholder="Search apps, owners, teams, models…"
               value={query}
               onChange={setQuery}
               count={loading ? undefined : matching.length}
