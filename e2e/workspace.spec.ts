@@ -112,6 +112,14 @@ test('workspace screens share navigation and fit the viewport', async ({
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unowned 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dismissed 1' })).toBeVisible();
+  await page.route('**/api/governance/hosted-workspaces', route =>
+    route.fulfill({
+      json: {
+        configured: true,
+        workspaces: [{ provider: 'Example AI', workspace: 'Company sandbox' }],
+      },
+    }),
+  );
   await navigation
     .getByRole('link', { name: 'Builder guide', exact: true })
     .click();
@@ -120,6 +128,10 @@ test('workspace screens share navigation and fit the viewport', async ({
   ).toBeVisible();
   const guide = page.getByRole('region', { name: 'Approved gateway models' });
   await expect(guide.getByText('1,024 tokens', { exact: true })).toHaveCount(2);
+  await expect(
+    page.getByRole('region', { name: 'Approved provider workspaces' }),
+  ).toContainText('Example AI · Company sandbox');
+
   await page.getByRole('link', { name: 'Browse app templates' }).click();
   await assertWorkspace(page, 'App templates', 'Templates');
   await page.getByLabel('Delivery stage').selectOption('poc');

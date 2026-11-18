@@ -33,6 +33,7 @@ import {
 import { downloadCsv, inventoryCsv } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
+import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
 import { GatewayModelGuide, useGatewayModelPolicy } from './GatewayModelGuide';
 import { GatewayPlayground } from './GatewayPlayground';
 import {
@@ -2152,6 +2153,7 @@ export function GovernancePage() {
             </Link>
           </section>
           <GatewayModelGuide />
+          <HostedWorkspaceGuide />
         </>
       )}
     </WorkspaceLayout>

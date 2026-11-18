@@ -158,6 +158,19 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       ),
     );
 
+    const workspaces = await request.get(`${api}/hosted-workspaces`, {
+      headers,
+    });
+    await expectStatus(
+      workspaces,
+      200,
+      'Read the approved provider workspaces',
+    );
+    expect(await workspaces.json()).toEqual({
+      configured: true,
+      workspaces: [{ provider: 'Example AI', workspace: 'Company sandbox' }],
+    });
+
     const models = await request.get(`${api}/gateway/models`, { headers });
     await expectStatus(models, 200, 'Read the approved model policy');
     expect(await models.json()).toEqual({

@@ -604,6 +604,14 @@ export const governancePlugin = createBackendPlugin({
           });
         });
 
+        router.get('/hosted-workspaces', async (req, res) => {
+          await httpAuth.credentials(req, { allow: ['user'] });
+          res.set('Cache-Control', 'no-store').json({
+            configured: approvedHostedWorkspaces !== undefined,
+            workspaces: approvedHostedWorkspaces ?? [],
+          });
+        });
+
         router.post('/tier-preview', async (req, res) => {
           await httpAuth.credentials(req, { allow: ['user', 'service'] });
           const result = riskInput.safeParse(req.body);
