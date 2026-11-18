@@ -147,6 +147,36 @@ export function inventoryCsv(
   );
 }
 
+export function firstDecisionsCsv(
+  apps: Array<{
+    id: string;
+    name: string;
+    owner: string;
+    team: string;
+    workingDays?: number;
+  }>,
+  target?: number,
+) {
+  return encodeCsv(
+    [
+      'app_id',
+      'app_name',
+      'owner',
+      'team',
+      'utc_weekdays_waiting',
+      'target_utc_weekdays',
+    ],
+    apps.map(app => [
+      app.id,
+      app.name,
+      app.owner,
+      app.team,
+      app.workingDays ?? '',
+      target ?? '',
+    ]),
+  );
+}
+
 export function downloadCsv(csv: string, filename: string) {
   const url = URL.createObjectURL(
     new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }),

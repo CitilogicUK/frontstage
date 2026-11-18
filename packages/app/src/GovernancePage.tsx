@@ -30,7 +30,11 @@ import {
   reviewCalendar,
   scheduledReviewDate,
 } from './reviewDue';
-import { downloadCsv, inventoryCsv } from './portfolioExport';
+import {
+  downloadCsv,
+  firstDecisionsCsv,
+  inventoryCsv,
+} from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
 import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
@@ -996,6 +1000,28 @@ export function GovernancePage() {
                     }
                   >
                     Download inventory CSV
+                  </button>
+                )}
+              {firstDecisionQueue &&
+                !loading &&
+                !error &&
+                matching.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadCsv(
+                        firstDecisionsCsv(
+                          matching.map(app => ({
+                            ...app,
+                            workingDays: firstDecisionWait.get(app.id),
+                          })),
+                          reviewTurnaround?.target?.workingDays,
+                        ),
+                        'frontstage-first-decisions.csv',
+                      )
+                    }
+                  >
+                    Download first decisions CSV
                   </button>
                 )}
               {!loading && !error && reminderEntries.length > 0 && (

@@ -1035,6 +1035,20 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(reviewRows.first()).toContainText(handoff.name);
   await expect(reviewRows.first()).toContainText('3.5 weekdays waiting');
   await expect(reviewRows.first()).toContainText('At or over review target');
+  const decisionsExportPending = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download first decisions CSV' })
+    .click();
+  const decisionsExport = await decisionsExportPending;
+  expect(decisionsExport.suggestedFilename()).toBe(
+    'frontstage-first-decisions.csv',
+  );
+  const decisionsCsv = await readFile(await decisionsExport.path(), 'utf8');
+  expect(decisionsCsv).toContain(
+    `"${handoff.id}","${handoff.name}","${handoff.owner}","${handoff.team}",3.5,3`,
+  );
+  expect(decisionsCsv).not.toContain(renewal.name);
+
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
   await expect(page).toHaveURL(/view=reviews&review=required$/);
