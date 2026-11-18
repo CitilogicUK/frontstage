@@ -43,7 +43,7 @@ import {
   gatewayBlocksMigration,
   registerGatewayRoutes,
   readGatewayKeyEvents,
-  isOldLiveCall,
+  isOldEnoughForRetirement,
   isRetirementCandidate,
   lastSuccessfulLiveCall,
   readRetirementCandidates,
@@ -120,11 +120,22 @@ export type GovernanceRecord = AppInput & {
   nextReview: string | null;
   discoverySource: 'registered' | 'git' | 'bulk import';
   updatedAt: string;
+  activeSince?: string;
   reviewNotes?: string;
   signoffs?: Signoffs;
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
 };
+
+function activeSinceAfterEdit(
+  previous: GovernanceRecord,
+  current: GovernanceRecord,
+) {
+  if (current.lifecycle !== 'active') return undefined;
+  return previous.lifecycle === 'active'
+    ? previous.activeSince
+    : current.updatedAt;
+}
 
 function retirementReviewAfterEdit(
   previous: GovernanceRecord,
@@ -447,6 +458,7 @@ export const governancePlugin = createBackendPlugin({
             tier,
             effectiveClassification: effectiveClassification(app),
             updatedAt,
+            activeSince: app.lifecycle === 'active' ? updatedAt : undefined,
             discoverySource: source,
             reviewStatus: tier === 3 ? 'pending' : 'not required',
             lastReview: null,
@@ -570,7 +582,7 @@ export const governancePlugin = createBackendPlugin({
               if (
                 !lastLiveCall ||
                 lastLiveCall !== expectedRetirementActivity ||
-                !isOldLiveCall(lastLiveCall)
+                !isOldEnoughForRetirement(lastLiveCall)
               )
                 throw new ConflictError(
                   'Live gateway activity changed. Refresh the retirement review.',
@@ -1243,11 +1255,16 @@ export const governancePlugin = createBackendPlugin({
             );
           await assertRetirementOwnerActive(record.owner);
           const retire = input.data.decision === 'retire';
+          if (retire && !isRetirementCandidate(record, review.lastLiveCall))
+            throw new ConflictError(
+              'This app is not a current retirement candidate.',
+            );
           const decidedAt = nextRecordTimestamp(record.updatedAt);
           const updated: GovernanceRecord = {
             ...record,
             updatedAt: decidedAt,
             lifecycle: retire ? 'retired' : record.lifecycle,
+            activeSince: retire ? undefined : record.activeSince,
             renewalException: retire ? undefined : record.renewalException,
             retirementReview: {
               ...review,
@@ -1310,6 +1327,7 @@ export const governancePlugin = createBackendPlugin({
                 : undefined,
             updatedAt: nextRecordTimestamp(record.updatedAt),
           };
+          updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
@@ -1408,6 +1426,7 @@ export const governancePlugin = createBackendPlugin({
                   effectiveClassification: effectiveClassification(app),
                   updatedAt: nextRecordTimestamp(record.updatedAt),
                 };
+          updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
           if (ownerChanged && updated.tier === 2) {
@@ -1670,6 +1689,7 @@ export const governancePlugin = createBackendPlugin({
             reviewNotes: decision.data.notes,
             renewalException: undefined,
           };
+          updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));

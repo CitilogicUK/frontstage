@@ -50,8 +50,8 @@ const usageTable = 'governance_gateway_usage';
 const retirementReviewDays = 90;
 const retirementReviewMs = retirementReviewDays * 86_400_000;
 
-export function isOldLiveCall(lastLiveCall: string, now = Date.now()) {
-  return Date.parse(lastLiveCall) <= now - retirementReviewMs;
+export function isOldEnoughForRetirement(timestamp: string, now = Date.now()) {
+  return Date.parse(timestamp) <= now - retirementReviewMs;
 }
 
 export function isRetirementCandidate(
@@ -69,7 +69,9 @@ export function isRetirementCandidate(
     app.lifecycle === 'active' &&
     app.usesAiAtRuntime !== false &&
     app.type !== 'provider-hosted app' &&
-    isOldLiveCall(lastLiveCall, now) &&
+    isOldEnoughForRetirement(lastLiveCall, now) &&
+    (app.activeSince === undefined ||
+      isOldEnoughForRetirement(app.activeSince, now)) &&
     !recentKeep
   );
 }
