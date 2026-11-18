@@ -41,6 +41,11 @@ import {
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
+import {
+  AppDirectory,
+  AppDirectoryPublisher,
+  type DirectoryListing,
+} from './AppDirectory';
 import { AppGraduation, type Graduation } from './AppGraduation';
 import {
   AppRetirementReview,
@@ -102,6 +107,7 @@ type App = {
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  directoryListing?: DirectoryListing;
   reviewTicketUrl?: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
@@ -135,6 +141,7 @@ type View = Exclude<keyof typeof workspaceViews, 'Catalog'>;
 
 const viewParameters = new Map<string, View>([
   ['register', 'Register'],
+  ['directory', 'Directory'],
   ['discovery', 'Discovery'],
   ['reviews', 'Reviews'],
   ['reports', 'Reports'],
@@ -481,24 +488,23 @@ export function GovernancePage() {
     mergeSavedApps([record]);
   }
 
-  async function refresh() {
-    const result = await api('/apps');
-    setApps(result.apps);
-    setActor(result.actor ?? '');
-    setCanReview(result.canReview);
-    setGraduationEnabled(result.graduationEnabled === true);
-    setReviewTracks(result.reviewTracks ?? []);
-    setReviewerTracks(result.reviewerTracks ?? []);
-    setGatewayEnabled(result.gatewayEnabled === true);
-  }
-
+  const inventoryRequested = useRef(false);
   useEffect(() => {
-    refresh()
+    if (view === 'Directory' || inventoryRequested.current) return;
+    inventoryRequested.current = true;
+    api('/apps')
+      .then(result => {
+        setApps(result.apps);
+        setActor(result.actor ?? '');
+        setCanReview(result.canReview);
+        setGraduationEnabled(result.graduationEnabled === true);
+        setReviewTracks(result.reviewTracks ?? []);
+        setReviewerTracks(result.reviewerTracks ?? []);
+        setGatewayEnabled(result.gatewayEnabled === true);
+      })
       .catch(reason => setError(String(reason)))
       .finally(() => setLoading(false));
-    // The Backstage APIs are stable for the lifetime of the page.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [api, view]);
 
   useEffect(() => {
     if (view !== 'Discovery' && view !== 'Reports' && !repositoryId)
@@ -1021,7 +1027,7 @@ export function GovernancePage() {
           This app record is unavailable.
         </p>
       )}
-      {error && !selected && (
+      {view !== 'Directory' && error && !selected && (
         <p
           className={
             view === 'Import' ? 'gov-notice gov-import-error' : 'gov-notice'
@@ -1031,7 +1037,7 @@ export function GovernancePage() {
           {error}
         </p>
       )}
-      {message && !selected && (
+      {view !== 'Directory' && message && !selected && (
         <p className="gov-notice" role="status">
           {message}
         </p>
@@ -1841,6 +1847,43 @@ export function GovernancePage() {
                 </form>
               </details>
             )}
+            {selected.lifecycle === 'active' &&
+              (actor === selected.owner || canReview) && (
+                <AppDirectoryPublisher
+                  key={selected.id}
+                  listing={selected.directoryListing}
+                  updatedAt={selected.updatedAt}
+                  busy={busy}
+                  onPublish={event =>
+                    submit(event, async data => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/directory`,
+                          {
+                            summary: String(data.get('summary') ?? '').trim(),
+                            url: String(data.get('url') ?? '').trim(),
+                            expectedUpdatedAt: selected.updatedAt,
+                          },
+                          'PUT',
+                        ),
+                      );
+                      setMessage('Directory listing saved.');
+                    })
+                  }
+                  onUnpublish={event =>
+                    submit(event, async () => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/directory`,
+                          { expectedUpdatedAt: selected.updatedAt },
+                          'DELETE',
+                        ),
+                      );
+                      setMessage('Directory listing removed.');
+                    })
+                  }
+                />
+              )}
             {(canNominateCoOwner || selected.graduation) && (
               <AppGraduation
                 key={`graduation-${selected.updatedAt}`}
@@ -2113,6 +2156,7 @@ export function GovernancePage() {
           error={reportError}
         />
       )}
+      {view === 'Directory' && <AppDirectory />}
       {view === 'Discovery' &&
         (discoveryError ? (
           <p role="alert" className="gov-notice">
