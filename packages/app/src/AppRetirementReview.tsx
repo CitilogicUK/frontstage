@@ -46,7 +46,11 @@ export function AppRetirementReview({
         <>
           <p>Awaiting a decision from {review.owner}.</p>
           <p>
-            Requested by {review.requestedBy} on{' '}
+            Requested by{' '}
+            {review.requestedBy === 'plugin:governance'
+              ? 'Scheduled inactivity check'
+              : review.requestedBy}{' '}
+            on{' '}
             <time dateTime={review.requestedAt}>
               {review.requestedAt.slice(0, 10)}
             </time>
