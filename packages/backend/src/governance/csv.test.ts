@@ -24,6 +24,32 @@ describe('parseAppCsv', () => {
     ]);
   });
 
+  it.each(['', '\uFEFFsep=;\r\n'])(
+    'reads semicolon-separated exports with separator declaration %j',
+    declaration => {
+      const content =
+        declaration +
+        '"name";"purpose";"models";"critical"\r\n' +
+        'Inventory;"Summarizes A, B; and C.";one | two;Yes';
+
+      expect(parseAppCsv(content)).toEqual([
+        {
+          source: 'CSV app 1',
+          app: {
+            name: 'Inventory',
+            purpose: 'Summarizes A, B; and C.',
+            models: ['one', 'two'],
+            critical: true,
+          },
+        },
+      ]);
+    },
+  );
+
+  it('applies strict column validation to semicolon-separated exports', () => {
+    expect(() => parseAppCsv('name;critcal\nApp;Yes')).toThrow('critcal');
+  });
+
   it('reads both runtime modes and delivery stages from the downloadable sample', () => {
     const sample = readFileSync(
       resolve(__dirname, '../../../app/public/examples/ai-apps.csv'),
