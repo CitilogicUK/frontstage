@@ -2491,6 +2491,11 @@ test('an owner can publish a searchable directory listing and remove it', async 
   let inventoryReads = 0;
   await page.route('**/api/governance/apps', route => {
     inventoryReads += 1;
+    if (inventoryReads === 1)
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Inventory temporarily unavailable.' } },
+      });
     return route.fulfill({
       json: { actor: owner, canReview: false, apps: [current] },
     });
@@ -2538,6 +2543,14 @@ test('an owner can publish a searchable directory listing and remove it', async 
   await expect(empty).toBeVisible();
   expect(inventoryReads).toBe(0);
 
+  await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Error: Inventory temporarily unavailable.',
+  );
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  await expect(empty).toBeVisible();
+  expect(inventoryReads).toBe(1);
+
   const details = page.getByRole('dialog', { name: app.name });
   async function openPublisher() {
     await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
@@ -2579,5 +2592,5 @@ test('an owner can publish a searchable directory listing and remove it', async 
   await details.getByRole('button', { name: 'Close app details' }).click();
   await nav.getByRole('link', { name: 'Directory', exact: true }).click();
   await expect(empty).toBeVisible();
-  expect(inventoryReads).toBe(1);
+  expect(inventoryReads).toBe(2);
 });
