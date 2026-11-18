@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -615,6 +615,33 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       expect.objectContaining({ name: 'Gateway key', status: 'attention' }),
     );
     const optOutKey = await issueSharedKey();
+    const startersRoot = resolve(backendRoot, '../app/public/starters');
+    const assistant = join(dataDirectory, 'assistant.mjs');
+    await Promise.all([
+      copyFile(
+        join(startersRoot, 'gateway-assistant/assistant.mjs'),
+        assistant,
+      ),
+      copyFile(
+        join(startersRoot, 'shared/gateway.mjs'),
+        join(dataDirectory, 'gateway.mjs'),
+      ),
+    ]);
+    const starterRun = spawnSync(process.execPath, [assistant], {
+      encoding: 'utf8',
+      input: 'Summarize a synthetic meeting.',
+      env: {
+        ...process.env,
+        FRONTSTAGE_BACKEND_URL: backendUrl,
+        FRONTSTAGE_GATEWAY_KEY: optOutKey,
+        FRONTSTAGE_MODEL: approvedModel,
+      },
+      timeout: 10_000,
+    });
+    expect(starterRun.status, starterRun.stderr).toBe(0);
+    expect(starterRun.stderr).toContain('Simulated gateway response.');
+    expect(starterRun.stdout.trim()).not.toBe('');
+
     const noAi = await request.put(sharedPath, {
       headers,
       data: {
