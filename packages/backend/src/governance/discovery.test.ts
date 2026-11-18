@@ -1,3 +1,4 @@
+import { appSourceKey } from './sourceKey';
 import knex, { type Knex } from 'knex';
 import {
   discoveryClaimsMigration,
@@ -111,7 +112,7 @@ test('links an intake registration immediately and rejects a stale dismissal', a
   github.mockResolvedValueOnce(results('ExampleAI/tool'));
   await discovery.scan();
 
-  const sourceKey = 'https://github.com/exampleai/tool';
+  const sourceKey = appSourceKey('https://github.com/ExampleAI/Tool.git/');
   await db.transaction(async transaction => {
     await transaction(table).insert({
       id: 'intake-app',

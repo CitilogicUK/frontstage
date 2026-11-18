@@ -758,7 +758,7 @@ describe('governance record access', () => {
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {
     const owner = 'user:default/owner';
-    const sourceUrl = 'https://example.com/budgeted-app';
+    const sourceUrl = 'https://github.com/exampleai/budgeted-app';
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockResolvedValue({
@@ -818,7 +818,7 @@ describe('governance record access', () => {
       purpose: 'Verify monthly stop policy',
       type: 'app',
       platform: 'GitHub',
-      sourceUrl,
+      sourceUrl: 'https://github.com/ExampleAI/Budgeted-App.git/',
       owner,
       team: 'group:default/platform',
       audience: 'personal',
@@ -965,12 +965,17 @@ describe('governance record access', () => {
       .set('Authorization', auth)
       .send(registration)
       .expect(201);
+    await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth)
+      .send({ ...registration, sourceUrl })
+      .expect(409);
     const duplicates = await api
       .post(`${importApi}?dryRun=true`)
       .set('Authorization', service)
       .send({
         apps: [
-          registration,
+          { ...registration, sourceUrl },
           secondApp,
           { ...secondApp, sourceUrl: 'https://EXAMPLE.COM/second-app' },
         ],

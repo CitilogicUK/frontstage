@@ -116,7 +116,7 @@ Open **Reports** for the non-retired inventory count, critical apps needing revi
 
 ## Discover and claim a GitHub repository
 
-The development profile scans public repositories in the Hugging Face organization tagged `llm`. The topic is a discovery signal. Check that the repository represents an app your team actually operates before claiming it in a real workspace.
+The development profile scans public repositories in the Hugging Face organization tagged `llm`. HTTPS GitHub repository URLs match across case, trailing slashes, and the `.git` clone suffix. The topic is a discovery signal. Check that the repository represents an app your team actually operates before claiming it in a real workspace.
 
 1. Start with the reviewer profile and open **Discovery**. Select **Scan GitHub** to read repository metadata.
 2. Select **Claim repository** on an unowned entry. Complete the prefilled registration with the app’s purpose, model, owner, team, and risk inputs.

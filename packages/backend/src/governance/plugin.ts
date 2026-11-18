@@ -1,4 +1,5 @@
 import { reviewTurnaround } from './reviewTurnaround';
+import { appSourceKey, repositorySourceMigration } from './sourceKey';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type BackstageUserPrincipal,
@@ -162,11 +163,14 @@ export const governancePlugin = createBackendPlugin({
             '010_gateway_rate_windows',
             '011_gateway_usage_tokens',
             '012_gateway_key_audit',
+            '013_repository_source_keys',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
             if (name === '012_gateway_key_audit')
               return gatewayKeyAuditMigration();
+            if (name === '013_repository_source_keys')
+              return repositorySourceMigration(table);
             if (name === '003_gateway') return gatewayMigration(table);
             if (name === '004_github_discovery') return discoveryMigration();
             if (name === '005_discovery_claims')
@@ -383,7 +387,7 @@ export const governancePlugin = createBackendPlugin({
           await db.transaction(async transaction => {
             const rows = records.map(record => ({
               id: record.id,
-              source_key: new URL(record.sourceUrl).href,
+              source_key: appSourceKey(record.sourceUrl),
               payload: JSON.stringify(record),
               revision: 0,
             }));
@@ -809,7 +813,7 @@ export const governancePlugin = createBackendPlugin({
           const rows = candidates.map(({ record, source }) => ({
             record,
             source,
-            sourceKey: new URL(record.sourceUrl).href,
+            sourceKey: appSourceKey(record.sourceUrl),
           }));
           const registered = new Set(
             await db(table)

@@ -18,6 +18,7 @@ import { z } from 'zod';
 import type { GovernanceRecord } from './plugin';
 import { reserveGatewayRequest } from './gatewayRateLimit';
 import { effectiveClassification } from './policy';
+import { appSourceKey } from './sourceKey';
 
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
 type UsageTotals = {
@@ -439,7 +440,7 @@ export function registerGatewayRoutes(options: {
   const config = gatewayConfig.parse(options.configuration ?? {});
   const appRateLimits = new Map(
     config.appRateLimits.map(app => [
-      new URL(app.sourceUrl).href,
+      appSourceKey(app.sourceUrl),
       app.requestsPerMinute,
     ]),
   );
@@ -449,7 +450,7 @@ export function registerGatewayRoutes(options: {
     );
 
   const appSpendThresholds = new Map(
-    config.appSpendThresholds.map(app => [new URL(app.sourceUrl).href, app]),
+    config.appSpendThresholds.map(app => [appSourceKey(app.sourceUrl), app]),
   );
   if (appSpendThresholds.size !== config.appSpendThresholds.length)
     throw new Error(
@@ -470,7 +471,7 @@ export function registerGatewayRoutes(options: {
 
   function limitFor(app: GovernanceRecord) {
     return (
-      appRateLimits.get(new URL(app.sourceUrl).href) ?? config.requestsPerMinute
+      appRateLimits.get(appSourceKey(app.sourceUrl)) ?? config.requestsPerMinute
     );
   }
 
@@ -894,7 +895,7 @@ export function registerGatewayRoutes(options: {
           );
         const blockAtForwarding = launchBlock(current.record);
         if (blockAtForwarding) return blockAtForwarding;
-        const spend = appSpendThresholds.get(new URL(record.sourceUrl).href);
+        const spend = appSpendThresholds.get(appSourceKey(record.sourceUrl));
         if (!simulated && spend?.stopAtThreshold) {
           const cost = await monthlyLiveCost(
             transaction,
@@ -1040,7 +1041,7 @@ export function registerGatewayRoutes(options: {
       monthlySpendAlerts = {
         monthStart: monthStart.toISOString(),
         apps: monthlyCosts.flatMap(row => {
-          const threshold = appSpendThresholds.get(row.sourceKey);
+          const threshold = appSpendThresholds.get(appSourceKey(row.sourceKey));
           const liveEstimatedCostUsd = Number(row.cost) / nanosPerDollar;
           if (!threshold || liveEstimatedCostUsd < threshold.monthlyUsd)
             return [];
@@ -1137,7 +1138,7 @@ export function registerGatewayRoutes(options: {
         totals.unclassifiedCalls += calls;
       }
     }
-    const spend = appSpendThresholds.get(new URL(record.sourceUrl).href);
+    const spend = appSpendThresholds.get(appSourceKey(record.sourceUrl));
     let monthlySpend;
     if (spend) {
       const monthStart = currentUtcMonthStart();
