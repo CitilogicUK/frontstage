@@ -784,15 +784,20 @@ test('audit history shows production review and ownership handoff', async ({
     await route.fulfill({ json: currentHandoff });
   });
   await page.route('**/api/governance/apps', route =>
-    route.fulfill({
-      json: {
-        actor: pilot.owner,
-        canReview: true,
-        reviewTracks: ['security', 'dataProtection'],
-        reviewerTracks: ['security'],
-        apps: [currentRenewal, currentHandoff],
-      },
-    }),
+    currentHandoff !== handoff || currentRenewal !== renewal
+      ? route.fulfill({
+          status: 503,
+          json: { error: { message: 'Inventory unavailable after the save' } },
+        })
+      : route.fulfill({
+          json: {
+            actor: pilot.owner,
+            canReview: true,
+            reviewTracks: ['security', 'dataProtection'],
+            reviewerTracks: ['security'],
+            apps: [renewal, handoff],
+          },
+        }),
   );
   await page.route('**/api/governance/apps/purchase-order/history', route =>
     route.fulfill({

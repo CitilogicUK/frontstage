@@ -388,12 +388,17 @@ export function GovernancePage() {
     };
   }, [api, detailId, inventoryRecord, loading, view]);
 
-  function addRegisteredApps(records: App[]) {
+  function mergeSavedApps(records: App[]) {
     const ids = new Set(records.map(record => record.id));
     setApps(previous => [
       ...records,
       ...previous.filter(app => !ids.has(app.id)),
     ]);
+  }
+
+  function applySavedApp(record: App) {
+    setSelected(record);
+    mergeSavedApps([record]);
   }
 
   async function refresh() {
@@ -1369,8 +1374,7 @@ export function GovernancePage() {
                           expectedUpdatedAt: selected.updatedAt,
                         },
                       );
-                      setSelected(updated);
-                      await refresh();
+                      applySavedApp(updated);
                       setMessage('Owner attestation recorded.');
                     })
                   }
@@ -1471,8 +1475,7 @@ export function GovernancePage() {
                         },
                         'PUT',
                       );
-                      setSelected(updated);
-                      await refresh();
+                      applySavedApp(updated);
                       setMessage(
                         updated.reviewStatus === 'pending' &&
                           selected.reviewStatus === 'approved'
@@ -1653,7 +1656,7 @@ export function GovernancePage() {
                 key={`${selected.id}-lifecycle-${selected.lifecycle}`}
                 onSubmit={event =>
                   submit(event, async data => {
-                    setSelected(
+                    applySavedApp(
                       await api(
                         `/apps/${selected.id}/lifecycle`,
                         {
@@ -1666,7 +1669,6 @@ export function GovernancePage() {
                         'PATCH',
                       ),
                     );
-                    await refresh();
                     setMessage('Lifecycle updated.');
                   })
                 }
@@ -1713,7 +1715,7 @@ export function GovernancePage() {
                   key={selected.id}
                   onSubmit={event =>
                     submit(event, async data => {
-                      setSelected(
+                      applySavedApp(
                         await api(`/apps/${selected.id}/reviews`, {
                           status: data.get('status'),
                           track: data.get('track') ?? undefined,
@@ -1721,7 +1723,6 @@ export function GovernancePage() {
                           expectedUpdatedAt: selected.updatedAt,
                         }),
                       );
-                      await refresh();
                       setMessage('Review recorded.');
                     })
                   }
@@ -1927,7 +1928,7 @@ export function GovernancePage() {
                     usesAiAtRuntime,
                   },
                 });
-                addRegisteredApps([registered]);
+                mergeSavedApps([registered]);
                 if (candidate) {
                   resetView();
                   setParams({
@@ -2250,7 +2251,7 @@ export function GovernancePage() {
                   importPreview.payload,
                 );
                 const isDescriptor = importPreview.endpoint === '/repository';
-                addRegisteredApps(isDescriptor ? [imported] : imported);
+                mergeSavedApps(isDescriptor ? [imported] : imported);
                 if (isDescriptor) {
                   resetView();
                   setParams({ app: imported.id });
