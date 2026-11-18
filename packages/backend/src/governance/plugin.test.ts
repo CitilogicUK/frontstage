@@ -481,6 +481,7 @@ describe('governance record access', () => {
           appId: runtime.body.id,
           liveEstimatedCostUsd: 21.5,
           thresholdUsd: 20,
+          stopAtThreshold: false,
         },
       ],
     });

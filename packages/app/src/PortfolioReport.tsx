@@ -76,6 +76,7 @@ export type UsageReport = {
       appId: string;
       liveEstimatedCostUsd: number;
       thresholdUsd: number;
+      stopAtThreshold?: boolean;
     }>;
   };
   blocks: Array<{
@@ -694,6 +695,8 @@ export function PortfolioReport({
                     cost
                     {' · '}
                     {dollars.format(app.thresholdUsd)} threshold
+                    {app.stopAtThreshold === true && ' · Live calls blocked'}
+                    {app.stopAtThreshold === false && ' · Alert only'}
                   </li>
                 ))}
               </ul>

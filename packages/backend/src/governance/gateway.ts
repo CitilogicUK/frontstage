@@ -947,13 +947,18 @@ export function registerGatewayRoutes(options: {
       monthlySpendAlerts = {
         monthStart: monthStart.toISOString(),
         apps: monthlyCosts.flatMap(row => {
-          const thresholdUsd = appSpendThresholds.get(
-            row.sourceKey,
-          )?.monthlyUsd;
+          const threshold = appSpendThresholds.get(row.sourceKey);
           const liveEstimatedCostUsd = Number(row.cost) / nanosPerDollar;
-          if (thresholdUsd === undefined || liveEstimatedCostUsd < thresholdUsd)
+          if (!threshold || liveEstimatedCostUsd < threshold.monthlyUsd)
             return [];
-          return [{ appId: row.appId, liveEstimatedCostUsd, thresholdUsd }];
+          return [
+            {
+              appId: row.appId,
+              liveEstimatedCostUsd,
+              thresholdUsd: threshold.monthlyUsd,
+              stopAtThreshold: threshold.stopAtThreshold,
+            },
+          ];
         }),
       };
     }

@@ -322,6 +322,12 @@ export function GatewayPlayground({ app }: { app: GatewayApp }) {
           live cost
           {' · '}
           {estimate.format(usage.monthlySpend.thresholdUsd)} threshold
+          {usage.monthlySpend.liveEstimatedCostUsd <
+            usage.monthlySpend.thresholdUsd &&
+            ` · ${estimate.format(
+              usage.monthlySpend.thresholdUsd -
+                usage.monthlySpend.liveEstimatedCostUsd,
+            )} until threshold`}
           {usage.monthlySpend.liveEstimatedCostUsd >=
             usage.monthlySpend.thresholdUsd && ' · Threshold reached'}
           {usage.monthlySpend.stopAtThreshold &&

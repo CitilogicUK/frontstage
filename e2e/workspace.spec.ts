@@ -326,6 +326,12 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
         unclassifiedCalls: 0,
         liveEstimatedCostUsd: 0,
         requestsPerMinute: 30,
+        monthlySpend: {
+          monthStart: '2025-01-01T00:00:00Z',
+          liveEstimatedCostUsd: 2,
+          thresholdUsd: 20,
+          stopAtThreshold: false,
+        },
         blockedCalls: 0,
         blocks: [],
       },
@@ -383,6 +389,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page).toHaveURL(/owner=me&app=overdue/);
   await expect(page.getByRole('dialog', { name: 'Overdue app' })).toBeVisible();
   const playground = page.getByRole('region', { name: 'Gateway playground' });
+  await expect(playground).toContainText('$18.00 until threshold');
   await expect(
     playground.getByText('Unavailable for internal data: unapproved-model.'),
   ).toBeVisible();
@@ -837,7 +844,12 @@ test('audit history shows production review and ownership handoff', async ({
         monthlySpendAlerts: {
           monthStart: '2025-01-01T00:00:00.000Z',
           apps: [
-            { appId: handoff.id, liveEstimatedCostUsd: 21.5, thresholdUsd: 20 },
+            {
+              appId: handoff.id,
+              liveEstimatedCostUsd: 21.5,
+              thresholdUsd: 20,
+              stopAtThreshold: true,
+            },
           ],
         },
 
@@ -951,6 +963,7 @@ test('audit history shows production review and ownership handoff', async ({
     name: 'Monthly spend thresholds',
   });
   await expect(thresholds).toContainText('$21.50 estimated live cost');
+  await expect(thresholds).toContainText('Live calls blocked');
   await expect(
     thresholds.getByRole('link', { name: handoff.name }),
   ).toHaveAttribute('href', '/?view=reports&app=purchase-order');
