@@ -41,6 +41,7 @@ import {
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
+import { AppGraduation, type Graduation } from './AppGraduation';
 import {
   AppRetirementReview,
   type RetirementReview,
@@ -100,6 +101,7 @@ type App = {
   reviewNotes?: string;
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
+  graduation?: Graduation;
   reviewTicketUrl?: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
@@ -143,6 +145,22 @@ const viewParameters = new Map<string, View>([
 
 function appOwner(ref: string) {
   return ref.replace(/^user:default\//, '');
+}
+
+function isGraduationEligible(app: App) {
+  return (
+    app.tier === 3 &&
+    app.deliveryStage === 'production' &&
+    app.lifecycle !== 'retired'
+  );
+}
+
+function nomineeCanDecideGraduation(app: App, actor: string) {
+  return (
+    isGraduationEligible(app) &&
+    app.graduation?.status === 'pending' &&
+    app.graduation.nominee === actor
+  );
 }
 
 function ownerCanDecideRetirement(app: App, actor: string) {
@@ -209,6 +227,7 @@ export function GovernancePage() {
   const [apps, setApps] = useState<App[]>([]);
   const [actor, setActor] = useState('');
   const [canReview, setCanReview] = useState(false);
+  const [graduationEnabled, setGraduationEnabled] = useState(false);
   const [reviewTracks, setReviewTracks] = useState<ReviewTrack[]>([]);
   const [reviewerTracks, setReviewerTracks] = useState<ReviewTrack[]>([]);
   const [gatewayEnabled, setGatewayEnabled] = useState(false);
@@ -327,6 +346,12 @@ export function GovernancePage() {
   const [message, setMessage] = useState('');
 
   const reviewDate = selected && scheduledReviewDate(selected);
+  const canNominateCoOwner =
+    selected &&
+    graduationEnabled &&
+    isGraduationEligible(selected) &&
+    (actor === selected.owner || canReview) &&
+    (!selected.graduation || selected.graduation.status === 'declined');
   const retirementCandidate =
     canReview &&
     view === 'Reports' &&
@@ -453,6 +478,7 @@ export function GovernancePage() {
     setApps(result.apps);
     setActor(result.actor ?? '');
     setCanReview(result.canReview);
+    setGraduationEnabled(result.graduationEnabled === true);
     setReviewTracks(result.reviewTracks ?? []);
     setReviewerTracks(result.reviewerTracks ?? []);
     setGatewayEnabled(result.gatewayEnabled === true);
@@ -1400,6 +1426,13 @@ export function GovernancePage() {
                               ownerCanDecideRetirement(app, actor) && (
                                 <small>Retirement decision requested</small>
                               )}
+                            {view === 'Inventory' &&
+                              graduationEnabled &&
+                              nomineeCanDecideGraduation(app, actor) && (
+                                <small>
+                                  Engineering co-owner decision requested
+                                </small>
+                              )}
                             {waitingDays !== undefined && (
                               <small>
                                 {waitingDays.toLocaleString('en-US', {
@@ -1800,6 +1833,47 @@ export function GovernancePage() {
                   <button disabled={busy}>Save app details</button>
                 </form>
               </details>
+            )}
+            {(canNominateCoOwner || selected.graduation) && (
+              <AppGraduation
+                key={`graduation-${selected.updatedAt}`}
+                graduation={selected.graduation}
+                canNominate={canNominateCoOwner === true}
+                canDecide={
+                  graduationEnabled &&
+                  nomineeCanDecideGraduation(selected, actor)
+                }
+                busy={busy}
+                onNominate={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/graduation`, {
+                        nominee: String(data.get('nominee') ?? '').trim(),
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('Engineering co-owner nominated.');
+                  })
+                }
+                onDecide={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(
+                        `/apps/${selected.id}/graduation`,
+                        {
+                          decision: data.get('decision'),
+                          reason:
+                            String(data.get('reason') ?? '').trim() ||
+                            undefined,
+                          expectedUpdatedAt: selected.updatedAt,
+                        },
+                        'PATCH',
+                      ),
+                    );
+                    setMessage('Co-owner decision recorded.');
+                  })
+                }
+              />
             )}
             {(retirementCandidate || selected.retirementReview) && (
               <AppRetirementReview

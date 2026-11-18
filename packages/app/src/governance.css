@@ -482,7 +482,8 @@
 }
 .gov-gateway,
 .gov-renewal-exception,
-.gov-retirement-review {
+.gov-retirement-review,
+.gov-graduation {
   display: grid;
   gap: 12px;
   border-top: 1px solid var(--gov-line);
@@ -495,7 +496,8 @@
 }
 .governance-detail .gov-gateway form,
 .governance-detail .gov-renewal-exception form,
-.governance-detail .gov-retirement-review form {
+.governance-detail .gov-retirement-review form,
+.governance-detail .gov-graduation form {
   padding-top: 0;
   border-top: 0;
 }

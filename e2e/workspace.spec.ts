@@ -2158,3 +2158,129 @@ test('the assigned owner can act on a scheduled retirement request', async ({
     review.getByRole('button', { name: 'Record retirement decision' }),
   ).toBeEnabled();
 });
+
+test('an engineering co-owner nominee can accept without gaining app controls', async ({
+  page,
+}) => {
+  const owner = 'user:default/owner';
+  const nominee = 'user:default/engineering';
+  const requestedAt = '2025-05-02T00:00:00.000Z';
+  const decidedAt = '2025-05-03T00:00:00.000Z';
+  const reason = 'I can support this production app.';
+  const app = {
+    id: 'graduation-candidate',
+    name: 'Production invoice assistant',
+    purpose: 'Summarize new invoices for finance.',
+    owner,
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/production-invoices',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    deliveryStage: 'production',
+    tier: 3,
+    type: 'assistant',
+    models: ['gpt-4.1-mini'],
+    reviewStatus: 'pending',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  const pending = {
+    nominee,
+    requestedBy: owner,
+    requestedAt,
+    status: 'pending',
+  };
+  let actor = owner;
+  let current: typeof app & {
+    graduation?: typeof pending & { reason?: string; decidedAt?: string };
+  } = app;
+
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor,
+        canReview: false,
+        gatewayEnabled: true,
+        graduationEnabled: true,
+        apps: [current],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/graduation-candidate/graduation',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(actor).toBe(owner);
+        expect(request.postDataJSON()).toEqual({
+          nominee,
+          expectedUpdatedAt: app.updatedAt,
+        });
+        current = { ...app, updatedAt: requestedAt, graduation: pending };
+      } else {
+        expect(actor).toBe(nominee);
+        expect(request.method()).toBe('PATCH');
+        expect(request.postDataJSON()).toEqual({
+          decision: 'accept',
+          reason,
+          expectedUpdatedAt: requestedAt,
+        });
+        current = {
+          ...app,
+          updatedAt: decidedAt,
+          graduation: { ...pending, status: 'accepted', decidedAt, reason },
+        };
+      }
+      return route.fulfill({ json: current });
+    },
+  );
+  const details = page.getByRole('dialog', { name: app.name });
+  const panel = details.getByRole('region', { name: 'Engineering co-owner' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+
+  await page.goto('/?app=graduation-candidate');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await panel.getByRole('textbox', { name: 'Co-owner nominee' }).fill(nominee);
+  await panel
+    .getByRole('button', { name: 'Nominate engineering co-owner' })
+    .click();
+  await expect(
+    panel.getByText(`Awaiting a decision from ${nominee}.`),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('combobox', { name: 'Co-owner decision' }),
+  ).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: 'Nominate engineering co-owner' }),
+  ).toHaveCount(0);
+
+  actor = nominee;
+  await page.goto('/');
+  const notice = page.getByText('Engineering co-owner decision requested');
+  await expect(notice.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(notice).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(app.name) }).click();
+  await expect(details).toBeVisible();
+  await panel
+    .getByRole('combobox', { name: 'Co-owner decision' })
+    .selectOption('accept');
+  await panel.getByRole('textbox', { name: 'Reason (optional)' }).fill(reason);
+  await panel.getByRole('button', { name: 'Record co-owner decision' }).click();
+  await expect(
+    panel.getByText(`Accepted by ${nominee} on 2025-05-03.`),
+  ).toBeVisible();
+  await expect(panel.getByText(reason)).toBeVisible();
+  await expect(
+    details.getByText('Edit app details', { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    details.getByRole('button', { name: 'Update lifecycle' }),
+  ).toHaveCount(0);
+  await expect(
+    details.getByRole('region', { name: 'Gateway playground' }),
+  ).toHaveCount(0);
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(notice).toHaveCount(0);
+});
