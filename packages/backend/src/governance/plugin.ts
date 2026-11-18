@@ -84,6 +84,7 @@ export const governancePlugin = createBackendPlugin({
         httpAuth: coreServices.httpAuth,
         httpRouter: coreServices.httpRouter,
         database: coreServices.database,
+        logger: coreServices.logger,
         discovery: coreServices.discovery,
         scheduler: coreServices.scheduler,
         config: coreServices.rootConfig,
@@ -93,6 +94,7 @@ export const governancePlugin = createBackendPlugin({
         httpAuth,
         httpRouter,
         database,
+        logger,
         discovery,
         scheduler,
         config,
@@ -1219,6 +1221,7 @@ export const governancePlugin = createBackendPlugin({
         const gatewayRouter = Router();
         registerGatewayRoutes({
           router: gatewayRouter,
+          logger,
           httpAuth,
           httpRouter,
           db,

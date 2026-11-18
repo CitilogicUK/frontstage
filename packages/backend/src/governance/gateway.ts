@@ -4,6 +4,7 @@ import type {
   DatabaseService,
   HttpAuthService,
   HttpRouterService,
+  LoggerService,
 } from '@backstage/backend-plugin-api';
 import {
   AuthenticationError,
@@ -248,7 +249,11 @@ async function callOpenai(
   model: string,
   prompt: string,
   maxCompletionTokens: number,
+  logFailure: (metadata: { kind: string; upstreamStatus?: number }) => void,
 ) {
+  const signal = AbortSignal.timeout(20_000);
+  let kind = 'transport';
+  let upstreamStatus: number | undefined;
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -262,12 +267,15 @@ async function callOpenai(
         messages: [{ role: 'user', content: prompt }],
         max_completion_tokens: maxCompletionTokens,
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal,
     });
     if (!response.ok) {
+      kind = 'upstream-http';
+      upstreamStatus = response.status;
       await response.body?.cancel();
       throw new Error('Provider request was unsuccessful.');
     }
+    kind = 'invalid-response';
     const result = openaiResult.parse(await response.json());
     return {
       output: result.choices[0].message.content,
@@ -275,6 +283,7 @@ async function callOpenai(
       outputTokens: result.usage.completion_tokens,
     };
   } catch {
+    logFailure({ kind: signal.aborted ? 'timeout' : kind, upstreamStatus });
     throw new ServiceUnavailableError(
       'The configured model provider is temporarily unavailable.',
     );
@@ -317,6 +326,7 @@ export function registerGatewayRoutes(options: {
   router: Router;
   httpAuth: HttpAuthService;
   httpRouter: HttpRouterService;
+  logger: LoggerService;
   db: Database;
   appsTable: string;
   configuration: unknown;
@@ -339,6 +349,7 @@ export function registerGatewayRoutes(options: {
     router,
     httpAuth,
     httpRouter,
+    logger,
     db,
     appsTable,
     load,
@@ -836,6 +847,12 @@ export function registerGatewayRoutes(options: {
               model,
               prompt,
               policy.maxCompletionTokens,
+              failure =>
+                logger.warn('Model provider request failed', {
+                  appId: record.id,
+                  model,
+                  ...failure,
+                }),
             )
           : simulate(model, prompt);
       await db(usageTable).insert({

@@ -783,9 +783,11 @@ describe('governance record access', () => {
           usage: { prompt_tokens: 1, completion_tokens: 2 },
         }),
       );
+    const warn = jest.fn();
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        mockServices.logger.mock({ warn }).factory,
         mockServices.rootConfig.factory({
           data: {
             governance: {
@@ -998,6 +1000,12 @@ describe('governance record access', () => {
     expect(unavailable.body.error.message).toBe(
       'The configured model provider is temporarily unavailable.',
     );
+    expect(warn).toHaveBeenCalledWith('Model provider request failed', {
+      appId: app.body.id,
+      model: 'test-model',
+      kind: 'upstream-http',
+      upstreamStatus: 307,
+    });
     expect(provider).toHaveBeenNthCalledWith(
       1,
       'https://api.openai.com/v1/chat/completions',
