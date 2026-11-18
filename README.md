@@ -141,4 +141,4 @@ yarn tsc --noEmit
 yarn test --watch=false --runInBand
 ```
 
-GitHub Actions validates the local reviewer configuration and runs the type check, lint, unit tests, production build, and Chromium tests on pull requests and pushes to `main`. Gateway tests start an isolated SQLite backend. Discovery unit tests use a simulated GitHub response and require no external credentials.
+GitHub Actions validates the local reviewer configuration and runs the type check, lint, unit tests, production build, and Chromium tests on pull requests and pushes to `main`. The gateway browser test starts an isolated SQLite backend. CI also tests the key audit migration on PostgreSQL 17. Discovery unit tests use a simulated GitHub response and require no external credentials.

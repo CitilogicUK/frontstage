@@ -8,52 +8,9 @@ import { CatalogClient } from '@backstage/catalog-client';
 import request from 'supertest';
 import { governancePlugin } from './plugin';
 
-import {
-  gatewayKeyAuditMigration,
-  gatewayMigration,
-  readGatewayKeyEvents,
-} from './gateway';
-
 describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3'] });
   afterEach(() => jest.restoreAllMocks());
-
-  it('builds a key audit chain for stored legacy events', async () => {
-    const db = await databases.init('SQLITE_3');
-    await db.schema.createTable('apps', table => table.string('id').primary());
-    await db('apps').insert({ id: 'legacy-app' });
-    await gatewayMigration('apps').up(db);
-    await db('governance_gateway_key_events').insert([
-      {
-        id: 'z',
-        app_id: 'legacy-app',
-        actor: 'user:default/owner',
-        action: 'revoked',
-        created_at: new Date('2026-11-18T00:00:01Z'),
-      },
-      {
-        id: 'a',
-        app_id: 'legacy-app',
-        actor: 'user:default/owner',
-        action: 'issued',
-        created_at: new Date('2026-11-18T00:00:00Z'),
-      },
-    ]);
-    await gatewayKeyAuditMigration().up(db);
-    const [issued, revoked] = await readGatewayKeyEvents(db, 'legacy-app');
-    expect(JSON.parse(issued.event)).toMatchObject({
-      appId: 'legacy-app',
-      revision: 0,
-      action: 'issued',
-      previousDigest: null,
-    });
-    expect(JSON.parse(revoked.event)).toMatchObject({
-      appId: 'legacy-app',
-      revision: 1,
-      action: 'revoked',
-      previousDigest: issued.digest,
-    });
-  });
 
   it('enforces evidence, history, and ownership permissions', async () => {
     const owner = 'user:default/owner';
