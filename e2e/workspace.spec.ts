@@ -1838,3 +1838,112 @@ test('an independent reviewer can grant and revoke a renewal exception', async (
   ).toBeVisible();
   await expect(grant).toHaveCount(0);
 });
+
+test('Builder guide shows connector approval limits and registry states', async ({
+  page,
+}) => {
+  const docsUrl = 'https://docs.example.com/connectors/catalog-search';
+  const connectors = [
+    {
+      id: 'catalog-search',
+      name: 'Catalog search',
+      kind: 'mcp',
+      description: 'Search approved records in the internal catalog.',
+      access: 'read',
+      maxClassification: 'internal',
+      docsUrl,
+    },
+    {
+      id: 'sandbox-orders',
+      name: 'Sandbox orders',
+      kind: 'data',
+      description: 'Write synthetic orders into the test workspace.',
+      access: 'write',
+      maxClassification: 'confidential',
+    },
+  ];
+  let releaseRegistry: () => void = () => {};
+  const releaseResponse = new Promise<void>(resolve => {
+    releaseRegistry = resolve;
+  });
+  let state: 'ready' | 'unconfigured' | 'empty' | 'error' = 'ready';
+
+  await page.route('**/api/governance/approved-connectors', async route => {
+    expect(route.request().method()).toBe('GET');
+    if (state === 'error') return route.fulfill({ status: 503 });
+    if (state === 'ready') await releaseResponse;
+    return route.fulfill({
+      json: {
+        configured: state !== 'unconfigured',
+        connectors: state === 'ready' ? connectors : [],
+      },
+    });
+  });
+
+  await page.goto('/?view=guide');
+  const registry = page.getByRole('region', { name: 'Approved connectors' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(registry.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  try {
+    await expect(registry.getByRole('status')).toHaveText(
+      'Loading approved connectors…',
+    );
+  } finally {
+    releaseRegistry();
+  }
+  await expect(
+    registry.getByRole('columnheader', { name: 'Maximum data classification' }),
+  ).toHaveCount(1);
+  const catalogSearch = registry
+    .getByRole('row')
+    .filter({ hasText: 'Catalog search' });
+  await expect(catalogSearch).toContainText(
+    'Search approved records in the internal catalog.',
+  );
+  await expect(
+    catalogSearch.getByRole('cell', { name: 'MCP server' }),
+  ).toBeVisible();
+  await expect(catalogSearch.getByRole('cell', { name: 'Read' })).toBeVisible();
+  await expect(
+    catalogSearch.locator('td[data-label="Maximum data classification"]'),
+  ).toHaveText('internal');
+  await expect(
+    catalogSearch.getByRole('link', { name: 'Catalog search documentation' }),
+  ).toHaveAttribute('href', docsUrl);
+  const sandbox = registry
+    .getByRole('row')
+    .filter({ hasText: 'Sandbox orders' });
+  await expect(
+    sandbox.getByRole('cell', { name: 'Data connector' }),
+  ).toBeVisible();
+  await expect(sandbox.locator('td[data-label="Access"]')).toHaveText('Write');
+  await expect(
+    sandbox.locator('td[data-label="Maximum data classification"]'),
+  ).toHaveText('confidential');
+  await expect(sandbox.getByRole('link')).toHaveCount(0);
+  await assertWorkspace(page, 'Builder guide', 'Builder guide');
+
+  const navigation = page.getByRole('navigation', { name: 'AI governance' });
+  async function reopenGuide() {
+    await navigation
+      .getByRole('link', { name: 'Inventory', exact: true })
+      .click();
+    await navigation
+      .getByRole('link', { name: 'Builder guide', exact: true })
+      .click();
+  }
+  state = 'unconfigured';
+  await reopenGuide();
+  await expect(
+    registry.getByText('No connector registry is configured.'),
+  ).toBeVisible();
+  state = 'empty';
+  await reopenGuide();
+  await expect(registry.getByText('No connectors are approved.')).toBeVisible();
+  state = 'error';
+  await reopenGuide();
+  await expect(registry.getByRole('alert')).toHaveText(
+    'The connector registry could not load.',
+  );
+});

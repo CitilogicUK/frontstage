@@ -714,7 +714,8 @@
   margin-top: 8px;
 }
 
-.gov-model-guide {
+.gov-model-guide,
+.gov-connectors-guide {
   margin-bottom: 16px;
 }
 .gov-model-guide td[data-label] {

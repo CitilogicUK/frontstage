@@ -1,3 +1,4 @@
+import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import { appSourceKey, repositorySourceMigration } from './sourceKey';
 import { createHash, randomUUID } from 'node:crypto';
@@ -154,6 +155,9 @@ export const governancePlugin = createBackendPlugin({
           )
           .optional()
           .parse(config.getOptional('governance.approvedHostedWorkspaces'));
+        const approvedConnectors = approvedConnectorsInput.parse(
+          config.getOptional('governance.approvedConnectors'),
+        );
         const firstDecisionTargetWeekdays = z
           .number()
           .int()
@@ -755,6 +759,14 @@ export const governancePlugin = createBackendPlugin({
             canReview:
               principal.type === 'user' &&
               reviewers.includes(principal.userEntityRef),
+          });
+        });
+
+        router.get('/approved-connectors', async (req, res) => {
+          await httpAuth.credentials(req, { allow: ['user'] });
+          res.set('Cache-Control', 'no-store').json({
+            configured: approvedConnectors !== undefined,
+            connectors: approvedConnectors ?? [],
           });
         });
 
