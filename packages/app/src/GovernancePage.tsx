@@ -41,6 +41,10 @@ import {
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
+import {
+  AppRenewalException,
+  type RenewalException,
+} from './AppRenewalException';
 import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
 import { GatewayModelGuide, useGatewayModelPolicy } from './GatewayModelGuide';
 import { GatewayPlayground } from './GatewayPlayground';
@@ -89,6 +93,7 @@ type App = {
   lastReview: string | null;
   updatedAt: string;
   reviewNotes?: string;
+  renewalException?: RenewalException;
   reviewTicketUrl?: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
@@ -307,6 +312,8 @@ export function GovernancePage() {
   const [message, setMessage] = useState('');
 
   const reviewDate = selected && scheduledReviewDate(selected);
+  const canManageRenewalException =
+    canReview && actor !== selected?.owner && actor !== selected?.backupOwner;
   const canDownloadReminder =
     selected &&
     reviewDate &&
@@ -1841,13 +1848,56 @@ export function GovernancePage() {
                   <button disabled={busy}>Record decision</button>
                 </form>
               )}
+            {selected.tier === 3 && selected.lifecycle === 'active' && (
+              <AppRenewalException
+                key={`renewal-exception-${selected.updatedAt}`}
+                nextReview={selected.nextReview}
+                reviewStatus={selected.reviewStatus}
+                exception={selected.renewalException}
+                canManage={canManageRenewalException}
+                separateSignoffs={reviewTracks.length > 0}
+                busy={busy}
+                onGrant={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/renewal-exception`, {
+                        expiresAt: new Date(
+                          `${data.get('expiresAt')}Z`,
+                        ).toISOString(),
+                        reason: String(data.get('reason') ?? '').trim(),
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('Renewal exception granted.');
+                  })
+                }
+                onRevoke={event =>
+                  submit(event, async () => {
+                    applySavedApp(
+                      await api(
+                        `/apps/${selected.id}/renewal-exception`,
+                        { expectedUpdatedAt: selected.updatedAt },
+                        'DELETE',
+                      ),
+                    );
+                    setMessage('Renewal exception revoked.');
+                  })
+                }
+              />
+            )}
             {(actor === selected.owner ||
               actor === selected.backupOwner ||
               canReview) && (
-              <AppScorecard key={selected.updatedAt} appId={selected.id} />
+              <AppScorecard
+                key={`scorecard-${selected.updatedAt}`}
+                appId={selected.id}
+              />
             )}
             {canReview && (
-              <AppAuditHistory key={selected.updatedAt} appId={selected.id} />
+              <AppAuditHistory
+                key={`audit-${selected.updatedAt}`}
+                appId={selected.id}
+              />
             )}
             {gatewayEnabled &&
               selected.type !== 'provider-hosted app' &&
