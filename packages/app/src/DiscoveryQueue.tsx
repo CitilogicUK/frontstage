@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { appRecordPath } from './appRecordPath';
 import SearchIcon from '@material-ui/icons/Search';
 import {
@@ -44,7 +44,22 @@ export function DiscoveryQueue({
   onDecision: (id: string, reason: string | null) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('unowned');
+  const [params, setParams] = useSearchParams();
+  const requestedFilter = params.get('discoveryStatus');
+  const filter =
+    requestedFilter === 'registered' ||
+    requestedFilter === 'dismissed' ||
+    requestedFilter === 'all'
+      ? requestedFilter
+      : 'unowned';
+  function setFilter(value: string) {
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      if (value === 'unowned') next.delete('discoveryStatus');
+      else next.set('discoveryStatus', value);
+      return next;
+    });
+  }
   const counts = { unowned: 0, dismissed: 0, registered: 0 };
   const search = query.trim().toLowerCase();
   const matches = result?.repositories.filter(repository => {
@@ -188,7 +203,7 @@ export function DiscoveryQueue({
                     {repository.appId && (
                       <Link
                         className="gov-button"
-                        to={appRecordPath(repository.appId, 'discovery')}
+                        to={appRecordPath(repository.appId, params)}
                       >
                         Open app record
                       </Link>

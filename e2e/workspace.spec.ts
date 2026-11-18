@@ -1377,7 +1377,10 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   await page.getByRole('button', { name: 'Registered 1' }).click();
   await expect(
     page.getByRole('link', { name: 'Open app record' }),
-  ).toHaveAttribute('href', '/?view=discovery&app=registered-app');
+  ).toHaveAttribute(
+    'href',
+    '/?view=discovery&discoveryStatus=registered&app=registered-app',
+  );
   await page
     .getByRole('searchbox', { name: 'Search discoveries' })
     .fill('Sample');
@@ -1385,11 +1388,19 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   const record = page.getByRole('dialog', { name: 'Registered sample app' });
   await expect(record).toBeVisible();
   await record.getByRole('button', { name: 'Close app details' }).click();
-  await expect(page).toHaveURL(/view=discovery$/);
+  await expect(page).toHaveURL(/view=discovery&discoveryStatus=registered$/);
   await expect(
     page.getByRole('searchbox', { name: 'Search discoveries' }),
   ).toHaveValue('Sample');
   await expect(
     page.getByRole('button', { name: 'Registered 1' }),
   ).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    page.getByRole('button', { name: 'Registered 1' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('link', { name: 'Open app record' }),
+  ).toBeVisible();
 });
