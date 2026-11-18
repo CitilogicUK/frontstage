@@ -148,6 +148,12 @@ Signed-in builders can browse and claim repositories verified as public by Disco
 
 Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. A scan looks at up to 100 matches. Complete scans remove missing unclaimed candidates from the queue and preserve their decision history. A partial scan preserves unseen candidates. Reviewers see whether a scan returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
 
+## App directory
+
+The **Directory** lets signed-in teammates find apps that their owners or reviewers have published. Open an active app in Inventory, enter a summary suitable for the directory and its HTTPS launch URL, then publish it. The listing shows the app name, summary, and launch link. The destination app handles access.
+
+Owners and reviewers can update or remove a listing. The directory hides apps that no longer meet current launch requirements. Leaving active status or transferring the accountable owner clears the listing.
+
 ## Approved connector registry
 
 The **Builder guide** lists approved MCP servers and data connectors with their allowed access and highest data classification. Configure entries under `governance.approvedConnectors` with an ID, name, kind, description, access, classification, and optional HTTPS documentation URL. The reviewer profile uses two synthetic sandbox entries. The registry is guidance for registration and review. Runtime access and provider settings are managed separately.
