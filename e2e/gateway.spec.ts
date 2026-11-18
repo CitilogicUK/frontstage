@@ -981,6 +981,44 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         status: 'attention',
       }),
     );
+    const hostedDemoPath = `${api}/apps/${hostedDemo.id}`;
+    const activateHostedDemo = (expectedUpdatedAt: string) =>
+      request.patch(`${hostedDemoPath}/lifecycle`, {
+        headers,
+        data: { lifecycle: 'active', expectedUpdatedAt },
+      });
+    await expectStatus(
+      await activateHostedDemo(hostedDemo.updatedAt),
+      400,
+      'Block activation in the unlisted demo workspace',
+    );
+    const correctedHostedDemo = await request.put(hostedDemoPath, {
+      headers,
+      data: {
+        ...hostedDemo,
+        hosted: { ...hostedDemo.hosted, workspace: 'Company sandbox' },
+        expectedUpdatedAt: hostedDemo.updatedAt,
+      },
+    });
+    await expectStatus(
+      correctedHostedDemo,
+      200,
+      'Save the approved demo workspace',
+    );
+    const activatedHostedDemo = await activateHostedDemo(
+      (
+        await correctedHostedDemo.json()
+      ).updatedAt,
+    );
+    await expectStatus(
+      activatedHostedDemo,
+      200,
+      'Activate the hosted app in the approved demo workspace',
+    );
+    expect(await activatedHostedDemo.json()).toMatchObject({
+      lifecycle: 'active',
+      hosted: { workspace: 'Company sandbox' },
+    });
   } catch (error) {
     await testInfo.attach('isolated backend output', {
       body: backendLog,
