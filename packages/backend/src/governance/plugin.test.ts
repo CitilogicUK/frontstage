@@ -460,17 +460,35 @@ describe('governance record access', () => {
       ],
     });
     const api = request(server);
-    const github = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      Response.json({
-        total_count: 3,
-        incomplete_results: false,
-        items: [
-          { id: 100, full_name: 'example/helper', description: null },
-          { id: 200, full_name: 'example/private', description: null },
-          { id: 300, full_name: 'example/..', description: null },
-        ],
-      }),
-    );
+    const github = jest
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Mocked GitHub network failure'))
+      .mockResolvedValueOnce(
+        Response.json({
+          total_count: 4,
+          incomplete_results: false,
+          items: [
+            {
+              id: 100,
+              full_name: 'example/helper',
+              description: null,
+              private: false,
+            },
+            {
+              id: 200,
+              full_name: 'example/private',
+              description: 'Restricted project',
+              private: true,
+            },
+            { id: 300, full_name: 'example/..', description: null },
+            {
+              id: 400,
+              full_name: 'example/unknown',
+              description: 'Unverified project',
+            },
+          ],
+        }),
+      );
     const discovery = '/api/governance/discovery/github';
     const auth = (user: string) => mockCredentials.user.header(user);
     await api
@@ -496,6 +514,35 @@ describe('governance record access', () => {
         usesAiAtRuntime: false,
       },
     };
+
+    const builderQueue = await api
+      .get(discovery)
+      .set('Authorization', auth(owner))
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(
+      builderQueue.body.repositories.map((repo: { id: string }) => repo.id),
+    ).toEqual(['100']);
+    expect(builderQueue.body.lastScan).toMatchObject({ status: 'completed' });
+    expect(builderQueue.body.lastScan).not.toHaveProperty('found');
+    expect(builderQueue.body.lastScan).not.toHaveProperty('partial');
+    const reviewerQueue = await api
+      .get(discovery)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(reviewerQueue.body.repositories).toHaveLength(4);
+    expect(reviewerQueue.body.lastScan).toMatchObject({
+      found: 4,
+      partial: false,
+    });
+    for (const id of [200, 400]) {
+      await preview(id, owner).expect(200, { status: 'unavailable' });
+      await api
+        .post(`${discovery}/${id}/claim`)
+        .set('Authorization', auth(owner))
+        .send(descriptor.spec)
+        .expect(404);
+    }
 
     await api
       .get(`${discovery}/100/descriptor`)
