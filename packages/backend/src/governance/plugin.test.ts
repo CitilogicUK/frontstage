@@ -648,6 +648,37 @@ describe('governance record access', () => {
         .expect(workspace === 'Company' ? 200 : 400);
     }
     const personal = hostedRecords[1];
+    const activeUnlisted = {
+      ...personal,
+      sourceUrl: 'https://example.com/hosted-active-unlisted',
+      lifecycle: 'active',
+    };
+    const descriptor = {
+      content: JSON.stringify({
+        apiVersion: 'governance.backstage.io/v1alpha1',
+        kind: 'AIApp',
+        spec: activeUnlisted,
+      }),
+    };
+    for (const input of [
+      { route: apps, body: activeUnlisted },
+      { route: '/api/governance/repository?dryRun=true', body: descriptor },
+      { route: '/api/governance/repository', body: descriptor },
+      {
+        route: '/api/governance/imports?dryRun=true',
+        body: { apps: [activeUnlisted] },
+      },
+      { route: '/api/governance/imports', body: { apps: [activeUnlisted] } },
+    ]) {
+      const blocked = await api
+        .post(input.route)
+        .set('Authorization', auth(reviewer))
+        .send(input.body)
+        .expect(400);
+      expect(blocked.body.error.message).toContain(
+        'Choose an approved provider workspace before activating this app.',
+      );
+    }
     const workspaceReport = '/api/governance/reports/hosted-workspaces';
     await api
       .get(workspaceReport)
