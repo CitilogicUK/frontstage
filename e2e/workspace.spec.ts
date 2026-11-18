@@ -952,7 +952,11 @@ test('audit history shows production review and ownership handoff', async ({
   const blockReport = page.getByRole('region', {
     name: 'Gateway policy blocks',
   });
-  await expect(blockReport.getByText('missing-app')).toBeVisible();
+  const missingAppRow = blockReport
+    .getByRole('row')
+    .filter({ hasText: 'missing-app' });
+  await expect(missingAppRow).toContainText('Record unavailable');
+  await expect(missingAppRow.getByRole('link')).toHaveCount(0);
   await procurement.getByRole('button').click();
   await expect(page).toHaveURL(/usageTeam=group%3Adefault%2Fprocurement$/);
   await expect(page.getByRole('combobox', { name: 'Usage team' })).toHaveValue(

@@ -161,6 +161,18 @@ export function PortfolioReport({
     return { search: next.toString() };
   }
 
+  function renderGatewayApp(appId: string) {
+    const app = byId.get(appId);
+    return app ? (
+      <Link to={reportAppLink(appId)}>{app.name}</Link>
+    ) : (
+      <span>
+        {appId}
+        <small> · Record unavailable</small>
+      </span>
+    );
+  }
+
   function setReportFilter(
     key: 'days' | 'usageTeam' | 'usageGroup' | 'inventoryGroup',
     value: string,
@@ -793,7 +805,7 @@ export function PortfolioReport({
                 {rows.map(row => (
                   <tr key={JSON.stringify([row.appId, row.model, row.mode])}>
                     <td className="gov-app-cell">
-                      <Link to={reportAppLink(row.appId)}>{row.name}</Link>
+                      {renderGatewayApp(row.appId)}
                     </td>
                     <td data-label="Team">{row.team}</td>
                     <td data-label="Model">{row.model}</td>
@@ -862,9 +874,7 @@ export function PortfolioReport({
                   {blocks.map(row => (
                     <tr key={JSON.stringify([row.appId, row.reason, row.mode])}>
                       <td className="gov-app-cell">
-                        <Link to={reportAppLink(row.appId)}>
-                          {byId.get(row.appId)?.name ?? row.appId}
-                        </Link>
+                        {renderGatewayApp(row.appId)}
                       </td>
                       <td data-label="Reason">
                         {gatewayBlockReason(row.reason)}
