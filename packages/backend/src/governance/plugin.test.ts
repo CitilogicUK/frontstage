@@ -14,6 +14,297 @@ describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3'] });
   afterEach(() => jest.restoreAllMocks());
 
+  it('lists explicitly published apps with current launch approval and protects publication state', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    const teammate = 'user:default/teammate';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Approved workspace' },
+              ],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const directoryPath = '/api/governance/directory';
+    const collection = '/api/governance/apps';
+    const list = () =>
+      api.get(directoryPath).set('Authorization', auth(teammate));
+    const appInput = {
+      name: 'Staff assistant',
+      purpose: 'Help staff with a vetted workflow.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/source',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/operations',
+      lifecycle: 'experimental',
+      audience: 'external',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const { body: app } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `${collection}/${app.id}`;
+    const publishPath = `${path}/directory`;
+    const summary = 'Get help with the staff workflow.';
+    const url = 'https://tools.example.com/assistant?view=start#ready';
+    const listing = { summary, url };
+    const publish = (
+      expectedUpdatedAt: string,
+      actor = owner,
+      changes: { summary?: string; url?: string } = {},
+    ) =>
+      api
+        .put(publishPath)
+        .set('Authorization', auth(actor))
+        .send({ ...listing, ...changes, expectedUpdatedAt });
+    const unpublish = (expectedUpdatedAt: string, actor = owner) =>
+      api
+        .delete(publishPath)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt });
+    const review = (expectedUpdatedAt: string, status = 'approved') =>
+      api
+        .post(`${path}/reviews`)
+        .set('Authorization', auth(reviewer))
+        .send({ expectedUpdatedAt, status, notes: 'Reviewed for publication.' })
+        .expect(200);
+    const setLifecycle = (lifecycle: string, expectedUpdatedAt: string) =>
+      api
+        .patch(`${path}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle, expectedUpdatedAt })
+        .expect(200);
+
+    await api
+      .get(directoryPath)
+      .set('Authorization', mockCredentials.none.header())
+      .expect(401);
+    await api
+      .get(directoryPath)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
+    await list().expect('Cache-Control', 'no-store').expect(200, { apps: [] });
+    await publish(app.updatedAt).expect(400);
+
+    const approved = await review(app.updatedAt);
+    const activation = await setLifecycle('active', approved.body.updatedAt);
+    const before = activation.body.updatedAt;
+    await list().expect(200, { apps: [] });
+    await publish(before, backup).expect(403);
+    await publish(before, teammate).expect(403);
+    await publish(approved.body.updatedAt).expect(409);
+    for (const changes of [
+      { summary: '   ' },
+      { summary: 'x'.repeat(501) },
+      { url: 'http://tools.example.com/assistant' },
+      { url: `https://tools.example.com/${'x'.repeat(2048)}` },
+      { url: 'https://example:secret@tools.example.com/assistant' },
+    ]) {
+      await publish(before, owner, changes).expect(400);
+    }
+
+    const published = await publish(before, owner, {
+      summary: `  ${summary}  `,
+    }).expect(200);
+    expect(published.body.directoryListing).toEqual(listing);
+    await list().expect(200, {
+      apps: [{ id: app.id, name: app.name, ...listing }],
+    });
+    for (const principal of [
+      mockCredentials.user.header(backup),
+      auth(teammate),
+      mockCredentials.service.header(),
+    ]) {
+      const { body } = await api
+        .get(path)
+        .set('Authorization', principal)
+        .expect(200);
+      expect(body).not.toHaveProperty('directoryListing');
+    }
+    const { body: reviewerView } = await api
+      .get(path)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(reviewerView.directoryListing).toEqual(listing);
+
+    const {
+      body: { key },
+    } = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const edited = await publish(published.body.updatedAt, reviewer, {
+      summary: 'Revised launch instructions.',
+    }).expect(200);
+    expect(edited.body.directoryListing.summary).toBe(
+      'Revised launch instructions.',
+    );
+    await unpublish(edited.body.updatedAt, teammate).expect(403);
+    await unpublish(published.body.updatedAt).expect(409);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ model: 'test-model', prompt: 'Check access after publishing.' })
+      .expect(200);
+
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(approved.body.nextReview));
+    await list().expect(200, { apps: [] });
+    await publish(edited.body.updatedAt).expect(400);
+    const removed = await unpublish(edited.body.updatedAt, reviewer).expect(
+      200,
+    );
+    expect(removed.body).not.toHaveProperty('directoryListing');
+
+    const renewed = await review(removed.body.updatedAt);
+    const republished = await publish(renewed.body.updatedAt).expect(200);
+    const paused = await setLifecycle('deprecated', republished.body.updatedAt);
+    expect(paused.body).not.toHaveProperty('directoryListing');
+    const restarted = await setLifecycle('active', paused.body.updatedAt);
+    await list().expect(200, { apps: [] });
+    const afterRestart = await publish(restarted.body.updatedAt).expect(200);
+    const rejected = await review(
+      afterRestart.body.updatedAt,
+      'changes needed',
+    );
+    expect(rejected.body.lifecycle).toBe('experimental');
+    expect(rejected.body).not.toHaveProperty('directoryListing');
+    await list().expect(200, { apps: [] });
+    clock.mockRestore();
+
+    const personalInput = {
+      ...appInput,
+      audience: 'personal',
+      lifecycle: 'active',
+      sourceUrl: 'https://example.com/personal-assistant',
+    };
+    const { body: personalApp } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(personalInput)
+      .expect(201);
+    const personalPath = `${collection}/${personalApp.id}`;
+    const publicPersonal = await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
+      .expect(200);
+    const transferred = await api
+      .put(personalPath)
+      .set('Authorization', auth(owner))
+      .send({
+        ...personalInput,
+        owner: teammate,
+        expectedUpdatedAt: publicPersonal.body.updatedAt,
+      })
+      .expect(200);
+    expect(transferred.body.lifecycle).toBe('active');
+    expect(transferred.body).not.toHaveProperty('directoryListing');
+    await list().expect(200, { apps: [] });
+
+    const { body: hosted } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        audience: 'personal',
+        type: 'provider-hosted app',
+        sourceUrl: 'https://example.com/hosted-assistant',
+        hosted: {
+          provider: 'Example AI',
+          workspace: 'Previously approved workspace',
+          sharing: 'private',
+          dataAccess: 'none',
+        },
+      })
+      .expect(201);
+    // Represent an existing publication whose workspace was removed from policy.
+    await db('governance_apps')
+      .where({ id: hosted.id })
+      .update({
+        payload: JSON.stringify({
+          ...hosted,
+          lifecycle: 'active',
+          directoryListing: listing,
+        }),
+      });
+    await list().expect(200, { apps: [] });
+    await api
+      .put(`${collection}/${hosted.id}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ ...listing, expectedUpdatedAt: hosted.updatedAt })
+      .expect(400);
+    await api
+      .delete(`${collection}/${hosted.id}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: hosted.updatedAt })
+      .expect(200);
+
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = history.events.map((item: { event: string }) =>
+      JSON.parse(item.event),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'directory-published',
+          actor: owner,
+          record: expect.objectContaining({ directoryListing: listing }),
+        }),
+        expect.objectContaining({
+          action: 'directory-unpublished',
+          actor: reviewer,
+          record: expect.not.objectContaining({
+            directoryListing: expect.anything(),
+          }),
+        }),
+      ]),
+    );
+  });
+
   const approvedConnector = {
     id: 'catalog-lookup',
     name: 'Catalog lookup',

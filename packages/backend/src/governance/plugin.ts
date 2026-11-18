@@ -1,3 +1,4 @@
+import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import { appSourceKey, repositorySourceMigration } from './sourceKey';
@@ -127,7 +128,9 @@ type RecordAction =
   | 'graduation-requested'
   | 'graduation-accepted'
   | 'graduation-declined'
-  | 'graduation-cancelled';
+  | 'graduation-cancelled'
+  | 'directory-published'
+  | 'directory-unpublished';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
@@ -161,7 +164,19 @@ export type GovernanceRecord = AppInput & {
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  directoryListing?: { summary: string; url: string };
 };
+
+function directoryListingAfterEdit(
+  previous: GovernanceRecord,
+  current: GovernanceRecord,
+) {
+  return previous.owner === current.owner &&
+    previous.lifecycle === 'active' &&
+    current.lifecycle === 'active'
+    ? previous.directoryListing
+    : undefined;
+}
 
 function activeSinceAfterEdit(
   previous: GovernanceRecord,
@@ -492,11 +507,17 @@ export const governancePlugin = createBackendPlugin({
           );
         }
 
+        function workspaceMeetsLaunchRequirements(app: AppInput) {
+          return (
+            app.type !== 'provider-hosted app' ||
+            hostedWorkspaceApproved(app) !== false
+          );
+        }
+
         function assertHostedWorkspaceForLaunch(app: AppInput) {
           if (
             app.lifecycle === 'active' &&
-            app.type === 'provider-hosted app' &&
-            hostedWorkspaceApproved(app) === false
+            !workspaceMeetsLaunchRequirements(app)
           ) {
             throw new InputError(
               'Choose an approved provider workspace before activating this app.',
@@ -797,6 +818,12 @@ export const governancePlugin = createBackendPlugin({
           const now = Date.now();
           const result = {
             ...record,
+            directoryListing:
+              principal.type === 'user' &&
+              (principal.userEntityRef === record.owner ||
+                reviewers.includes(principal.userEntityRef))
+                ? record.directoryListing
+                : undefined,
             effectiveClassification: effectiveClassification(record),
             ...(trackConfig &&
               record.tier === 3 && {
@@ -922,6 +949,109 @@ export const governancePlugin = createBackendPlugin({
             );
           }
         }
+
+        function canPublishInDirectory(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          return (
+            record.lifecycle === 'active' &&
+            meetsLaunchRequirements(record, now) &&
+            workspaceMeetsLaunchRequirements(record)
+          );
+        }
+
+        router.get('/directory', async (req, res) => {
+          await httpAuth.credentials(req, { allow: ['user'] });
+          const now = Date.now();
+          const rows = await db(table).select('payload');
+          const apps = rows
+            .flatMap(row => {
+              const record = JSON.parse(row.payload) as GovernanceRecord;
+              if (
+                !record.directoryListing ||
+                !canPublishInDirectory(record, now)
+              )
+                return [];
+              const { summary, url } = record.directoryListing;
+              return [{ id: record.id, name: record.name, summary, url }];
+            })
+            .sort(
+              (a, b) =>
+                a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+            );
+          res.set('Cache-Control', 'no-store').json({ apps });
+        });
+
+        function assertCurrentDirectoryRecord(
+          record: GovernanceRecord,
+          expectedUpdatedAt: string,
+        ) {
+          if (record.updatedAt !== expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before changing its directory listing.',
+            );
+        }
+
+        router.put('/apps/:id/directory', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              summary: z.string().trim().min(1).max(500),
+              url: z.string().max(2048).refine(isHttpsUrlWithoutCredentials),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide a summary of up to 500 characters, an HTTPS URL of up to 2,048 characters without credentials, and the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          const { summary, url, expectedUpdatedAt } = input.data;
+          assertCurrentDirectoryRecord(record, expectedUpdatedAt);
+          if (!canPublishInDirectory(record))
+            throw new InputError(
+              'Resolve the current launch requirements before publishing an active app.',
+            );
+          const updated: GovernanceRecord = {
+            ...record,
+            directoryListing: { summary, url },
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'directory-published');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
+
+        router.delete('/apps/:id/directory', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const timestamp = z
+            .string()
+            .datetime()
+            .safeParse(req.body?.expectedUpdatedAt);
+          if (!timestamp.success)
+            throw new InputError('Provide the current app timestamp.');
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          assertCurrentDirectoryRecord(record, timestamp.data);
+          if (!record.directoryListing)
+            throw new NotFoundError('This app has no directory listing.');
+          const updated: GovernanceRecord = {
+            ...record,
+            directoryListing: undefined,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'directory-unpublished');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
 
         router.get('/apps', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
@@ -1381,6 +1511,7 @@ export const governancePlugin = createBackendPlugin({
             lifecycle: retire ? 'retired' : record.lifecycle,
             activeSince: retire ? undefined : record.activeSince,
             graduation: retire ? undefined : record.graduation,
+            directoryListing: retire ? undefined : record.directoryListing,
             renewalException: retire ? undefined : record.renewalException,
             retirementReview: {
               ...review,
@@ -1446,6 +1577,7 @@ export const governancePlugin = createBackendPlugin({
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           updated.graduation = graduationAfterEdit(record, updated);
+          updated.directoryListing = directoryListingAfterEdit(record, updated);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
           await save(updated, revision, principal, 'updated', {
@@ -1546,6 +1678,7 @@ export const governancePlugin = createBackendPlugin({
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           updated.graduation = graduationAfterEdit(record, updated);
+          updated.directoryListing = directoryListingAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
@@ -1943,6 +2076,7 @@ export const governancePlugin = createBackendPlugin({
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           updated.graduation = graduationAfterEdit(record, updated);
+          updated.directoryListing = directoryListingAfterEdit(record, updated);
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });
