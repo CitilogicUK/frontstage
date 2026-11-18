@@ -365,7 +365,34 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       ),
     );
     expect(portfolio.blocks).toHaveLength(4);
-    const activation = await active.json();
+    const activeRecord = await active.json();
+    const exceptionPath = `${api}/apps/${app.id}/renewal-exception`;
+    const expiresAt = new Date(
+      Date.parse(activeRecord.nextReview) + 7 * 86_400_000,
+    ).toISOString();
+    const reason = 'Allow seven days to complete the scheduled renewal.';
+    async function grantException(expectedUpdatedAt: string) {
+      const response = await request.post(exceptionPath, {
+        headers,
+        data: { reason, expiresAt, expectedUpdatedAt },
+      });
+      await expectStatus(response, 200, 'Grant a bounded renewal exception');
+      const record = await response.json();
+      expect(record).toMatchObject({
+        nextReview: activeRecord.nextReview,
+        renewalException: { reason, expiresAt, owner: 'user:default/guest' },
+      });
+      return record;
+    }
+    const extended = await grantException(activeRecord.updatedAt);
+    const revoked = await request.delete(exceptionPath, {
+      headers,
+      data: { expectedUpdatedAt: extended.updatedAt },
+    });
+    await expectStatus(revoked, 200, 'Revoke the renewal exception');
+    const revokedRecord = await revoked.json();
+    expect(revokedRecord.renewalException).toBeUndefined();
+    const activation = await grantException(revokedRecord.updatedAt);
     const revised = await request.put(`${api}/apps/${app.id}`, {
       headers,
       data: {
@@ -378,6 +405,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     });
     await expectStatus(revised, 200, 'Edit the approved app’s purpose');
     const changed = await revised.json();
+    expect(changed.renewalException).toBeUndefined();
     expect(changed).toMatchObject({
       reviewStatus: 'pending',
       lifecycle: 'experimental',
@@ -510,7 +538,13 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       audit.events.map(
         (entry: { event: string }) => JSON.parse(entry.event).action,
       ),
-    ).toContain('reviewed');
+    ).toEqual(
+      expect.arrayContaining([
+        'reviewed',
+        'renewal-exception-granted',
+        'renewal-exception-revoked',
+      ]),
+    );
     expect(JSON.stringify(audit)).not.toContain(key);
     const shared = await request.post(`${api}/apps`, {
       headers,
