@@ -2068,7 +2068,9 @@ export function GovernancePage() {
               selected.usesAiAtRuntime !== false &&
               (actor === selected.owner || canReview) && (
                 <GatewayPlayground
-                  key={`${selected.id}-${selected.lifecycle === 'retired'}`}
+                  key={`${selected.id}-${selected.owner}-${
+                    selected.lifecycle === 'retired'
+                  }`}
                   app={selected}
                 />
               )}
