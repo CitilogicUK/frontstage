@@ -41,6 +41,7 @@ import {
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
+import { AppBackupHandover } from './AppBackupHandover';
 import { AppGraduation, type Graduation } from './AppGraduation';
 import {
   AppRetirementReview,
@@ -1840,6 +1841,28 @@ export function GovernancePage() {
                   <button disabled={busy}>Save app details</button>
                 </form>
               </details>
+            )}
+            {actor === selected.backupOwner && (
+              <AppBackupHandover
+                key={`backup-handover-${selected.id}`}
+                appId={selected.id}
+                updatedAt={selected.updatedAt}
+                tier={selected.tier}
+                busy={busy}
+                onTakeOwnership={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/backup-handover`, {
+                        backupOwner:
+                          String(data.get('backupOwner') ?? '').trim() ||
+                          undefined,
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('You are now the accountable owner.');
+                  })
+                }
+              />
             )}
             {(canNominateCoOwner || selected.graduation) && (
               <AppGraduation

@@ -163,6 +163,8 @@ export function AppAuditHistory({ appId }: { appId: string }) {
       )
         details.push('Approval reopened');
       let action = `App ${entry.action}`;
+      if (entry.action === 'ownership-handover')
+        action = 'Backup owner took ownership';
       if (entry.action === 'reviewed') {
         action = `Review: ${record.reviewStatus}`;
         for (const track of Object.keys(reviewTrackLabels) as ReviewTrack[]) {
