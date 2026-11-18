@@ -19,8 +19,10 @@ export default defineConfig({
   webServer: {
     command: 'yarn start',
     env: {
-      APP_CONFIG_backend_listen_host: JSON.stringify('127.0.0.1'),
-      APP_CONFIG_backend_baseUrl: JSON.stringify('http://127.0.0.1:7007'),
+      // Bind and resolve localhost consistently in containers.
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, '--dns-result-order=ipv4first']
+        .filter(Boolean)
+        .join(' '),
     },
     url: baseURL,
     reuseExistingServer: !process.env.CI,
