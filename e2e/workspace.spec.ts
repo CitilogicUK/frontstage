@@ -1144,12 +1144,33 @@ test('a hosted app owner can correct the declared workspace', async ({
     };
     return route.fulfill({ json: app });
   });
-  await page.goto('/?app=hosted-app');
+  await page.route('**/api/governance/reports/hosted-workspaces', route =>
+    route.fulfill({
+      json: {
+        configured: true,
+        issues:
+          app.hosted.workspace === 'Personal'
+            ? [
+                {
+                  appId: app.id,
+                  name: app.name,
+                  lifecycle: app.lifecycle,
+                  ...app.hosted,
+                },
+              ]
+            : [],
+      },
+    }),
+  );
+  await page.goto('/?view=reports');
   const details = page.getByRole('dialog', { name: app.name });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
-  await expect(details.or(guest)).toBeVisible();
+  const hostedIssues = page.getByRole('region', {
+    name: 'Provider workspace issues',
+  });
+  await expect(hostedIssues.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
-  await details.getByText('Edit app details', { exact: true }).click();
+  await hostedIssues.getByRole('link', { name: app.name }).click();
   await details
     .getByRole('textbox', { name: 'Workspace', exact: true })
     .fill('Company');
@@ -1176,6 +1197,10 @@ test('a hosted app owner can correct the declared workspace', async ({
     details.getByText(/Sharing scope changed from private to named people/),
   ).toBeVisible();
 
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(
+    hostedIssues.getByText('No provider workspace issues found.'),
+  ).toBeVisible();
   await page.goto('/?view=register');
   await page.getByLabel('App type').selectOption('provider-hosted app');
   await page

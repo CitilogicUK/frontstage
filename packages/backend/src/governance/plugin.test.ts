@@ -648,6 +648,26 @@ describe('governance record access', () => {
         .expect(workspace === 'Company' ? 200 : 400);
     }
     const personal = hostedRecords[1];
+    const workspaceReport = '/api/governance/reports/hosted-workspaces';
+    await api
+      .get(workspaceReport)
+      .set('Authorization', auth(owner))
+      .expect(403);
+    await api
+      .get(workspaceReport)
+      .set('Authorization', auth(reviewer))
+      .expect(200, {
+        configured: true,
+        issues: [
+          {
+            appId: personal.id,
+            name: personal.name,
+            lifecycle: 'experimental',
+            provider: 'Example AI',
+            workspace: 'Personal',
+          },
+        ],
+      });
     const corrected = await api
       .put(`${apps}/${personal.id}`)
       .set('Authorization', auth(owner))
@@ -683,6 +703,13 @@ describe('governance record access', () => {
       lifecycle: 'experimental',
       reviewStatus: 'pending',
     });
+    await api
+      .get(workspaceReport)
+      .set('Authorization', auth(reviewer))
+      .expect(200, {
+        configured: true,
+        issues: [],
+      });
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {
     const owner = 'user:default/owner';

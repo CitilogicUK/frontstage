@@ -43,6 +43,17 @@ export type OwnershipReport = {
   }>;
 };
 
+export type HostedWorkspaceReport = {
+  configured: boolean;
+  issues: Array<{
+    appId: string;
+    name: string;
+    lifecycle: string;
+    provider?: string;
+    workspace?: string;
+  }>;
+};
+
 export type UsageReport = {
   from: string;
   retirementReview?: {
@@ -91,6 +102,7 @@ export function PortfolioReport({
   usageDays,
   ownership,
   ownershipError,
+  hostedWorkspaces,
   canReview,
   loading,
   error,
@@ -100,6 +112,7 @@ export function PortfolioReport({
   usageDays: number;
   ownership?: OwnershipReport;
   ownershipError: boolean;
+  hostedWorkspaces?: HostedWorkspaceReport | null;
   canReview: boolean;
   loading: boolean;
   error: string;
@@ -549,6 +562,45 @@ export function PortfolioReport({
                   ))}
                 </ul>
               </>
+            )}
+          </div>
+        </section>
+      )}
+      {canReview && (
+        <section
+          className="gov-panel gov-stage-report"
+          aria-labelledby="portfolio-hosted-workspaces"
+        >
+          <div className="gov-report-heading">
+            <h2 id="portfolio-hosted-workspaces">Provider workspace issues</h2>
+            {hostedWorkspaces === null && (
+              <p role="alert">Workspace issues could not be loaded.</p>
+            )}
+            {hostedWorkspaces === undefined && (
+              <p role="status">Checking declared workspaces…</p>
+            )}
+            {hostedWorkspaces && !hostedWorkspaces.configured && (
+              <p>No approved workspace list is configured.</p>
+            )}
+            {hostedWorkspaces?.configured &&
+              hostedWorkspaces.issues.length === 0 && (
+                <p>No provider workspace issues found.</p>
+              )}
+            {!!hostedWorkspaces?.issues.length && (
+              <ul>
+                {hostedWorkspaces.issues.map(issue => (
+                  <li key={issue.appId}>
+                    <Link to={reportAppLink(issue.appId, true)}>
+                      {issue.name}
+                    </Link>
+                    <p>
+                      {issue.provider ?? 'Provider unspecified'} ·{' '}
+                      {issue.workspace ?? 'Workspace unspecified'} ·{' '}
+                      {issue.lifecycle}
+                    </p>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </section>

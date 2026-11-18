@@ -488,6 +488,38 @@ export const governancePlugin = createBackendPlugin({
           res.set('Cache-Control', 'no-store').json({ issues });
         });
 
+        router.get('/reports/hosted-workspaces', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          const configured = approvedHostedWorkspaces !== undefined;
+          const rows = configured ? await db(table).select('payload') : [];
+          const issues = rows
+            .map(row => JSON.parse(row.payload) as GovernanceRecord)
+            .filter(
+              app =>
+                app.type === 'provider-hosted app' &&
+                app.lifecycle !== 'retired' &&
+                hostedWorkspaceApproved(app) === false,
+            )
+            .map(app => ({
+              appId: app.id,
+              name: app.name,
+              lifecycle: app.lifecycle,
+              provider: app.hosted?.provider,
+              workspace: app.hosted?.workspace,
+            }))
+            .sort(
+              (a, b) =>
+                Number(b.lifecycle === 'active') -
+                  Number(a.lifecycle === 'active') ||
+                a.name.localeCompare(b.name),
+            );
+          res.set('Cache-Control', 'no-store').json({ configured, issues });
+        });
+
         router.get('/apps/:id/history', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],

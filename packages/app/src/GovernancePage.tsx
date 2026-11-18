@@ -39,6 +39,7 @@ import { GatewayPlayground } from './GatewayPlayground';
 import {
   PortfolioReport,
   type OwnershipReport,
+  type HostedWorkspaceReport,
   type UsageReport,
 } from './PortfolioReport';
 import {
@@ -215,6 +216,8 @@ export function GovernancePage() {
   const usageDays =
     daysParam === '1' || daysParam === '7' ? Number(daysParam) : 30;
   const [ownershipReport, setOwnershipReport] = useState<OwnershipReport>();
+  const [hostedWorkspaceReport, setHostedWorkspaceReport] =
+    useState<HostedWorkspaceReport | null>();
   const [ownershipError, setOwnershipError] = useState(false);
   const [reportError, setReportError] = useState('');
   const [discoveries, setDiscoveries] = useState<DiscoveryResult>();
@@ -392,6 +395,15 @@ export function GovernancePage() {
     setReportError('');
     setOwnershipReport(undefined);
     setOwnershipError(false);
+    setHostedWorkspaceReport(undefined);
+    api('/reports/hosted-workspaces').then(
+      result => {
+        if (active) setHostedWorkspaceReport(result);
+      },
+      () => {
+        if (active) setHostedWorkspaceReport(null);
+      },
+    );
     api('/reports/ownership')
       .then(result => {
         if (active) setOwnershipReport(result);
@@ -1601,6 +1613,7 @@ export function GovernancePage() {
           usageDays={usageDays}
           ownership={ownershipReport}
           ownershipError={ownershipError}
+          hostedWorkspaces={hostedWorkspaceReport}
           canReview={canReview}
           loading={loading}
           error={reportError}
