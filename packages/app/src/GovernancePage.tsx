@@ -493,6 +493,8 @@ export function GovernancePage() {
   useEffect(() => {
     if (view === 'Directory' || inventoryRequested.current) return;
     inventoryRequested.current = true;
+    setLoading(true);
+    setError('');
     api('/apps')
       .then(result => {
         setApps(result.apps);
@@ -503,7 +505,10 @@ export function GovernancePage() {
         setReviewerTracks(result.reviewerTracks ?? []);
         setGatewayEnabled(result.gatewayEnabled === true);
       })
-      .catch(reason => setError(String(reason)))
+      .catch(reason => {
+        inventoryRequested.current = false;
+        setError(String(reason));
+      })
       .finally(() => setLoading(false));
   }, [api, view]);
 
@@ -1851,7 +1856,7 @@ export function GovernancePage() {
             {selected.lifecycle === 'active' &&
               (actor === selected.owner || canReview) && (
                 <AppDirectoryPublisher
-                  key={selected.id}
+                  key={`directory-publisher-${selected.id}`}
                   listing={selected.directoryListing}
                   updatedAt={selected.updatedAt}
                   busy={busy}
