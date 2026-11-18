@@ -1,7 +1,10 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
 const origin = 'http://localhost:3000';
-const backend = 'http://localhost:7007';
+const backendPort = Number(process.env.FRONTSTAGE_DEMO_BACKEND_PORT ?? 7007);
+if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535)
+  throw new Error('Set FRONTSTAGE_DEMO_BACKEND_PORT to a valid local port.');
+const backend = `http://localhost:${backendPort}`;
 const governance = `${backend}/api/governance`;
 
 const identity = await fetch(`${backend}/api/auth/guest/refresh`, {

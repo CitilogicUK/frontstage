@@ -802,6 +802,52 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       400,
       'Require fresh approval before activating in production',
     );
+    const seed = () =>
+      spawnSync(
+        process.execPath,
+        [resolve(backendRoot, '../../scripts/seed-gateway-demo.mjs')],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, FRONTSTAGE_DEMO_BACKEND_PORT: String(port) },
+          timeout: 35_000,
+        },
+      );
+    const firstSeed = seed();
+    expect(firstSeed.status, firstSeed.stderr).toBe(0);
+    const secondSeed = seed();
+    expect(secondSeed.status, secondSeed.stderr).toBe(0);
+    expect(secondSeed.stdout).toBe(firstSeed.stdout);
+    const seededInventory = await request.get(`${api}/apps`, { headers });
+    await expectStatus(seededInventory, 200, 'Read the seeded demo inventory');
+    const seeded = (await seededInventory.json()).apps.filter(
+      (record: { sourceUrl: string }) =>
+        record.sourceUrl.startsWith('https://example.com/frontstage-demo/'),
+    );
+    expect(seeded).toHaveLength(4);
+    expect(seeded).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Stock count proof of concept',
+          tier: 1,
+          usesAiAtRuntime: false,
+        }),
+        expect.objectContaining({
+          name: 'Purchase order pilot',
+          tier: 3,
+          usesAiAtRuntime: false,
+          reviewStatus: 'pending',
+        }),
+        expect.objectContaining({
+          name: 'Meeting summary demo',
+          lifecycle: 'active',
+        }),
+        expect.objectContaining({
+          name: 'Restricted intake demo',
+          tier: 3,
+          reviewStatus: 'pending',
+        }),
+      ]),
+    );
   } catch (error) {
     await testInfo.attach('isolated backend output', {
       body: backendLog,
