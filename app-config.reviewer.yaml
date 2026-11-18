@@ -6,3 +6,16 @@ governance:
   approvedHostedWorkspaces:
     - provider: Example AI
       workspace: Company sandbox
+  approvedConnectors:
+    - id: catalog-sandbox
+      name: Catalog sandbox
+      kind: mcp
+      description: Read sandbox ownership and component metadata.
+      access: read
+      maxClassification: internal
+    - id: inventory-sandbox
+      name: Inventory sandbox
+      kind: data
+      description: Submit synthetic inventory adjustments in the sandbox.
+      access: write
+      maxClassification: public

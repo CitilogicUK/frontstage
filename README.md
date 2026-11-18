@@ -131,6 +131,10 @@ Signed-in builders can load descriptors from public repositories. Reviewers can 
 
 Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. Reviewers can run a scan and authenticated builders can claim a repository as its owner. The scan looks at up to 100 matches and indicates when GitHub returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
 
+## Approved connector registry
+
+The **Builder guide** lists approved MCP servers and data connectors with their allowed access and highest data classification. Configure entries under `governance.approvedConnectors` with an ID, name, kind, description, access, classification, and optional HTTPS documentation URL. The reviewer profile uses two synthetic sandbox entries. The registry is guidance for registration and review. Runtime access and provider settings are managed separately.
+
 ## Building frontend screens
 
 Use the [workspace screen recipes](docs/workspace/README.md) for shared components, desktop and phone references, and the browser regression check.
