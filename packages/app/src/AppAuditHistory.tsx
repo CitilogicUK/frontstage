@@ -37,6 +37,10 @@ type AuditRecord = {
     lastLiveCall: string;
     reason?: string;
   };
+  graduation?: {
+    nominee: string;
+    reason?: string;
+  };
   updatedAt: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string; at: string }>>;
 };
@@ -219,6 +223,17 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         const reason = record.retirementReview?.reason;
         if (reason && reason !== entry.lifecycleReason)
           details.push(`Owner response “${reason}”`);
+      }
+      if (
+        entry.action === 'graduation-requested' ||
+        entry.action === 'graduation-accepted' ||
+        entry.action === 'graduation-declined'
+      ) {
+        action = `Graduation ${entry.action.slice('graduation-'.length)}`;
+        if (record.graduation?.nominee)
+          details.push(`Nominated owner ${record.graduation.nominee}`);
+        if (record.graduation?.reason)
+          details.push(`Recorded reason “${record.graduation.reason}”`);
       }
       previous = record;
       return {
