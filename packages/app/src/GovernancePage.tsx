@@ -275,14 +275,23 @@ export function GovernancePage() {
     effectiveClassification?: string;
   }>();
   const detailId =
-    view === 'Inventory' || view === 'Reviews' || view === 'Reports'
+    view === 'Inventory' ||
+    view === 'Reviews' ||
+    view === 'Reports' ||
+    view === 'Discovery'
       ? params.get('app')
       : null;
   const [selectedRecord, setSelected] = useState<App>();
+  const [discoveryApp, setDiscoveryApp] = useState<{ id: string; app?: App }>();
+  const inventoryRecord = apps.find(app => app.id === detailId);
   const selected =
     selectedRecord?.id === detailId
       ? selectedRecord
-      : apps.find(app => app.id === detailId);
+      : inventoryRecord ??
+        (discoveryApp?.id === detailId ? discoveryApp.app : undefined);
+  const loadingDiscoveryApp =
+    view === 'Discovery' &&
+    Boolean(detailId && !selected && discoveryApp?.id !== detailId);
   const [message, setMessage] = useState('');
 
   const reviewDate = selected && scheduledReviewDate(selected);
@@ -361,6 +370,23 @@ export function GovernancePage() {
     },
     [discovery, fetch],
   );
+
+  useEffect(() => {
+    if (view !== 'Discovery' || !detailId || loading || inventoryRecord)
+      return undefined;
+    let active = true;
+    api(`/apps/${encodeURIComponent(detailId)}`).then(
+      app => {
+        if (active) setDiscoveryApp({ id: detailId, app });
+      },
+      () => {
+        if (active) setDiscoveryApp({ id: detailId });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, detailId, inventoryRecord, loading, view]);
 
   async function refresh() {
     const result = await api('/apps');
@@ -822,7 +848,12 @@ export function GovernancePage() {
 
   return (
     <WorkspaceLayout view={view} onNavigate={resetView}>
-      {detailId && !loading && !error && !selected && (
+      {loadingDiscoveryApp && !loading && (
+        <p className="gov-notice" role="status">
+          Loading app record…
+        </p>
+      )}
+      {detailId && !loading && !loadingDiscoveryApp && !error && !selected && (
         <p className="gov-notice" role="status">
           This app record is unavailable.
         </p>

@@ -1307,6 +1307,24 @@ test('a hosted app owner can correct the declared workspace', async ({
 
 test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   let registered = false;
+  await page.route('**/api/governance/apps/registered-app', route =>
+    route.fulfill({
+      json: {
+        id: 'registered-app',
+        name: 'Registered sample app',
+        owner: 'user:default/owner',
+        team: 'group:default/platform',
+        purpose: 'Sample repository',
+        lifecycle: 'experimental',
+        classification: 'internal',
+        platform: 'GitHub',
+        tier: 1,
+        models: [],
+        usesAiAtRuntime: false,
+        reviewStatus: 'not required',
+      },
+    }),
+  );
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: { actor: 'user:default/reviewer', canReview: true, apps: [] },
@@ -1359,5 +1377,19 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   await page.getByRole('button', { name: 'Registered 1' }).click();
   await expect(
     page.getByRole('link', { name: 'Open app record' }),
-  ).toHaveAttribute('href', '/?app=registered-app');
+  ).toHaveAttribute('href', '/?view=discovery&app=registered-app');
+  await page
+    .getByRole('searchbox', { name: 'Search discoveries' })
+    .fill('Sample');
+  await page.getByRole('link', { name: 'Open app record' }).click();
+  const record = page.getByRole('dialog', { name: 'Registered sample app' });
+  await expect(record).toBeVisible();
+  await record.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/view=discovery$/);
+  await expect(
+    page.getByRole('searchbox', { name: 'Search discoveries' }),
+  ).toHaveValue('Sample');
+  await expect(
+    page.getByRole('button', { name: 'Registered 1' }),
+  ).toHaveAttribute('aria-pressed', 'true');
 });

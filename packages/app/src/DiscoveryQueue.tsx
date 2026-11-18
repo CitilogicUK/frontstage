@@ -188,7 +188,7 @@ export function DiscoveryQueue({
                     {repository.appId && (
                       <Link
                         className="gov-button"
-                        to={appRecordPath(repository.appId)}
+                        to={appRecordPath(repository.appId, 'discovery')}
                       >
                         Open app record
                       </Link>
