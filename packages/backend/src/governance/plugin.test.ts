@@ -6,11 +6,150 @@ import {
 } from '@backstage/backend-test-utils';
 import { CatalogClient } from '@backstage/catalog-client';
 import request from 'supertest';
+import { stringify } from 'yaml';
 import { governancePlugin } from './plugin';
 
 describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3'] });
   afterEach(() => jest.restoreAllMocks());
+
+  it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
+    const reviewer = 'user:default/reviewer';
+    const owner = 'user:default/owner';
+    const token = 'test-github-token';
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              discovery: {
+                github: { organization: 'example', topic: 'llm', token },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const github = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      Response.json({
+        total_count: 3,
+        incomplete_results: false,
+        items: [
+          { id: 100, full_name: 'example/helper', description: null },
+          { id: 200, full_name: 'example/private', description: null },
+          { id: 300, full_name: 'example/..', description: null },
+        ],
+      }),
+    );
+    const discovery = '/api/governance/discovery/github';
+    const auth = (user: string) => mockCredentials.user.header(user);
+    await api
+      .post(`${discovery}/scan`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const preview = (id: number, user: string) =>
+      api.get(`${discovery}/${id}/descriptor`).set('Authorization', auth(user));
+    const descriptor = {
+      apiVersion: 'governance.backstage.io/v1alpha1',
+      kind: 'AIApp',
+      spec: {
+        name: 'Helper from descriptor',
+        purpose: 'Sort the project notes',
+        type: 'app',
+        platform: 'GitHub',
+        sourceUrl: 'https://github.com/Example/Helper.git/',
+        owner,
+        team: 'group:default/platform',
+        lifecycle: 'experimental',
+        audience: 'personal',
+        classification: 'internal',
+        usesAiAtRuntime: false,
+      },
+    };
+
+    await api
+      .get(`${discovery}/100/descriptor`)
+      .set('Authorization', mockCredentials.none.header())
+      .expect(401);
+    expect(github).toHaveBeenCalledTimes(1);
+    github.mockResolvedValueOnce(
+      new Response(
+        stringify({
+          ...descriptor,
+          spec: {
+            ...descriptor.spec,
+            evidence: { tests: 'https://example.com/private-evidence' },
+            reviewTicketUrl: 'https://example.com/private-ticket',
+          },
+        }),
+      ),
+    );
+    await preview(100, owner)
+      .expect('Cache-Control', 'no-store')
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ status: 'ready', app: descriptor.spec });
+        expect(body.app).not.toHaveProperty('evidence');
+        expect(body.app).not.toHaveProperty('reviewTicketUrl');
+      });
+    expect(github).toHaveBeenLastCalledWith(
+      new URL(
+        'https://api.github.com/repos/example/helper/contents/catalog-info.yaml',
+      ),
+      expect.objectContaining({
+        headers: {
+          Accept: 'application/vnd.github.raw+json',
+          'User-Agent': 'Frontstage',
+        },
+        redirect: 'error',
+      }),
+    );
+    expect(await db('governance_apps')).toEqual([]);
+
+    github.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await preview(200, reviewer).expect(200, { status: 'unavailable' });
+    expect(github).toHaveBeenLastCalledWith(
+      new URL(
+        'https://api.github.com/repos/example/private/contents/catalog-info.yaml',
+      ),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: `Bearer ${token}` }),
+      }),
+    );
+
+    for (const invalid of [
+      stringify({ ...descriptor, kind: 'Component' }),
+      stringify({
+        ...descriptor,
+        spec: {
+          ...descriptor.spec,
+          sourceUrl: 'https://github.com/example/other',
+        },
+      }),
+      'a'.repeat(100_001),
+    ]) {
+      github.mockResolvedValueOnce(new Response(invalid));
+      await preview(100, owner).expect(200, { status: 'unavailable' });
+    }
+
+    await preview(200, reviewer).expect(200, { status: 'unavailable' });
+
+    await api
+      .post(`${discovery}/100/decision`)
+      .set('Authorization', auth(reviewer))
+      .send({ action: 'dismiss', reason: 'Not operated by our team' })
+      .expect(200);
+    github.mockClear();
+    await preview(100, reviewer).expect(200, { status: 'unavailable' });
+    await preview(300, reviewer).expect(200, { status: 'unavailable' });
+    await preview(999, reviewer).expect(200, { status: 'unavailable' });
+    expect(github).not.toHaveBeenCalled();
+  });
 
   it('enforces evidence, history, and ownership permissions', async () => {
     const owner = 'user:default/owner';
