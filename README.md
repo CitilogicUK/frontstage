@@ -117,6 +117,8 @@ Open **Reports** for the non-retired inventory count, critical apps needing revi
 
 The owner checks for use outside the gateway and records a reason for keeping or retiring the app. Keeping the app defers another inactivity review for 90 days. Confirming retirement rechecks gateway activity and revokes the key. Ownership handover cancels a pending request. Requests and decisions appear in Audit history.
 
+Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080 to schedule retirement review requests. For a daily check, use `1440`. The task uses recorded successful live gateway calls and opens an owner decision for an eligible app whose latest call was at least 90 days ago. It honors the same 90-day cooldown after a keep decision. The app’s lifecycle and gateway key stay as they were when the task opens a review. Audit history records the Backstage governance service as the requester. Leave the setting unset for reviewer-initiated requests.
+
 **Median time to first Tier 3 decision** measures from the first pending submission to the first recorded overall approval or request for changes. It uses the available audit history across all reporting windows. The calculation includes elapsed time on UTC weekdays and excludes weekends. A partial sign-off or an app still waiting for a decision does not contribute to the median. Set `governance.firstDecisionTargetWeekdays` to a positive integer to flag pending reviews that reach your team’s target in Reports and the **Awaiting first decision** queue.
 
 ## Discover and claim a GitHub repository
