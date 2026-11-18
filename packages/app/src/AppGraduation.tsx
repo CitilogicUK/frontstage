@@ -13,20 +13,20 @@ export function AppGraduation({
   graduation,
   canNominate,
   canDecide,
-  canCancel,
+  canRemove,
   busy,
   onNominate,
   onDecide,
-  onCancel,
+  onRemove,
 }: {
   graduation?: Graduation;
   canNominate: boolean;
   canDecide: boolean;
-  canCancel: boolean;
+  canRemove: boolean;
   busy: boolean;
   onNominate: (event: FormEvent<HTMLFormElement>) => void;
   onDecide: (event: FormEvent<HTMLFormElement>) => void;
-  onCancel: (event: FormEvent<HTMLFormElement>) => void;
+  onRemove: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <section
@@ -44,8 +44,8 @@ export function AppGraduation({
             </time>
             .
           </p>
-          {canCancel && (
-            <form onSubmit={onCancel}>
+          {canRemove && (
+            <form onSubmit={onRemove}>
               <button disabled={busy}>Cancel nomination</button>
             </form>
           )}
@@ -67,6 +67,19 @@ export function AppGraduation({
             .
           </p>
           {graduation.reason && <p>{graduation.reason}</p>}
+          {graduation.status === 'accepted' && canRemove && (
+            <form onSubmit={onRemove}>
+              <p>
+                Ending this handoff removes {graduation.nominee} as engineering
+                co-owner. You can then nominate someone else.
+              </p>
+              <label>
+                Reason for ending the handoff
+                <textarea name="reason" required maxLength={500} />
+              </label>
+              <button disabled={busy}>End engineering handoff</button>
+            </form>
+          )}
         </>
       )}
       {canNominate && (

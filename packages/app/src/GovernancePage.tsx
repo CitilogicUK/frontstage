@@ -1846,7 +1846,11 @@ export function GovernancePage() {
                 key={`graduation-${selected.updatedAt}`}
                 graduation={selected.graduation}
                 canNominate={canNominateCoOwner === true}
-                canCancel={actor === selected.owner || canReview}
+                canRemove={
+                  (actor === selected.owner || canReview) &&
+                  (selected.graduation?.status !== 'accepted' ||
+                    actor !== selected.graduation.nominee)
+                }
                 canDecide={
                   graduationEnabled &&
                   nomineeCanDecideGraduation(selected, actor)
@@ -1863,16 +1867,26 @@ export function GovernancePage() {
                     setMessage('Engineering co-owner nominated.');
                   })
                 }
-                onCancel={event =>
-                  submit(event, async () => {
+                onRemove={event =>
+                  submit(event, async data => {
+                    const ending = selected.graduation?.status === 'accepted';
                     applySavedApp(
                       await api(
                         `/apps/${selected.id}/graduation`,
-                        { expectedUpdatedAt: selected.updatedAt },
+                        {
+                          expectedUpdatedAt: selected.updatedAt,
+                          reason: ending
+                            ? String(data.get('reason') ?? '').trim()
+                            : undefined,
+                        },
                         'DELETE',
                       ),
                     );
-                    setMessage('Engineering nomination cancelled.');
+                    setMessage(
+                      ending
+                        ? 'Engineering handoff ended.'
+                        : 'Engineering nomination cancelled.',
+                    );
                   })
                 }
                 onDecide={event =>
