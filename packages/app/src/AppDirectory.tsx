@@ -5,9 +5,17 @@ import {
   useApi,
 } from '@backstage/core-plugin-api';
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
+import {
+  DirectoryRequestAction,
+  type DirectoryRequestStatus,
+} from './DirectoryAccessRequests';
 
 export type DirectoryListing = { summary: string; url: string };
-type DirectoryApp = DirectoryListing & { id: string; name: string };
+type DirectoryApp = DirectoryListing & {
+  id: string;
+  name: string;
+  requestStatus?: DirectoryRequestStatus;
+};
 
 export function AppDirectory() {
   const discovery = useApi(discoveryApiRef);
@@ -70,6 +78,7 @@ export function AppDirectory() {
               <tr>
                 <th scope="col">App</th>
                 <th scope="col">Launch</th>
+                <th scope="col">Access</th>
               </tr>
             </thead>
             <tbody>
@@ -89,6 +98,21 @@ export function AppDirectory() {
                     >
                       Open app
                     </a>
+                  </td>
+                  <td className="gov-directory-request-cell">
+                    <DirectoryRequestAction
+                      appId={app.id}
+                      status={app.requestStatus}
+                      onSaved={requestStatus =>
+                        setApps(previous =>
+                          previous?.map(item =>
+                            item.id === app.id
+                              ? { ...item, requestStatus }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
                   </td>
                 </tr>
               ))}

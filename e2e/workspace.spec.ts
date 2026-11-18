@@ -2581,3 +2581,145 @@ test('an owner can publish a searchable directory listing and remove it', async 
   await expect(empty).toBeVisible();
   expect(inventoryReads).toBe(1);
 });
+
+test('a directory access request receives a recorded owner decision', async ({
+  page,
+}) => {
+  const requester = 'user:default/requester';
+  const owner = 'user:default/owner';
+  const summary = 'Reconcile stock discrepancies.';
+  const message = 'I reconcile the warehouse inventory each week.';
+  const listing = { summary, url: 'https://example.com/launch/reconciliation' };
+  const app = {
+    id: 'access-app',
+    name: 'Inventory reconciliation',
+    purpose: 'Private operations context.',
+    owner,
+    team: 'group:default/operations',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/private-source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'not required',
+    directoryListing: listing,
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  const seed = {
+    id: 'request-1',
+    requester,
+    message,
+    requestedAt: app.updatedAt,
+  };
+  let actor = requester;
+  let status: 'pending' | 'approved' | undefined;
+  let canApprove = false;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
+  );
+  await page.route('**/api/governance/directory', route =>
+    route.fulfill({
+      json: {
+        apps: [
+          {
+            id: app.id,
+            name: app.name,
+            ...listing,
+            requestStatus: actor === requester ? status : undefined,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/access-app/directory-requests',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(actor).toBe(requester);
+        expect(request.postDataJSON()).toEqual({ message });
+        status = 'pending';
+        return route.fulfill({ status: 201, json: { id: seed.id, status } });
+      }
+      expect(actor).toBe(owner);
+      expect(request.method()).toBe('GET');
+      return route.fulfill({
+        json: { requests: [{ ...seed, status }], canApprove },
+      });
+    },
+  );
+  await page.route(
+    '**/api/governance/apps/access-app/directory-requests/request-1',
+    route => {
+      expect(actor).toBe(owner);
+      expect(route.request().method()).toBe('PATCH');
+      expect(route.request().postDataJSON()).toEqual({ status: 'approved' });
+      status = 'approved';
+      return route.fulfill({
+        json: { ...seed, status, decidedBy: owner, decidedAt: app.updatedAt },
+      });
+    },
+  );
+
+  const directory = page.getByRole('region', { name: 'Directory apps' });
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await page.goto('/?view=directory');
+  await expect(directory.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await directory.getByText('Request access', { exact: true }).click();
+  await directory
+    .getByRole('textbox', { name: 'Why do you need access?' })
+    .fill(message);
+  await directory.getByRole('button', { name: 'Send access request' }).click();
+  await expect(
+    directory.getByText('Access request pending', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    directory.getByText('Request access', { exact: true }),
+  ).toHaveCount(0);
+
+  actor = owner;
+  await page.goto('/?app=access-app');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await details.getByText('Directory access requests', { exact: true }).click();
+  await expect(details.getByText(requester, { exact: true })).toBeVisible();
+  await expect(details.getByText(message, { exact: true })).toBeVisible();
+  await expect(
+    details.getByText(/grant approved access in the destination app/),
+  ).toBeVisible();
+  const approve = details.getByRole('option', { name: 'Approve' });
+  await expect(approve).toBeDisabled();
+  const queue = details.getByText('Directory access requests', { exact: true });
+  await queue.click();
+  await expect(approve).toHaveCount(0);
+  canApprove = true;
+  await queue.click();
+  await expect(approve).toBeEnabled();
+  await details
+    .getByRole('combobox', { name: 'Access decision' })
+    .selectOption('approved');
+  await details.getByRole('button', { name: 'Record access decision' }).click();
+  await expect(
+    details.getByText('Access request approved', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Record access decision' }),
+  ).toHaveCount(0);
+
+  actor = requester;
+  await page.goto('/?view=directory');
+  await expect(directory.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    directory.getByText('Access request approved', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    directory.getByText('The app owner handles access in the destination app.'),
+  ).toBeVisible();
+  await expect(directory.getByText(message, { exact: true })).toHaveCount(0);
+  await assertWorkspace(page, 'App directory', 'Directory');
+});
