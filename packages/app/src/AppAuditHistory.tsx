@@ -16,6 +16,11 @@ const hostedFields = {
   dataClassification: 'Hosted data classification',
 } as const;
 
+type RenewalException = {
+  reason: string;
+  expiresAt: string;
+};
+
 type AuditRecord = {
   hosted?: Partial<Record<keyof typeof hostedFields, string>>;
   owner: string;
@@ -26,6 +31,7 @@ type AuditRecord = {
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
   reviewTicketUrl?: string;
+  renewalException?: RenewalException;
   updatedAt: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string; at: string }>>;
 };
@@ -92,6 +98,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         actor: string;
         record: AuditRecord;
         lifecycleReason?: string;
+        renewalException?: RenewalException;
       } = JSON.parse(event);
       const { record } = entry;
       const details = [];
@@ -157,7 +164,6 @@ export function AppAuditHistory({ appId }: { appId: string }) {
           }
         }
       }
-      previous = record;
       if (entry.action === 'attested') {
         action = 'Owner attestation recorded';
         if (record.nextReview) {
@@ -166,6 +172,27 @@ export function AppAuditHistory({ appId }: { appId: string }) {
           );
         }
       }
+      if (
+        entry.action === 'renewal-exception-granted' ||
+        entry.action === 'renewal-exception-revoked'
+      ) {
+        const granted = entry.action === 'renewal-exception-granted';
+        action = granted
+          ? 'Tier 3 renewal exception granted'
+          : 'Tier 3 renewal exception revoked';
+        const exception =
+          entry.renewalException ??
+          record.renewalException ??
+          previous?.renewalException;
+        if (exception?.reason)
+          details.push(`Exception granted because “${exception.reason}”`);
+        if (exception?.expiresAt) {
+          const expiry = new Date(exception.expiresAt);
+          if (!Number.isNaN(+expiry))
+            details.push(`Scheduled expiry ${expiry.toLocaleString()}`);
+        }
+      }
+      previous = record;
       return {
         id: digest,
         action,
