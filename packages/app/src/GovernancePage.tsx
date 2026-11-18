@@ -388,6 +388,14 @@ export function GovernancePage() {
     };
   }, [api, detailId, inventoryRecord, loading, view]);
 
+  function addRegisteredApps(records: App[]) {
+    const ids = new Set(records.map(record => record.id));
+    setApps(previous => [
+      ...records,
+      ...previous.filter(app => !ids.has(app.id)),
+    ]);
+  }
+
   async function refresh() {
     const result = await api('/apps');
     setApps(result.apps);
@@ -1919,7 +1927,7 @@ export function GovernancePage() {
                     usesAiAtRuntime,
                   },
                 });
-                await refresh();
+                addRegisteredApps([registered]);
                 if (candidate) {
                   resetView();
                   setParams({
@@ -2241,8 +2249,9 @@ export function GovernancePage() {
                   importPreview.endpoint,
                   importPreview.payload,
                 );
-                await refresh();
-                if (importPreview.endpoint === '/repository') {
+                const isDescriptor = importPreview.endpoint === '/repository';
+                addRegisteredApps(isDescriptor ? [imported] : imported);
+                if (isDescriptor) {
                   resetView();
                   setParams({ app: imported.id });
                 } else {

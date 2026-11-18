@@ -609,14 +609,19 @@ test('reviewers can download the spreadsheet import sample', async ({
   };
   let descriptorImported = false;
   await page.route('**/api/governance/apps', route =>
-    route.fulfill({
-      json: {
-        actor: 'user:default/demo-owner',
-        canReview: true,
-        gatewayEnabled: false,
-        apps: descriptorImported ? [descriptorApp] : [],
-      },
-    }),
+    descriptorImported
+      ? route.fulfill({
+          status: 503,
+          json: { error: { message: 'Inventory unavailable' } },
+        })
+      : route.fulfill({
+          json: {
+            actor: 'user:default/demo-owner',
+            canReview: true,
+            gatewayEnabled: false,
+            apps: [],
+          },
+        }),
   );
   let importWrites = 0;
   let validatedImport: unknown;
@@ -1433,9 +1438,12 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   };
   let registered = false;
   await page.route('**/api/governance/apps', route =>
-    route.fulfill({
-      json: { actor, canReview: false, apps: registered ? [claimed] : [] },
-    }),
+    registered
+      ? route.fulfill({
+          status: 503,
+          json: { error: { message: 'Inventory unavailable' } },
+        })
+      : route.fulfill({ json: { actor, canReview: false, apps: [] } }),
   );
   await page.route('**/api/governance/discovery/github', route =>
     route.fulfill({
