@@ -62,6 +62,7 @@ import {
   effectiveClassification,
   nextReview,
   ReviewStatus,
+  reviewTicketUrlInput,
   riskInput,
   tierPolicyInput,
 } from './policy';
@@ -70,6 +71,19 @@ const importInput = z.union([
   z.object({ apps: z.array(z.unknown()).min(1).max(100) }).strict(),
   z.object({ csv: z.string().min(1).max(500_000) }).strict(),
 ]);
+
+const reviewTicketPatchInput = z.object({
+  url: z.preprocess(
+    value => (typeof value === 'string' ? value.trim() : value),
+    reviewTicketUrlInput.refine(value => {
+      if (value === null) return true;
+      if (value.length > 2048 || !URL.canParse(value)) return false;
+      const { username, password } = new URL(value);
+      return !username && !password;
+    }),
+  ),
+  expectedUpdatedAt: z.string().datetime(),
+});
 
 type RenewalException = {
   reason: string;
@@ -127,7 +141,8 @@ type RecordAction =
   | 'graduation-requested'
   | 'graduation-accepted'
   | 'graduation-declined'
-  | 'graduation-cancelled';
+  | 'graduation-cancelled'
+  | 'review-ticket-updated';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
@@ -1693,6 +1708,36 @@ export const governancePlugin = createBackendPlugin({
             accepted ? 'graduation-accepted' : 'graduation-declined',
           );
           res.json(visibleRecord(updated, principal));
+        });
+
+        router.patch('/apps/:id/review-ticket', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = reviewTicketPatchInput.safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide an HTTP or HTTPS review ticket URL of up to 2,048 characters without credentials, or clear it, and include the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          if (record.updatedAt !== input.data.expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before changing its review ticket.',
+            );
+          if (record.tier !== 3 || record.lifecycle === 'retired')
+            throw new InputError(
+              'Review tickets apply to non-retired Tier 3 apps.',
+            );
+          const updated: GovernanceRecord = {
+            ...record,
+            reviewTicketUrl: input.data.url ?? undefined,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'review-ticket-updated');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
         });
 
         router.post('/apps/:id/attestation', async (req, res) => {
