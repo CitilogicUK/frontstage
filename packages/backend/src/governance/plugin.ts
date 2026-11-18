@@ -10,6 +10,11 @@ import {
 } from '@backstage/backend-plugin-api';
 import { CatalogClient } from '@backstage/catalog-client';
 import {
+  RELATION_MEMBER_OF,
+  stringifyEntityRef,
+  type Entity,
+} from '@backstage/catalog-model';
+import {
   ConflictError,
   InputError,
   NotAllowedError,
@@ -83,6 +88,22 @@ type RetirementReview = {
   | { status: 'kept' | 'retired'; decidedAt: string; reason: string }
 );
 
+type Graduation = {
+  nominee: string;
+  requestedBy: string;
+  requestedAt: string;
+} & (
+  | { status: 'pending' }
+  | { status: 'accepted' | 'declined'; decidedAt: string; reason?: string }
+);
+
+const graduationGroupsInput = z
+  .array(z.string().regex(/^group:[a-z0-9_.-]+\/[a-z0-9_.-]+$/))
+  .refine(
+    groups => new Set(groups).size === groups.length,
+    'Graduation groups must be unique.',
+  );
+
 type RecordAction =
   | 'registered'
   | 'updated'
@@ -92,7 +113,10 @@ type RecordAction =
   | 'renewal-exception-revoked'
   | 'retirement-review-requested'
   | 'retirement-review-kept'
-  | 'retirement-review-retired';
+  | 'retirement-review-retired'
+  | 'graduation-requested'
+  | 'graduation-accepted'
+  | 'graduation-declined';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
@@ -125,6 +149,7 @@ export type GovernanceRecord = AppInput & {
   signoffs?: Signoffs;
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
+  graduation?: Graduation;
 };
 
 function activeSinceAfterEdit(
@@ -135,6 +160,23 @@ function activeSinceAfterEdit(
   return previous.lifecycle === 'active'
     ? previous.activeSince
     : current.updatedAt;
+}
+
+function isGraduationStage(record: GovernanceRecord) {
+  return (
+    record.tier === 3 &&
+    record.deliveryStage === 'production' &&
+    record.lifecycle !== 'retired'
+  );
+}
+
+function graduationAfterEdit(
+  previous: GovernanceRecord,
+  current: GovernanceRecord,
+) {
+  return previous.owner === current.owner && isGraduationStage(current)
+    ? previous.graduation
+    : undefined;
 }
 
 function retirementReviewAfterEdit(
@@ -225,6 +267,10 @@ export const governancePlugin = createBackendPlugin({
           .parse(
             config.getOptional('governance.retirementReviewIntervalMinutes'),
           );
+        const graduationGroups = graduationGroupsInput
+          .default([])
+          .parse(config.getOptional('governance.graduationGroups'));
+        const graduationEnabled = graduationGroups.length > 0;
         const firstDecisionTargetWeekdays = z
           .number()
           .int()
@@ -336,13 +382,13 @@ export const governancePlugin = createBackendPlugin({
           ];
         }
 
-        async function unavailableOwners(entityRefs: string[]) {
-          if (!entityRefs.length) return new Set<string>();
+        async function activeCatalogEntities(entityRefs: string[]) {
+          const active = new Map<string, Entity>();
+          if (!entityRefs.length) return active;
           const { token } = await auth.getPluginRequestToken({
             onBehalfOf: await auth.getOwnServiceCredentials(),
             targetPluginId: 'catalog',
           });
-          const unavailable = new Set<string>();
           for (let offset = 0; offset < entityRefs.length; offset += 100) {
             const batch = entityRefs.slice(offset, offset + 100);
             const { items } = await catalog.getEntitiesByRefs(
@@ -352,15 +398,20 @@ export const governancePlugin = createBackendPlugin({
             batch.forEach((ref, index) => {
               const entity = items[index];
               if (
-                !entity ||
+                entity &&
                 entity.metadata.annotations?.[
                   'governance.backstage.io/active'
-                ] === 'false'
+                ] !== 'false'
               )
-                unavailable.add(ref);
+                active.set(ref, entity);
             });
           }
-          return unavailable;
+          return active;
+        }
+
+        async function unavailableOwners(entityRefs: string[]) {
+          const active = await activeCatalogEntities(entityRefs);
+          return new Set(entityRefs.filter(ref => !active.has(ref)));
         }
 
         async function ownersAreActive(app: AppInput) {
@@ -740,7 +791,40 @@ export const governancePlugin = createBackendPlugin({
             signoffs: undefined,
             renewalException: undefined,
             retirementReview: undefined,
+            graduation:
+              principal.type === 'user' &&
+              principal.userEntityRef === record.graduation?.nominee
+                ? record.graduation
+                : undefined,
           };
+        }
+
+        async function assertEligibleNominee(nominee: string, owner: string) {
+          if (nominee === owner)
+            throw new InputError(
+              'Choose an engineering co-owner other than the app owner.',
+            );
+          const active = await activeCatalogEntities([
+            nominee,
+            ...graduationGroups,
+          ]);
+          const user = active.get(nominee);
+          const qualified =
+            user &&
+            stringifyEntityRef(user) === nominee &&
+            user.relations?.some(({ type, targetRef }) => {
+              if (
+                type !== RELATION_MEMBER_OF ||
+                !graduationGroups.includes(targetRef)
+              )
+                return false;
+              const group = active.get(targetRef);
+              return group && stringifyEntityRef(group) === targetRef;
+            });
+          if (!qualified)
+            throw new InputError(
+              'Choose an active catalog user who is a direct member of an active configured engineering group.',
+            );
         }
 
         function assertCanEdit(
@@ -826,6 +910,7 @@ export const governancePlugin = createBackendPlugin({
                 ),
               )
               .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+            graduationEnabled,
             reviewTracks: trackConfig ? reviewTrack.options : [],
             reviewerTracks:
               trackConfig && principal.type === 'user'
@@ -1265,6 +1350,7 @@ export const governancePlugin = createBackendPlugin({
             updatedAt: decidedAt,
             lifecycle: retire ? 'retired' : record.lifecycle,
             activeSince: retire ? undefined : record.activeSince,
+            graduation: retire ? undefined : record.graduation,
             renewalException: retire ? undefined : record.renewalException,
             retirementReview: {
               ...review,
@@ -1329,6 +1415,7 @@ export const governancePlugin = createBackendPlugin({
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
           await save(updated, revision, principal, 'updated', {
@@ -1428,6 +1515,7 @@ export const governancePlugin = createBackendPlugin({
                 };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
@@ -1435,6 +1523,110 @@ export const governancePlugin = createBackendPlugin({
           }
           assertCanLaunch(updated);
           await save(updated, revision, principal, 'updated', { ownerChanged });
+          res.json(visibleRecord(updated, principal));
+        });
+
+        function assertGraduationAvailable(
+          record: GovernanceRecord,
+          expectedUpdatedAt: string,
+        ) {
+          if (!graduationEnabled)
+            throw new NotAllowedError(
+              'Engineering co-owner nominations are disabled.',
+            );
+          if (record.updatedAt !== expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before changing its engineering handoff.',
+            );
+          if (!isGraduationStage(record) || evaluateTier(record) !== 3)
+            throw new InputError(
+              'Engineering handoff applies to non-retired Tier 3 production apps.',
+            );
+        }
+
+        router.post('/apps/:id/graduation', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              nominee: z.string().regex(/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Choose a catalog user and provide the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          assertGraduationAvailable(record, input.data.expectedUpdatedAt);
+          if (record.graduation && record.graduation.status !== 'declined')
+            throw new ConflictError(
+              'This app already has a pending or accepted engineering handoff.',
+            );
+          await assertEligibleNominee(input.data.nominee, record.owner);
+          const updatedAt = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt,
+            graduation: {
+              nominee: input.data.nominee,
+              requestedBy: principal.userEntityRef,
+              requestedAt: updatedAt,
+              status: 'pending',
+            },
+          };
+          await save(updated, revision, principal, 'graduation-requested');
+          res.json(visibleRecord(updated, principal));
+        });
+
+        router.patch('/apps/:id/graduation', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              decision: z.enum(['accept', 'decline']),
+              reason: z.string().trim().max(500).optional(),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide an accept or decline decision, an optional reason up to 500 characters, and the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          const graduation = record.graduation;
+          if (graduation?.nominee !== principal.userEntityRef)
+            throw new NotAllowedError(
+              'Only the engineering nominee can decide this handoff.',
+            );
+          assertGraduationAvailable(record, input.data.expectedUpdatedAt);
+          if (graduation.status !== 'pending')
+            throw new ConflictError(
+              'This engineering handoff has already been decided.',
+            );
+          const accepted = input.data.decision === 'accept';
+          if (accepted)
+            await assertEligibleNominee(graduation.nominee, record.owner);
+          const updatedAt = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt,
+            graduation: {
+              ...graduation,
+              status: accepted ? 'accepted' : 'declined',
+              decidedAt: updatedAt,
+              reason: input.data.reason || undefined,
+            },
+          };
+          await save(
+            updated,
+            revision,
+            principal,
+            accepted ? 'graduation-accepted' : 'graduation-declined',
+          );
           res.json(visibleRecord(updated, principal));
         });
 
@@ -1691,6 +1883,7 @@ export const governancePlugin = createBackendPlugin({
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated);
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });

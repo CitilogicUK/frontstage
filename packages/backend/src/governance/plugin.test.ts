@@ -66,6 +66,307 @@ describe('governance record access', () => {
     },
   );
 
+  it.each([undefined, []])(
+    'disables engineering handoffs when groups are %j',
+    async groups => {
+      const db = await databases.init('SQLITE_3');
+      const { server } = await startTestBackend({
+        features: [
+          governancePlugin,
+          mockServices.database.factory({ knex: db }),
+          mockServices.rootConfig.factory({
+            data: { governance: { graduationGroups: groups } },
+          }),
+        ],
+      });
+      const { body } = await request(server)
+        .get('/api/governance/apps')
+        .set('Authorization', mockCredentials.user.header())
+        .expect(200);
+      expect(body.graduationEnabled).toBe(false);
+    },
+  );
+
+  it('limits engineering handoffs to eligible nominees for Tier 3 production apps', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const engineer = 'user:default/engineer';
+    const outside = 'user:default/outside';
+    const reviewer = 'user:default/reviewer';
+    const group = 'group:default/engineering';
+    let membership = group;
+    let activeGroup = true;
+    let activeEngineer = true;
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: {
+              'governance.backstage.io/active':
+                (ref !== group || activeGroup) &&
+                (ref !== engineer || activeEngineer)
+                  ? 'true'
+                  : 'false',
+            },
+          },
+          relations: [
+            ...(ref === engineer
+              ? [{ type: 'memberOf', targetRef: membership }]
+              : []),
+            ...(ref === outside
+              ? [{ type: 'memberOf', targetRef: 'group:default/subteam' }]
+              : []),
+          ],
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              graduationGroups: [group],
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const appInput = {
+      name: 'Customer workflow',
+      purpose: 'Provide a production customer workflow',
+      type: 'app',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/customer-workflow',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'external',
+      classification: 'internal',
+      usesAiAtRuntime: false,
+      deliveryStage: 'pilot',
+      evidence: { tests: 'https://example.com/limited-evidence' },
+    };
+    const created = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const appPath = `${collection}/${created.body.id}`;
+    const route = `${appPath}/graduation`;
+    const getApp = (as: string) =>
+      api.get(appPath).set('Authorization', auth(as)).expect(200);
+    const nominate = (
+      nominee: string,
+      expectedUpdatedAt: string,
+      actor = owner,
+    ) =>
+      api
+        .post(route)
+        .set('Authorization', auth(actor))
+        .send({ nominee, expectedUpdatedAt });
+    const decide = (
+      decision: 'accept' | 'decline',
+      expectedUpdatedAt: string,
+      actor = engineer,
+      reason?: string,
+    ) =>
+      api
+        .patch(route)
+        .set('Authorization', auth(actor))
+        .send({ decision, expectedUpdatedAt, reason });
+    const edit = (
+      changes: Record<string, unknown>,
+      expectedUpdatedAt: string,
+      actor = owner,
+    ) =>
+      api
+        .put(appPath)
+        .set('Authorization', auth(actor))
+        .send({ ...appInput, ...changes, expectedUpdatedAt });
+
+    await api
+      .get(collection)
+      .set('Authorization', auth(engineer))
+      .expect(200)
+      .expect(({ body }) => expect(body.graduationEnabled).toBe(true));
+    await nominate(engineer, created.body.updatedAt).expect(400);
+    const production = await edit(
+      { deliveryStage: 'production' },
+      created.body.updatedAt,
+    ).expect(200);
+    const before = production.body.updatedAt;
+    await nominate(engineer, before, outside).expect(403);
+    await nominate(engineer, created.body.updatedAt).expect(409);
+    await nominate(owner, before).expect(400);
+    await nominate(outside, before).expect(400);
+    activeGroup = false;
+    await nominate(engineer, before).expect(400);
+    activeGroup = true;
+    activeEngineer = false;
+    await nominate(engineer, before).expect(400);
+    activeEngineer = true;
+
+    const proposed = await nominate(engineer, before).expect(200);
+    expect(proposed.body).toMatchObject({
+      owner,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      graduation: { nominee: engineer, requestedBy: owner, status: 'pending' },
+    });
+    expect((await getApp(outside)).body).not.toHaveProperty('graduation');
+    expect((await getApp(backup)).body.graduation).toEqual(
+      proposed.body.graduation,
+    );
+    const nomineeRecord = (await getApp(engineer)).body;
+    expect(nomineeRecord.graduation).toEqual(proposed.body.graduation);
+    expect(nomineeRecord).not.toHaveProperty('evidence');
+    await api
+      .get(appPath)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(200)
+      .expect(({ body }) => expect(body).not.toHaveProperty('graduation'));
+    await edit(
+      { deliveryStage: 'production' },
+      proposed.body.updatedAt,
+      engineer,
+    ).expect(403);
+    await nominate(engineer, proposed.body.updatedAt, reviewer).expect(409);
+    await decide('accept', proposed.body.updatedAt, owner).expect(403);
+    await decide('accept', before).expect(409);
+
+    membership = 'group:default/subteam';
+    await decide('accept', proposed.body.updatedAt).expect(400);
+    const declined = await decide(
+      'decline',
+      proposed.body.updatedAt,
+      engineer,
+      '  Not available  ',
+    ).expect(200);
+    expect(declined.body.graduation).toMatchObject({
+      status: 'declined',
+      reason: 'Not available',
+    });
+    membership = group;
+    const reproposed = await nominate(
+      engineer,
+      declined.body.updatedAt,
+      reviewer,
+    ).expect(200);
+    const accepted = await decide('accept', reproposed.body.updatedAt).expect(
+      200,
+    );
+    expect(accepted.body).toMatchObject({
+      owner,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      graduation: {
+        nominee: engineer,
+        requestedBy: reviewer,
+        status: 'accepted',
+      },
+    });
+    await nominate(outside, accepted.body.updatedAt).expect(409);
+
+    const renamed = await edit(
+      { name: 'Renamed workflow', deliveryStage: 'production' },
+      accepted.body.updatedAt,
+    ).expect(200);
+    expect(renamed.body.graduation).toEqual(accepted.body.graduation);
+    const reverted = await edit(
+      { deliveryStage: 'pilot' },
+      renamed.body.updatedAt,
+    ).expect(200);
+    expect(reverted.body).not.toHaveProperty('graduation');
+    const productionAgain = await edit(
+      { deliveryStage: 'production' },
+      reverted.body.updatedAt,
+    ).expect(200);
+    const pendingTransfer = await nominate(
+      engineer,
+      productionAgain.body.updatedAt,
+    ).expect(200);
+    const transferred = await edit(
+      { owner: outside, deliveryStage: 'production' },
+      pendingTransfer.body.updatedAt,
+    ).expect(200);
+    expect(transferred.body).not.toHaveProperty('graduation');
+    const pendingDowngrade = await nominate(
+      engineer,
+      transferred.body.updatedAt,
+      reviewer,
+    ).expect(200);
+    const downgraded = await edit(
+      { owner: outside, audience: 'team', deliveryStage: 'production' },
+      pendingDowngrade.body.updatedAt,
+      outside,
+    ).expect(200);
+    expect(downgraded.body.tier).toBe(2);
+    expect(downgraded.body).not.toHaveProperty('graduation');
+    const escalated = await edit(
+      { owner: outside, deliveryStage: 'production' },
+      downgraded.body.updatedAt,
+      outside,
+    ).expect(200);
+    const pendingRetirement = await nominate(
+      engineer,
+      escalated.body.updatedAt,
+      reviewer,
+    ).expect(200);
+    const retired = await api
+      .patch(`${appPath}/lifecycle`)
+      .set('Authorization', auth(outside))
+      .send({
+        lifecycle: 'retired',
+        expectedUpdatedAt: pendingRetirement.body.updatedAt,
+      })
+      .expect(200);
+    expect(retired.body).not.toHaveProperty('graduation');
+
+    const { body: history } = await api
+      .get(`${appPath}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = history.events.map((item: { event: string }) =>
+      JSON.parse(item.event),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'graduation-requested',
+          actor: owner,
+          record: expect.objectContaining({
+            graduation: proposed.body.graduation,
+          }),
+        }),
+        expect.objectContaining({
+          action: 'graduation-declined',
+          actor: engineer,
+          record: expect.objectContaining({
+            graduation: declined.body.graduation,
+          }),
+        }),
+        expect.objectContaining({
+          action: 'graduation-accepted',
+          actor: engineer,
+          record: expect.objectContaining({
+            graduation: accepted.body.graduation,
+          }),
+        }),
+      ]),
+    );
+  });
+
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
     const reviewer = 'user:default/reviewer';
     const owner = 'user:default/owner';
