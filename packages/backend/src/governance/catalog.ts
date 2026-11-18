@@ -115,6 +115,7 @@ export const governanceCatalog = createBackendModule({
                       spec: {
                         ...app,
                         reviewNotes: undefined,
+                        renewalException: undefined,
                         reviewTicketUrl: undefined,
                         evidence: undefined,
                         signoffs: undefined,

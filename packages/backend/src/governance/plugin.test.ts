@@ -151,6 +151,208 @@ describe('governance record access', () => {
     expect(github).not.toHaveBeenCalled();
   });
 
+  it('extends only an existing Tier 3 app’s gateway access and audits exceptions', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [owner, backup, reviewer],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const appInput = {
+      name: 'Renewal prototype',
+      purpose: 'Demonstrate time-limited gateway continuation',
+      type: 'app',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/renewal-prototype',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'personal',
+      classification: 'internal',
+      critical: true,
+      models: ['test-model'],
+    };
+    const created = await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `/api/governance/apps/${created.body.id}`;
+    const exceptionPath = `${path}/renewal-exception`;
+    const review = (expectedUpdatedAt: string) =>
+      api.post(`${path}/reviews`).set('Authorization', auth(reviewer)).send({
+        expectedUpdatedAt,
+        status: 'approved',
+        notes: 'Approved for operations.',
+      });
+    const lifecycle = (newLifecycle: string, expectedUpdatedAt: string) =>
+      api
+        .patch(`${path}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ expectedUpdatedAt, lifecycle: newLifecycle });
+    const approved = await review(created.body.updatedAt).expect(200);
+    const due = Date.parse(approved.body.nextReview);
+    const day = 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(due + 30 * day).toISOString();
+    const grant = (
+      expectedUpdatedAt: string,
+      expiry = expiresAt,
+      actor = reviewer,
+    ) =>
+      api.post(exceptionPath).set('Authorization', auth(actor)).send({
+        expectedUpdatedAt,
+        expiresAt: expiry,
+        reason: 'Renewal evidence is pending.',
+      });
+
+    await grant(approved.body.updatedAt).expect(400);
+    const active = await lifecycle('active', approved.body.updatedAt).expect(
+      200,
+    );
+    const timestamp = active.body.updatedAt;
+    await grant(timestamp, expiresAt, owner).expect(403);
+    await grant(timestamp, expiresAt, backup).expect(403);
+    await grant(approved.body.updatedAt).expect(409);
+    await grant(timestamp, approved.body.nextReview).expect(400);
+    await grant(timestamp, new Date(due + 30 * day + 1).toISOString()).expect(
+      400,
+    );
+    const granted = await grant(timestamp).expect(200);
+    expect(granted.body).toMatchObject({
+      nextReview: approved.body.nextReview,
+      renewalException: {
+        expiresAt,
+        owner,
+        actor: reviewer,
+        reason: 'Renewal evidence is pending.',
+      },
+    });
+    await grant(granted.body.updatedAt).expect(409);
+    const {
+      body: { key },
+    } = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const call = () =>
+      api
+        .post('/api/governance/gateway/chat')
+        .set('Authorization', `Bearer ${key}`)
+        .send({ model: 'test-model', prompt: 'Synthetic prompt' });
+
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(due);
+    await call().expect(200);
+    clock.mockReturnValue(Date.parse(expiresAt));
+    await call().expect(403);
+    const revoke = (expectedUpdatedAt: string) =>
+      api
+        .delete(exceptionPath)
+        .set('Authorization', auth(reviewer))
+        .send({ expectedUpdatedAt });
+    await revoke(timestamp).expect(409);
+    const revoked = await revoke(granted.body.updatedAt).expect(200);
+    expect(revoked.body).not.toHaveProperty('renewalException');
+    await grant(revoked.body.updatedAt).expect(400);
+    await call().expect(403);
+
+    const renewed = await review(revoked.body.updatedAt).expect(200);
+    const newExpiry = new Date(
+      Date.parse(renewed.body.nextReview) + day,
+    ).toISOString();
+    const second = await grant(renewed.body.updatedAt, newExpiry).expect(200);
+    const reapproved = await review(second.body.updatedAt).expect(200);
+    expect(reapproved.body).not.toHaveProperty('renewalException');
+    const third = await grant(reapproved.body.updatedAt, newExpiry).expect(200);
+    const changed = await api
+      .put(path)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        lifecycle: 'active',
+        purpose: 'Changed risk scope',
+        expectedUpdatedAt: third.body.updatedAt,
+      })
+      .expect(200);
+    expect(changed.body).toMatchObject({
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+    });
+    expect(changed.body).not.toHaveProperty('renewalException');
+    await lifecycle('active', changed.body.updatedAt).expect(400);
+    const newApproval = await review(changed.body.updatedAt).expect(200);
+    const newActivation = await lifecycle(
+      'active',
+      newApproval.body.updatedAt,
+    ).expect(200);
+    const fourth = await grant(newActivation.body.updatedAt, newExpiry).expect(
+      200,
+    );
+    clock.mockReturnValue(Date.parse(newApproval.body.nextReview));
+    await call().expect(200);
+    const deprecated = await lifecycle(
+      'deprecated',
+      fourth.body.updatedAt,
+    ).expect(200);
+    expect(deprecated.body).not.toHaveProperty('renewalException');
+    await lifecycle('active', deprecated.body.updatedAt).expect(400);
+    await call().expect(403);
+
+    const history = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = history.body.events.map((event: { event: string }) =>
+      JSON.parse(event.event),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'renewal-exception-granted',
+          renewalException: granted.body.renewalException,
+        }),
+        expect.objectContaining({
+          action: 'renewal-exception-revoked',
+          renewalException: granted.body.renewalException,
+        }),
+      ]),
+    );
+  });
+
   it('enforces evidence, history, and ownership permissions', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';
