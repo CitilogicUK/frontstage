@@ -1,0 +1,4 @@
+auth:
+  providers:
+    guest:
+      userEntityRef: user:default/reviewer

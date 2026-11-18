@@ -1,0 +1,2 @@
+name,purpose,type,platform,sourceUrl,owner,backupOwner,team,lifecycle,audience,classification,models,connections,takesActions,actionDescription,affectsPeople,critical,personalData
+Personal notes,"Summarizes notes, agendas, and action items.",assistant,Code repo,https://example.com/repos/personal-notes,user:default/guest,,group:default/platform,experimental,personal,internal,example-model,,No,,No,No,No

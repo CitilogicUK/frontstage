@@ -1,0 +1,16 @@
+apiVersion: governance.backstage.io/v1alpha1
+kind: AIApp
+metadata:
+  name: meeting-notes
+spec:
+  name: Meeting notes
+  purpose: Summarizes personal notes from internal meetings.
+  type: assistant
+  platform: Code repo
+  sourceUrl: https://example.com/repos/meeting-notes
+  owner: user:default/guest
+  team: group:default/platform
+  lifecycle: experimental
+  audience: personal
+  classification: internal
+  models: [example-model]

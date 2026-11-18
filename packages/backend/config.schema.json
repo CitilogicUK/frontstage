@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "governance": {
+      "type": "object",
+      "properties": {
+        "reviewers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Backstage user entity references authorized to review critical apps and import inventories."
+        },
+        "tierPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional minimum tiers. Built-in policy floors remain in effect.",
+          "properties": {
+            "audience": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "personal": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "team": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "company": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "external": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                }
+              }
+            },
+            "classification": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "public": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "internal": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "confidential": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "restricted": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                }
+              }
+            },
+            "hostedSharing": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "private": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "named people": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "company": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "public link": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                }
+              }
+            },
+            "connection": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "read": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                },
+                "write": {
+                  "type": "integer",
+                  "enum": [1, 2, 3]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

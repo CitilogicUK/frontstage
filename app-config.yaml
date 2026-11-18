@@ -1,0 +1,24 @@
+app:
+  title: AI App Governance
+  baseUrl: http://localhost:3000
+organization:
+  name: AI App Governance
+backend:
+  baseUrl: http://localhost:7007
+  listen:
+    host: localhost
+    port: 7007
+  cors:
+    origin: http://localhost:3000
+    credentials: true
+  database:
+    client: better-sqlite3
+    connection:
+      directory: ../../.local
+auth:
+  providers: {}
+governance:
+  reviewers: []
+catalog:
+  rules:
+    - allow: [AIApp, User, Group]
