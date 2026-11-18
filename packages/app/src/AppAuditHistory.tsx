@@ -32,7 +32,13 @@ type AuditRecord = {
 
 type Audit = {
   events: Array<{ event: string; digest: string }>;
-  keyEvents: Array<{ action: string; actor: string; at: string | number }>;
+  keyEvents: Array<{
+    action: string;
+    actor: string;
+    at: string | number;
+    digest?: string;
+  }>;
+  keyAuditVersion?: number;
 };
 
 export function AppAuditHistory({ appId }: { appId: string }) {
@@ -178,6 +184,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
     })) ?? [];
   const events = [...recordEvents, ...keyEvents].sort((a, b) => +b.at - +a.at);
   const headDigest = audit?.events.at(-1)?.digest;
+  const keyHeadDigest = audit?.keyEvents.at(-1)?.digest;
 
   return (
     <details
@@ -210,6 +217,17 @@ export function AppAuditHistory({ appId }: { appId: string }) {
               <input
                 readOnly
                 value={headDigest}
+                onFocus={event => event.currentTarget.select()}
+                spellCheck={false}
+              />
+            </label>
+          )}
+          {keyHeadDigest && (
+            <label>
+              Final key event digest (SHA-256)
+              <input
+                readOnly
+                value={keyHeadDigest}
                 onFocus={event => event.currentTarget.select()}
                 spellCheck={false}
               />

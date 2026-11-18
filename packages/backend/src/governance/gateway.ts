@@ -125,28 +125,105 @@ const openaiResult = z.object({
   }),
 });
 
+type KeyEventRow = {
+  id: string;
+  app_id: string;
+  actor: string;
+  action: string;
+  created_at: Date | string | number;
+};
+
+function keyAuditFields(
+  row: KeyEventRow,
+  previous?: { revision: number; digest: string },
+) {
+  const revision = (previous?.revision ?? -1) + 1;
+  const event = JSON.stringify({
+    id: row.id,
+    appId: row.app_id,
+    action: row.action,
+    actor: row.actor,
+    at: new Date(row.created_at).toISOString(),
+    revision,
+    previousDigest: previous?.digest ?? null,
+  });
+  return {
+    revision,
+    event,
+    digest: createHash('sha256').update(event).digest('hex'),
+  };
+}
+
+async function logGatewayKeyChange(
+  transaction: Database,
+  appId: string,
+  actor: string,
+  action: 'issued' | 'rotated' | 'revoked',
+) {
+  const previous = await transaction(keyEventsTable)
+    .where({ app_id: appId })
+    .orderBy('revision', 'desc')
+    .first('revision', 'digest');
+  const row = {
+    id: randomUUID(),
+    app_id: appId,
+    actor,
+    action,
+    created_at: new Date(),
+  };
+  await transaction(keyEventsTable).insert({
+    ...row,
+    ...keyAuditFields(row, previous),
+  });
+}
+
 export async function revokeGatewayKey(
   transaction: Database,
   appId: string,
   actor: string,
 ) {
   const deleted = await transaction(keysTable).where({ app_id: appId }).del();
-  if (deleted) {
-    await transaction(keyEventsTable).insert({
-      id: randomUUID(),
-      app_id: appId,
-      actor,
-      action: 'revoked',
-      created_at: new Date(),
-    });
-  }
+  if (deleted) await logGatewayKeyChange(transaction, appId, actor, 'revoked');
 }
 
 export function readGatewayKeyEvents(db: Database, appId: string) {
   return db(keyEventsTable)
     .where({ app_id: appId })
-    .orderBy([{ column: 'created_at' }, { column: 'id' }])
-    .select('action', 'actor', 'created_at as at');
+    .orderBy('revision')
+    .select('action', 'actor', 'created_at as at', 'event', 'digest');
+}
+
+export function gatewayKeyAuditMigration() {
+  return {
+    async up(db: Database) {
+      await db.schema.alterTable(keyEventsTable, table => {
+        table.integer('revision');
+        table.text('event');
+        table.string('digest', 64);
+        table.unique(['app_id', 'revision']);
+      });
+      const rows = await db<KeyEventRow>(keyEventsTable)
+        .select('*')
+        .orderBy(['app_id', 'created_at', 'id']);
+      let previous:
+        | { appId: string; revision: number; digest: string }
+        | undefined;
+      for (const row of rows) {
+        const fields = keyAuditFields(
+          row,
+          previous?.appId === row.app_id ? previous : undefined,
+        );
+        await db(keyEventsTable).where({ id: row.id }).update(fields);
+        previous = { appId: row.app_id, ...fields };
+      }
+    },
+    async down(db: Database) {
+      await db.schema.alterTable(keyEventsTable, table => {
+        table.dropUnique(['app_id', 'revision']);
+        table.dropColumns('revision', 'event', 'digest');
+      });
+    },
+  };
 }
 
 export function gatewayMigration(appsTable: string) {
@@ -713,13 +790,12 @@ export function registerGatewayRoutes(options: {
           .where({ app_id: record.id })
           .update({ digest });
       }
-      await transaction(keyEventsTable).insert({
-        id: randomUUID(),
-        app_id: record.id,
-        actor: principal.userEntityRef,
-        action: inserted.length ? 'issued' : 'rotated',
-        created_at: new Date(),
-      });
+      await logGatewayKeyChange(
+        transaction,
+        record.id,
+        principal.userEntityRef,
+        inserted.length ? 'issued' : 'rotated',
+      );
     });
     res.set('Cache-Control', 'no-store').status(201).json({ key });
   });

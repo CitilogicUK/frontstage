@@ -35,6 +35,7 @@ import {
 } from './discovery';
 import {
   gatewayMigration,
+  gatewayKeyAuditMigration,
   gatewayUsageModeMigration,
   gatewayUsageTokensMigration,
   gatewayBlocksMigration,
@@ -160,9 +161,12 @@ export const governancePlugin = createBackendPlugin({
             '009_discovery_scan_state',
             '010_gateway_rate_windows',
             '011_gateway_usage_tokens',
+            '012_gateway_key_audit',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
+            if (name === '012_gateway_key_audit')
+              return gatewayKeyAuditMigration();
             if (name === '003_gateway') return gatewayMigration(table);
             if (name === '004_github_discovery') return discoveryMigration();
             if (name === '005_discovery_claims')
@@ -557,7 +561,9 @@ export const governancePlugin = createBackendPlugin({
             .orderBy('revision')
             .select('event', 'digest');
           const keyEvents = await readGatewayKeyEvents(db, req.params.id);
-          res.set('Cache-Control', 'no-store').json({ events, keyEvents });
+          res
+            .set('Cache-Control', 'no-store')
+            .json({ events, keyEvents, keyAuditVersion: 1 });
         });
 
         function visibleRecord(

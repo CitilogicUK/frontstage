@@ -792,7 +792,14 @@ test('audit history shows production review and ownership handoff', async ({
   await page.route('**/api/governance/apps/purchase-order/history', route =>
     route.fulfill({
       json: {
-        keyEvents: [],
+        keyEvents: [
+          {
+            action: 'revoked',
+            actor: pilot.owner,
+            at: handoff.updatedAt,
+            digest: 'a'.repeat(64),
+          },
+        ],
         events: [pilot, production, handoff, securityReview].map(
           (record, revision) => ({
             digest: String(revision).padStart(64, '0'),
@@ -917,6 +924,10 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     dialog.getByRole('textbox', { name: 'Final record digest (SHA-256)' }),
   ).toHaveValue('3'.padStart(64, '0'));
+  await expect(
+    dialog.getByRole('textbox', { name: 'Final key event digest (SHA-256)' }),
+  ).toHaveValue('a'.repeat(64));
+  await expect(dialog.getByText('Key revoked', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Security: approved')).toBeVisible();
   await expect(
     dialog.getByText('Lifecycle changed to experimental', { exact: false }),

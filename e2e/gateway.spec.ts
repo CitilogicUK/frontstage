@@ -576,7 +576,9 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         'Reject a key after automatic revocation',
       );
     }
+    const replacedKey = await issueSharedKey();
     const retiredKey = await issueSharedKey();
+    await checkRevokedKey(replacedKey);
     const retire = (expectedUpdatedAt: string) =>
       request.patch(`${sharedPath}/lifecycle`, {
         headers,
@@ -696,15 +698,16 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     );
     expect(
       sharedAudit.keyEvents.map((event: { action: string }) => event.action),
-    ).toEqual(['issued', 'revoked', 'issued', 'revoked']);
+    ).toEqual(['issued', 'rotated', 'revoked', 'issued', 'revoked']);
     const sharedHead = sharedAudit.events.at(-1).digest;
+    const keyHead = sharedAudit.keyEvents.at(-1).digest;
     await writeFile(
       exportPath,
       JSON.stringify({ appId: sharedApp.id, ...sharedAudit }),
     );
     const verifiedRetirement = spawnSync(
       process.execPath,
-      [verifier, exportPath, sharedHead],
+      [verifier, exportPath, sharedHead, '--key-head', keyHead],
       { encoding: 'utf8' },
     );
     expect(verifiedRetirement.status, verifiedRetirement.stderr).toBe(0);
@@ -726,6 +729,45 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     );
     expect(tamperedRetirement.status).toBe(1);
     expect(tamperedRetirement.stderr).toContain('has a digest mismatch');
+    await writeFile(
+      exportPath,
+      JSON.stringify({
+        appId: sharedApp.id,
+        ...sharedAudit,
+        keyEvents: sharedAudit.keyEvents.slice(0, -1),
+      }),
+    );
+    const truncatedKeys = spawnSync(
+      process.execPath,
+      [verifier, exportPath, sharedHead, '--key-head', keyHead],
+      { encoding: 'utf8' },
+    );
+    expect(truncatedKeys.status).toBe(1);
+    expect(truncatedKeys.stderr).toContain(
+      'does not match the expected key head',
+    );
+
+    const alteredKeys = sharedAudit.keyEvents.map(
+      (event: { action: string }, index: number) =>
+        index === 0 ? { ...event, action: 'rotated' } : event,
+    );
+    await writeFile(
+      exportPath,
+      JSON.stringify({
+        appId: sharedApp.id,
+        ...sharedAudit,
+        keyEvents: alteredKeys,
+      }),
+    );
+    const alteredKeyEvent = spawnSync(
+      process.execPath,
+      [verifier, exportPath, sharedHead, '--key-head', keyHead],
+      { encoding: 'utf8' },
+    );
+    expect(alteredKeyEvent.status).toBe(1);
+    expect(alteredKeyEvent.stderr).toContain(
+      'inconsistent metadata or chain linkage',
+    );
     const optedOut = await noAi.json();
     const sharedHandover = await request.put(sharedPath, {
       headers,
