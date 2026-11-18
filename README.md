@@ -93,6 +93,8 @@ An independent reviewer can grant an already-active Tier 3 app a renewal excepti
 
 The app still needs fresh approval for first launch, reactivation after its approval has expired, or a material change. A new review decision or leaving the active lifecycle clears the exception. Grant and revoke actions appear in audit history. Separate critical sign-off tracks require their normal renewals.
 
+In **Reviews**, select **My pending sign-offs** to download your filtered queue as CSV. The export lists each matching app, its owner and team, the sign-offs assigned to you that are still pending, and the scheduled review date when available.
+
 ## Engineering co-ownership
 
 Set `governance.graduationGroups` to the Backstage groups that can accept co-ownership of Tier 3 production apps. An owner or reviewer can nominate an active direct member of one of those groups. The nominee finds the request in Inventory and records their decision. The handoff and decision appear in Audit history. The existing accountable owner and gateway access stay in place.
