@@ -751,12 +751,20 @@ export const governancePlugin = createBackendPlugin({
           });
           if (!reviewers.includes(principal.userEntityRef))
             throw new NotAllowedError('Reviewer access is required.');
-          await load(req.params.id);
-          const events = await db(history)
-            .where({ app_id: req.params.id })
-            .orderBy('revision')
-            .select('event', 'digest');
-          const keyEvents = await readGatewayKeyEvents(db, req.params.id);
+          const { events, keyEvents } = await db.transaction(
+            async transaction => {
+              await load(req.params.id, transaction);
+              const recordEvents = await transaction(history)
+                .where({ app_id: req.params.id })
+                .orderBy('revision')
+                .select('event', 'digest');
+              const gatewayEvents = await readGatewayKeyEvents(
+                transaction,
+                req.params.id,
+              );
+              return { events: recordEvents, keyEvents: gatewayEvents };
+            },
+          );
           res
             .set('Cache-Control', 'no-store')
             .json({ events, keyEvents, keyAuditVersion: 1 });
