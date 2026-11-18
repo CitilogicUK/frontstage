@@ -1065,6 +1065,69 @@ test('audit history shows production review and ownership handoff', async ({
   ).toBeVisible();
 });
 
+test('a hosted app owner can correct the declared workspace', async ({
+  page,
+}) => {
+  let app = {
+    id: 'hosted-app',
+    name: 'Hosted demo app',
+    owner: 'user:default/demo-owner',
+    team: 'group:default/platform',
+    purpose: 'Synthetic demo',
+    type: 'provider-hosted app',
+    platform: 'Hosted workspace & tools',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    models: ['fixture'],
+    usesAiAtRuntime: true,
+    tier: 1,
+    reviewStatus: 'not required',
+    updatedAt: '2025-01-01T00:00:00.000Z',
+    hosted: {
+      provider: 'Example AI',
+      workspace: 'Personal',
+      sharing: 'private',
+      dataAccess: 'none',
+    },
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: app.owner,
+        gatewayEnabled: true,
+        canReview: false,
+        apps: [app],
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/hosted-app', route => {
+    const update = route.request().postDataJSON();
+    expect(update.hosted).toEqual({ ...app.hosted, workspace: 'Company' });
+    app = {
+      ...app,
+      hosted: update.hosted,
+      updatedAt: '2025-01-02T00:00:00.000Z',
+    };
+    return route.fulfill({ json: app });
+  });
+  await page.goto('/?app=hosted-app');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await details.getByText('Edit app details', { exact: true }).click();
+  await details
+    .getByRole('textbox', { name: 'Workspace', exact: true })
+    .fill('Company');
+  await details.getByRole('button', { name: 'Save app details' }).click();
+  await expect(
+    details.getByText('App updated.', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('region', { name: 'Gateway playground' }),
+  ).toHaveCount(0);
+});
+
 test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   let registered = false;
   await page.route('**/api/governance/apps', route =>

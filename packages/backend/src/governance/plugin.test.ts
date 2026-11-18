@@ -635,6 +635,25 @@ describe('governance record access', () => {
         .set('Authorization', auth(owner))
         .send({ lifecycle: 'active', expectedUpdatedAt: hosted.body.updatedAt })
         .expect(workspace === 'Company' ? 200 : 400);
+      if (workspace === 'Personal') {
+        const corrected = await api
+          .put(`${apps}/${hosted.body.id}`)
+          .set('Authorization', auth(owner))
+          .send({
+            ...hosted.body,
+            hosted: { ...hosted.body.hosted, workspace: 'Company' },
+            expectedUpdatedAt: hosted.body.updatedAt,
+          })
+          .expect(200);
+        await api
+          .patch(`${apps}/${hosted.body.id}/lifecycle`)
+          .set('Authorization', auth(owner))
+          .send({
+            lifecycle: 'active',
+            expectedUpdatedAt: corrected.body.updatedAt,
+          })
+          .expect(200);
+      }
     }
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {

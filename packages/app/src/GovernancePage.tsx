@@ -63,6 +63,13 @@ type App = {
   effectiveClassification?: string;
   models: string[];
   usesAiAtRuntime?: boolean;
+  hosted?: {
+    provider: string;
+    workspace: string;
+    sharing: string;
+    dataAccess: string;
+    dataClassification?: string;
+  };
   deliveryStage?: string;
   tier: number;
   reviewStatus: string;
@@ -1244,6 +1251,11 @@ export function GovernancePage() {
                         {
                           ...selected,
                           purpose: data.get('purpose'),
+                          hosted: selected.hosted && {
+                            ...selected.hosted,
+                            provider: data.get('hostedProvider'),
+                            workspace: data.get('hostedWorkspace'),
+                          },
                           usesAiAtRuntime: editingUsesAi,
                           models: editingUsesAi
                             ? String(data.get('models') ?? '')
@@ -1286,6 +1298,27 @@ export function GovernancePage() {
                       defaultValue={selected.purpose}
                     />
                   </label>
+                  {selected.hosted && (
+                    <fieldset className="gov-fieldset">
+                      <legend>Provider workspace</legend>
+                      <label>
+                        Provider
+                        <input
+                          required
+                          name="hostedProvider"
+                          defaultValue={selected.hosted.provider}
+                        />
+                      </label>
+                      <label>
+                        Workspace
+                        <input
+                          required
+                          name="hostedWorkspace"
+                          defaultValue={selected.hosted.workspace}
+                        />
+                      </label>
+                    </fieldset>
+                  )}
                   <label>
                     <span id="app-editor-owner-label">Owner</span>
                     <input
@@ -1492,6 +1525,7 @@ export function GovernancePage() {
               <AppAuditHistory key={selected.updatedAt} appId={selected.id} />
             )}
             {gatewayEnabled &&
+              selected.type !== 'provider-hosted app' &&
               selected.usesAiAtRuntime !== false &&
               (actor === selected.owner || canReview) && (
                 <GatewayPlayground
