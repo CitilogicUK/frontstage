@@ -2457,3 +2457,118 @@ test('the playground clears a revealed key after ownership changes', async ({
     playground.getByRole('button', { name: 'Send prompt' }),
   ).toBeDisabled();
 });
+
+test('the focused review ticket form saves and removes the link without reopening review', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/reviewer';
+  const owner = 'user:default/owner';
+  const ticket = 'https://tickets.example.com/reviews/123';
+  const replacement = 'https://tickets.example.com/reviews/456';
+  const app = {
+    id: 'quick-ticket',
+    name: 'Critical app with its review ticket',
+    owner,
+    backupOwner: 'user:default/backup',
+    team: 'group:default/operations',
+    purpose: 'Assist with priority operations decisions.',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 3,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'approved',
+    nextReview: '2099-01-01T00:00:00.000Z',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  let current: typeof app & { reviewTicketUrl?: string } = app;
+  const events = [
+    {
+      digest: 'a'.repeat(64),
+      event: JSON.stringify({
+        action: 'registered',
+        actor: owner,
+        record: app,
+      }),
+    },
+  ];
+
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { actor: reviewer, canReview: true, apps: [current] },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/quick-ticket/review-ticket',
+    route => {
+      const request = route.request();
+      const url = [ticket, replacement, null][events.length - 1];
+      expect(request.method()).toBe('PATCH');
+      expect(request.postDataJSON()).toEqual({
+        url,
+        expectedUpdatedAt: current.updatedAt,
+      });
+      current = {
+        ...app,
+        reviewTicketUrl: url ?? undefined,
+        updatedAt: new Date(Date.parse(current.updatedAt) + 1000).toISOString(),
+      };
+      events.push({
+        digest: String(events.length).repeat(64),
+        event: JSON.stringify({
+          action: 'review-ticket-updated',
+          actor: reviewer,
+          record: current,
+        }),
+      });
+      return route.fulfill({ json: current });
+    },
+  );
+  await page.route('**/api/governance/apps/quick-ticket/history', route =>
+    route.fulfill({ json: { events, keyEvents: [] } }),
+  );
+
+  await page.goto('/?app=quick-ticket');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await details.getByText('Edit review ticket', { exact: true }).click();
+  const url = details.getByRole('textbox', { name: 'Ticket URL', exact: true });
+  const save = details.getByRole('button', { name: 'Save review ticket' });
+  const open = details.getByRole('link', { name: 'Open review ticket' });
+
+  await expect(url).toHaveValue('');
+  await url.fill(ticket);
+  await save.click();
+  await expect(open).toHaveAttribute('href', ticket);
+  await expect(details.getByText('Review ticket saved.')).toBeVisible();
+  await details.getByText('Edit app details', { exact: true }).click();
+  await expect(
+    details.getByRole('textbox', { name: 'Review ticket URL', exact: true }),
+  ).toHaveValue(ticket);
+
+  await url.fill(replacement);
+  await save.click();
+  await expect(open).toHaveAttribute('href', replacement);
+  await url.clear();
+  await save.click();
+  await expect(open).toHaveCount(0);
+  await expect(details.getByText('Review ticket removed.')).toBeVisible();
+  await expect(
+    details.getByRole('combobox', { name: 'Lifecycle' }),
+  ).toHaveValue('active');
+
+  await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText('Review ticket linked', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Review ticket link updated', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Review ticket link removed', { exact: true }),
+  ).toBeVisible();
+});
