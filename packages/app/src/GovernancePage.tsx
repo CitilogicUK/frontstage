@@ -294,7 +294,9 @@ export function GovernancePage() {
   const reviewFilter =
     reviewParam === 'all' ||
     reviewParam === 'required' ||
-    ((reviewParam === 'first' || reviewParam === 'first-target') &&
+    ((reviewParam === 'first' ||
+      reviewParam === 'first-target' ||
+      reviewParam === 'missing-ticket') &&
       canReview) ||
     (reviewParam === 'mine' && reviewerTracks.length > 0)
       ? reviewParam
@@ -915,6 +917,8 @@ export function GovernancePage() {
     if (app.tier !== 3 || app.lifecycle === 'retired') return false;
     if (reviewFilter === 'attention') return appReview(app, now).priority <= 1;
     if (reviewFilter === 'required') return requiresCriticalReview(app, now);
+    if (reviewFilter === 'missing-ticket')
+      return !app.reviewTicketUrl && requiresCriticalReview(app, now);
     if (firstDecisionQueue) {
       if (!pendingFirstDecisions.has(app.id)) return false;
       if (!firstDecisionTargetQueue) return true;
@@ -1203,6 +1207,11 @@ export function GovernancePage() {
                     <option value="required">Review required now</option>
                     {canReview && (
                       <option value="first">Awaiting first decision</option>
+                    )}
+                    {canReview && (
+                      <option value="missing-ticket">
+                        Missing review ticket
+                      </option>
                     )}
                     {canReview &&
                       (reviewTurnaround?.target ||

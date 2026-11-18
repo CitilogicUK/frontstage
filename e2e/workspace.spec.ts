@@ -751,6 +751,73 @@ test('reviewers can download the spreadsheet import sample', async ({
   ).toBeVisible();
 });
 
+test('reviewers can find required reviews without a linked ticket', async ({
+  page,
+}) => {
+  const app = {
+    id: 'missing-ticket',
+    name: 'Missing ticket app',
+    purpose: 'Synthetic critical review fixture',
+    owner: 'user:default/owner',
+    team: 'group:default/platform',
+    tier: 3,
+    lifecycle: 'experimental',
+    reviewStatus: 'pending',
+    nextReview: null,
+    classification: 'internal',
+    platform: 'GitHub',
+    models: [],
+  };
+  let canReview = true;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        canReview,
+        actor: 'user:default/reviewer',
+        apps: [
+          app,
+          {
+            ...app,
+            id: 'linked-ticket',
+            name: 'Linked ticket app',
+            reviewTicketUrl: 'https://tickets.example.com/reviews/linked',
+          },
+          { ...app, id: 'retired', name: 'Retired app', lifecycle: 'retired' },
+          {
+            ...app,
+            id: 'current',
+            name: 'Current review app',
+            lifecycle: 'active',
+            reviewStatus: 'approved',
+            nextReview: new Date(Date.now() + 10 * 86_400_000).toISOString(),
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?view=reports');
+  const queueLink = page.locator(
+    'a[href="/?view=reviews&review=missing-ticket"]',
+  );
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(queueLink.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await queueLink.click();
+  await expect(page).toHaveURL(/view=reviews&review=missing-ticket$/);
+  const filter = page.getByRole('combobox', { name: 'Review status' });
+  await expect(filter).toHaveValue('missing-ticket');
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(app.name);
+
+  canReview = false;
+  await page.reload();
+  await expect(filter).toHaveValue('attention');
+  await expect(
+    filter.getByRole('option', { name: 'Missing review ticket' }),
+  ).toHaveCount(0);
+});
+
 test('audit history shows production review and ownership handoff', async ({
   page,
 }) => {
