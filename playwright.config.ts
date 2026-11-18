@@ -1,11 +1,14 @@
 import { defineConfig } from '@playwright/test';
-
-const baseURL = 'http://localhost:3000';
+import {
+  workspaceUrl,
+  workspaceBackendUrl,
+  usesIsolatedPorts,
+} from './e2e/workspaceUrls';
 
 export default defineConfig({
   testDir: './e2e',
   use: {
-    baseURL,
+    baseURL: workspaceUrl,
     reducedMotion: 'reduce',
     launchOptions: {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -23,9 +26,15 @@ export default defineConfig({
       NODE_OPTIONS: [process.env.NODE_OPTIONS, '--dns-result-order=ipv4first']
         .filter(Boolean)
         .join(' '),
+      ...(usesIsolatedPorts && {
+        APP_CONFIG_app_baseUrl: workspaceUrl,
+        APP_CONFIG_backend_baseUrl: workspaceBackendUrl,
+        APP_CONFIG_backend_listen_port: new URL(workspaceBackendUrl).port,
+        APP_CONFIG_backend_cors_origin: workspaceUrl,
+      }),
     },
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    url: workspaceUrl,
+    reuseExistingServer: !process.env.CI && !usesIsolatedPorts,
     timeout: 120_000,
   },
 });

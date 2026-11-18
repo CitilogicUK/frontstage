@@ -162,9 +162,14 @@ Backstage Analytics receives semantic events when a registration is saved or a s
 
 The dev server uses seed identities and SQLite. Before deployment, configure company SSO and the Backstage identity catalog provider, map reviewers to company identities, supply Postgres and the production URLs, and configure permissions for accessing the inventory. Production gateway operations, provider controls, additional discovery connectors, escalation, and deeper reporting remain later phases.
 
+## Verify changes in a worktree
+
+Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, and unit tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing.
+
+Give concurrent worktrees different browser-test ports so they can run alongside the usual dev server. Playwright starts and stops each worktree's own server.
+
 ```sh
-yarn tsc --noEmit
-yarn test --watch=false --runInBand
+FRONTSTAGE_E2E_APP_PORT=3101 FRONTSTAGE_E2E_BACKEND_PORT=7101 yarn verify
 ```
 
-GitHub Actions validates the local reviewer configuration and runs the type check, lint, unit tests, production build, and Chromium tests on pull requests and pushes to `main`. The gateway browser test starts an isolated SQLite backend. CI also tests the key audit migration on PostgreSQL 17. Discovery unit tests use a simulated GitHub response and require no external credentials.
+Draft pull requests skip the automated verification job. Ready PR updates, marking a PR ready, and pushes to `main` run the full check. The workflow also supports manual dispatch once it is available on the default branch. The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.

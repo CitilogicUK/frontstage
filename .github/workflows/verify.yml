@@ -2,6 +2,8 @@ name: Verify Frontstage
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -10,8 +12,9 @@ permissions:
 
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     # Route the prototype PR to the repository runner while hosted minutes are unavailable.
-    runs-on: ${{ github.event_name == 'pull_request' && github.head_ref == 'frontstage-prototype-baseline' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ ((github.event_name == 'pull_request' && github.head_ref == 'frontstage-prototype-baseline' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref_name == 'frontstage-prototype-baseline')) && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -20,15 +23,7 @@ jobs:
           node-version: 24.15.0
       - run: corepack enable
       - run: yarn install --immutable
-      - name: Validate local reviewer configuration
-        run: >-
-          yarn backstage-cli config:check
-          --config app-config.yaml
-          --config app-config.development.yaml
-          --config app-config.reviewer.yaml
-      - run: yarn tsc --noEmit
-      - run: yarn lint:all
-      - run: yarn test --watch=false --runInBand
+      - run: yarn verify:code
       - run: yarn build:all
       - run: yarn playwright install --with-deps chromium
       - run: yarn test:e2e

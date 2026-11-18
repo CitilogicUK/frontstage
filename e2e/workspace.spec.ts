@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { unzipSync, strFromU8 } from 'fflate';
 import { expect, test, type Page } from '@playwright/test';
+import { workspaceBackendUrl, workspaceUrl } from './workspaceUrls';
 
 const catalogPath =
   '/catalog?filters%5Bkind%5D=component&filters%5Buser%5D=all&limit=20';
@@ -53,7 +54,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     .poll(
       async () => {
         const health = await request
-          .get('http://localhost:7007/.backstage/health/v1/readiness', {
+          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
             timeout: 2_000,
           })
           .catch(() => undefined);
@@ -200,7 +201,7 @@ test('workspace screens share navigation and fit the viewport', async ({
       expect(brief).toContain('Configured model: `gpt-4.1-mini`');
       expect(descriptor).toContain('models: ["gpt-4.1-mini"]');
       expect(strFromU8(files[`${id}/gateway.mjs`])).toContain(
-        'FRONTSTAGE_BACKEND_URL ?? "http://localhost:7007"',
+        `FRONTSTAGE_BACKEND_URL ?? "${workspaceBackendUrl}"`,
       );
       expect(strFromU8(files[`${id}/README.md`])).toContain(
         'workspace that generated this starter',
@@ -437,7 +438,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   expect(reminder.suggestedFilename()).toBe('frontstage-review.ics');
   const calendar = await readFile(await reminder.path(), 'utf8');
   expect(calendar).toContain('SUMMARY:App attestation: Overdue app');
-  expect(calendar).toContain('URL:http://localhost:3000/?app=overdue');
+  expect(calendar).toContain(`URL:${workspaceUrl}/?app=overdue`);
   expect(calendar).toContain('TRIGGER:-P7D');
   await page.goBack();
   await expect(page.getByRole('dialog')).toBeHidden();
@@ -562,7 +563,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.getByRole('button', { name: 'Personal 0' }).click();
   await expect(page.getByText('No matching apps')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
-  await expect(page).toHaveURL(/localhost:3000\/$/);
+  await expect(page).toHaveURL(`${workspaceUrl}/`);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })

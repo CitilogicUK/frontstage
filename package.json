@@ -20,6 +20,8 @@
     "prettier:check": "prettier --check .",
     "new": "backstage-cli new",
     "test:e2e": "playwright test",
+    "verify:code": "backstage-cli config:check --config app-config.yaml --config app-config.development.yaml --config app-config.reviewer.yaml && yarn tsc --noEmit && yarn lint:all && yarn test --watch=false --runInBand",
+    "verify": "yarn verify:code && yarn build:all && yarn test:e2e",
     "demo:seed": "node scripts/seed-gateway-demo.mjs",
     "audit:verify": "node scripts/verify-audit.mjs"
   },
