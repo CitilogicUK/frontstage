@@ -30,6 +30,18 @@ export type DiscoveryResult = {
   }>;
 };
 
+function repositoryStatus(repository: DiscoveryResult['repositories'][number]) {
+  if (repository.appId) return 'registered';
+  return repository.dismissed ? 'dismissed' : 'unowned';
+}
+
+export function discoveryCounts(repositories: DiscoveryResult['repositories']) {
+  const counts = { unowned: 0, dismissed: 0, registered: 0 };
+  for (const repository of repositories)
+    counts[repositoryStatus(repository)] += 1;
+  return { ...counts, eligible: counts.registered + counts.unowned };
+}
+
 export function DiscoveryQueue({
   result,
   canReview,
@@ -60,13 +72,10 @@ export function DiscoveryQueue({
       return next;
     });
   }
-  const counts = { unowned: 0, dismissed: 0, registered: 0 };
+  const counts = discoveryCounts(result?.repositories ?? []);
   const search = query.trim().toLowerCase();
   const matches = result?.repositories.filter(repository => {
-    let status: keyof typeof counts = 'unowned';
-    if (repository.appId) status = 'registered';
-    else if (repository.dismissed) status = 'dismissed';
-    counts[status] += 1;
+    const status = repositoryStatus(repository);
     return (
       (filter === 'all' || filter === status) &&
       [repository.name, repository.description].some(value =>
@@ -74,7 +83,7 @@ export function DiscoveryQueue({
       )
     );
   });
-  const eligible = counts.registered + counts.unowned;
+  const { eligible } = counts;
 
   return (
     <section className="gov-panel" aria-label="Discovered repositories">

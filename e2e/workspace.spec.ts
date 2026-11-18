@@ -69,7 +69,12 @@ test('workspace screens share navigation and fit the viewport', async ({
     route.fulfill({
       json: {
         source: { organization: 'example', topic: 'governance' },
-        lastScan: null,
+        lastScan: {
+          at: '2026-11-18T11:00:00Z',
+          status: 'completed',
+          trigger: 'manual',
+          partial: true,
+        },
         intervalMinutes: null,
         repositories: ['registered', 'unowned', 'dismissed'].map(status => ({
           id: status,
@@ -104,9 +109,14 @@ test('workspace screens share navigation and fit the viewport', async ({
     await assertWorkspace(page, destination.heading, destination.label);
   }
 
-  await navigation
-    .getByRole('link', { name: 'Discovery', exact: true })
-    .click();
+  await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
+  const coverage = page.locator('.gov-report-summary > div').filter({
+    hasText: 'GitHub discovery coverage',
+  });
+  await expect(coverage).toContainText('50%');
+  await expect(coverage).toContainText('Excludes dismissed repositories');
+  await expect(coverage).toContainText('Partial scan results');
+  await coverage.getByRole('link', { name: 'View Discovery queue' }).click();
   await expect(
     page.getByText(/1 of 2 tracked repositories registered.*50% coverage/),
   ).toBeVisible();

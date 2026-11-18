@@ -16,6 +16,7 @@ import {
 } from './portfolioExport';
 import { gatewayBlockReason } from './gatewayBlockReasons';
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
+import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 
 type AppSummary = {
   id: string;
@@ -110,6 +111,7 @@ const dollars = new Intl.NumberFormat('en-US', {
 
 export function PortfolioReport({
   apps,
+  discoveries,
   report,
   usageDays,
   ownership,
@@ -121,6 +123,7 @@ export function PortfolioReport({
   error,
 }: {
   apps: AppSummary[];
+  discoveries?: DiscoveryResult;
   report?: UsageReport;
   usageDays: number;
   ownership?: OwnershipReport;
@@ -132,6 +135,9 @@ export function PortfolioReport({
   error: string;
 }) {
   const medianWorkingDays = reviewTurnaround?.medianWorkingDays;
+  const coverage = discoveries?.source
+    ? discoveryCounts(discoveries.repositories)
+    : undefined;
   const windowLabel = usageDays === 1 ? '24 hours' : `${usageDays} days`;
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
@@ -372,6 +378,29 @@ export function PortfolioReport({
           <dt>Non-retired apps</dt>
           <dd>{inventory.length}</dd>
         </div>
+        {coverage && (
+          <div className="gov-panel">
+            <dt>GitHub discovery coverage</dt>
+            <dd>
+              {coverage.eligible
+                ? `${Math.round(
+                    (coverage.registered / coverage.eligible) * 100,
+                  )}%`
+                : '—'}
+            </dd>
+            <small>
+              {coverage.registered} of {coverage.eligible} tracked repositories
+              registered
+              {coverage.dismissed > 0 && ' · Excludes dismissed repositories'}
+              {discoveries?.lastScan?.status === 'failed'
+                ? ' · Latest scan failed'
+                : discoveries?.lastScan?.partial && ' · Partial scan results'}
+            </small>
+            <div>
+              <Link to="/?view=discovery">View Discovery queue</Link>
+            </div>
+          </div>
+        )}
         <div className="gov-panel">
           <dt>Critical apps needing review</dt>
           <dd>{critical.length}</dd>

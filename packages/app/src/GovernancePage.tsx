@@ -424,7 +424,8 @@ export function GovernancePage() {
   }, []);
 
   useEffect(() => {
-    if (view !== 'Discovery' && !repositoryId) return undefined;
+    if (view !== 'Discovery' && view !== 'Reports' && !repositoryId)
+      return undefined;
     let current = true;
     setDiscoveryError('');
     api('/discovery/github')
@@ -1820,6 +1821,7 @@ export function GovernancePage() {
       {view === 'Reports' && (
         <PortfolioReport
           apps={apps}
+          discoveries={discoveryError ? undefined : discoveries}
           report={
             usageReport?.days === usageDays ? usageReport.data : undefined
           }
