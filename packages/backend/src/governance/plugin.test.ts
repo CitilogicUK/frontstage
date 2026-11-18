@@ -186,9 +186,25 @@ describe('governance record access', () => {
       .send({ model: 'test-model', prompt: 'Check access after publishing.' })
       .expect(200);
 
+    const accessPath = `${path}/directory-requests`;
+    const { body: submitted } = await api
+      .post(accessPath)
+      .set('Authorization', auth(teammate))
+      .send({ message: 'Need access for staff support.' })
+      .expect(201);
+    const readQueue = () =>
+      api.get(accessPath).set('Authorization', auth(reviewer)).expect(200);
+    expect((await readQueue()).body.canApprove).toBe(true);
+
     const clock = jest
       .spyOn(Date, 'now')
       .mockReturnValue(Date.parse(approved.body.nextReview));
+    expect((await readQueue()).body.canApprove).toBe(false);
+    await api
+      .patch(`${accessPath}/${submitted.id}`)
+      .set('Authorization', auth(reviewer))
+      .send({ status: 'approved' })
+      .expect(409);
     await list().expect(200, { apps: [] });
     await publish(edited.body.updatedAt).expect(400);
     const removed = await unpublish(edited.body.updatedAt, reviewer).expect(
@@ -303,6 +319,207 @@ describe('governance record access', () => {
         }),
       ]),
     );
+  });
+
+  it('keeps durable directory access requests private and applies only permitted decisions', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    const requester = 'user:default/requester';
+    const otherRequester = 'user:default/other-requester';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const create = (name: string, sourceUrl: string) =>
+      api
+        .post(collection)
+        .set('Authorization', auth(owner))
+        .send({
+          name,
+          sourceUrl,
+          purpose: 'Assist with staff workflows.',
+          type: 'app',
+          platform: 'GitHub',
+          owner,
+          team: 'group:default/operations',
+          lifecycle: 'active',
+          audience: 'personal',
+          classification: 'internal',
+          usesAiAtRuntime: false,
+        })
+        .expect(201);
+    const { body: app } = await create(
+      'Staff tools',
+      'https://example.com/staff-tools',
+    );
+    const { body: anotherApp } = await create(
+      'Other app',
+      'https://example.com/other-app',
+    );
+    const path = `${collection}/${app.id}`;
+    const queue = `${path}/directory-requests`;
+    const listing = {
+      summary: 'Staff tools summary',
+      url: 'https://tools.example.com/staff',
+    };
+    const requestMessage = 'Need access for support.';
+    const createRequest = (user: string, message = requestMessage) =>
+      api.post(queue).set('Authorization', auth(user)).send({ message });
+    const feed = (user: string) =>
+      api.get('/api/governance/directory').set('Authorization', auth(user));
+    const publish = (expectedUpdatedAt: string) =>
+      api
+        .put(`${path}/directory`)
+        .set('Authorization', auth(owner))
+        .send({ ...listing, expectedUpdatedAt })
+        .expect(200);
+    const decide = (user: string, id: string, status: string) =>
+      api
+        .patch(`${queue}/${id}`)
+        .set('Authorization', auth(user))
+        .send({ status });
+
+    await createRequest(requester).expect(404);
+    const { body: published } = await publish(app.updatedAt);
+    await api
+      .post(queue)
+      .set('Authorization', mockCredentials.none.header())
+      .send({ message: requestMessage })
+      .expect(401);
+    await api
+      .post(queue)
+      .set('Authorization', mockCredentials.service.header())
+      .send({ message: requestMessage })
+      .expect(403);
+    await createRequest(requester, '   ').expect(400);
+    await createRequest(requester, 'x'.repeat(501)).expect(400);
+    const attempts = await Promise.all([
+      createRequest(requester, `  ${requestMessage}  `),
+      createRequest(requester),
+    ]);
+    expect(attempts.map(result => result.status).sort()).toEqual([201, 409]);
+    const created = attempts.find(result => result.status === 201)?.body;
+    expect(created).toEqual({ id: expect.any(String), status: 'pending' });
+    const { body: pending } = await createRequest(
+      otherRequester,
+      'Second private message.',
+    ).expect(201);
+
+    const entry = { id: app.id, name: app.name, ...listing };
+    await feed(requester)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, { apps: [{ ...entry, requestStatus: 'pending' }] });
+    await feed(reviewer).expect(200, { apps: [entry] });
+    await api.get(queue).set('Authorization', auth(requester)).expect(403);
+    const { body: reviewerQueue } = await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(reviewerQueue.requests).toEqual(
+      expect.arrayContaining([
+        {
+          id: created.id,
+          requester,
+          message: requestMessage,
+          status: 'pending',
+          requestedAt: expect.any(String),
+        },
+        {
+          id: pending.id,
+          requester: otherRequester,
+          message: 'Second private message.',
+          status: 'pending',
+          requestedAt: expect.any(String),
+        },
+      ]),
+    );
+    expect(reviewerQueue.requests).toHaveLength(2);
+    expect(reviewerQueue.canApprove).toBe(true);
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200, reviewerQueue);
+
+    await decide(requester, created.id, 'approved').expect(403);
+    await decide(owner, created.id, 'pending').expect(400);
+    await api
+      .patch(`${collection}/${anotherApp.id}/directory-requests/${created.id}`)
+      .set('Authorization', auth(owner))
+      .send({ status: 'declined' })
+      .expect(404);
+    const { body: approved } = await decide(
+      owner,
+      created.id,
+      'approved',
+    ).expect(200);
+    expect(approved).toEqual({
+      ...reviewerQueue.requests.find(
+        (row: { id: string }) => row.id === created.id,
+      ),
+      status: 'approved',
+      decidedBy: owner,
+      decidedAt: expect.any(String),
+    });
+    await decide(reviewer, created.id, 'declined').expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+
+    const { body: unpublished } = await api
+      .delete(`${path}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: published.updatedAt })
+      .expect(200);
+    await feed(requester).expect(200, { apps: [] });
+    await decide(reviewer, pending.id, 'approved').expect(409);
+    const { body: declined } = await decide(
+      reviewer,
+      pending.id,
+      'declined',
+    ).expect(200);
+    expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.requests).toEqual(
+          expect.arrayContaining([approved, declined]),
+        );
+        expect(body.canApprove).toBe(false);
+      });
+
+    await publish(unpublished.updatedAt);
+    await createRequest(requester).expect(409);
+    await createRequest(otherRequester).expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'declined' }],
+    });
   });
 
   const approvedConnector = {
