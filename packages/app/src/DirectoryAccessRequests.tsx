@@ -37,8 +37,12 @@ function useDirectoryRequestApi(appId: string) {
       );
       const data = await response.json().catch(() => undefined);
       if (!response.ok)
-        throw new Error(
-          data?.error?.message ?? 'The access request could not be processed.',
+        throw Object.assign(
+          new Error(
+            data?.error?.message ??
+              'The access request could not be processed.',
+          ),
+          { status: response.status },
         );
       return data;
     },
@@ -120,6 +124,7 @@ export function DirectoryRequestQueue({
   const api = useDirectoryRequestApi(appId);
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<AccessRequestQueue>();
+  const [queueVersion, setQueueVersion] = useState(0);
   const requests = queue?.requests;
   const canApprove = hasListing && queue?.canApprove === true;
   const [submitting, setSubmitting] = useState(false);
@@ -129,7 +134,6 @@ export function DirectoryRequestQueue({
     if (!open) return undefined;
     const controller = new AbortController();
     setQueue(undefined);
-    setError('');
     api<AccessRequestQueue>('', { signal: controller.signal }).then(
       result => {
         if (!controller.signal.aborted) setQueue(result);
@@ -140,7 +144,7 @@ export function DirectoryRequestQueue({
       },
     );
     return () => controller.abort();
-  }, [api, hasListing, open]);
+  }, [api, hasListing, open, queueVersion]);
 
   async function decide(event: FormEvent<HTMLFormElement>, requestId: string) {
     event.preventDefault();
@@ -168,6 +172,14 @@ export function DirectoryRequestQueue({
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+      if (
+        reason instanceof Error &&
+        'status' in reason &&
+        reason.status === 409
+      ) {
+        setQueue(undefined);
+        setQueueVersion(version => version + 1);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -176,7 +188,11 @@ export function DirectoryRequestQueue({
   return (
     <details
       className="gov-app-editor"
-      onToggle={event => setOpen(event.currentTarget.open)}
+      onToggle={event => {
+        const isOpen = event.currentTarget.open;
+        if (isOpen) setError('');
+        setOpen(isOpen);
+      }}
     >
       <summary>Directory access requests</summary>
       {open && (

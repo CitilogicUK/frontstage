@@ -2628,7 +2628,9 @@ test('a directory access request receives a recorded owner decision', async ({
   };
   let actor = requester;
   let status: 'pending' | 'approved' | undefined;
-  let canApprove = false;
+  let canApprove = true;
+  const conflictMessage =
+    'This app no longer has an eligible directory listing.';
   await page.route('**/api/governance/apps', route =>
     route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
   );
@@ -2669,6 +2671,11 @@ test('a directory access request receives a recorded owner decision', async ({
       expect(actor).toBe(owner);
       expect(route.request().method()).toBe('PATCH');
       expect(route.request().postDataJSON()).toEqual({ status: 'approved' });
+      if (!canApprove)
+        return route.fulfill({
+          status: 409,
+          json: { error: { message: conflictMessage } },
+        });
       status = 'approved';
       return route.fulfill({
         json: { ...seed, status, decidedBy: owner, decidedAt: app.updatedAt },
@@ -2705,6 +2712,13 @@ test('a directory access request receives a recorded owner decision', async ({
     details.getByText(/grant approved access in the destination app/),
   ).toBeVisible();
   const approve = details.getByRole('option', { name: 'Approve' });
+  await expect(approve).toBeEnabled();
+  canApprove = false;
+  await details
+    .getByRole('combobox', { name: 'Access decision' })
+    .selectOption('approved');
+  await details.getByRole('button', { name: 'Record access decision' }).click();
+  await expect(details.getByRole('alert')).toHaveText(conflictMessage);
   await expect(approve).toBeDisabled();
   const queue = details.getByText('Directory access requests', { exact: true });
   await queue.click();
