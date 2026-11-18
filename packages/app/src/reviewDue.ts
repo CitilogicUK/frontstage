@@ -1,12 +1,20 @@
 export function isReviewOverdue(
-  app: { tier: number; lifecycle: string; nextReview: string | null },
+  app: {
+    tier: number;
+    lifecycle: string;
+    reviewStatus: string;
+    nextReview: string | null;
+  },
   now: number,
 ) {
-  return (
-    app.lifecycle !== 'retired' &&
-    (app.tier === 2 || app.tier === 3) &&
-    Boolean(app.nextReview && Date.parse(app.nextReview) <= now)
-  );
+  if (app.lifecycle === 'retired' || (app.tier !== 2 && app.tier !== 3))
+    return false;
+
+  const due = scheduledReviewDate(app);
+  if (due) return due.getTime() <= now;
+
+  // An initial Tier 3 decision has no scheduled renewal yet.
+  return app.tier === 2 || app.reviewStatus === 'approved';
 }
 
 function calendarText(value: string) {

@@ -122,14 +122,15 @@ function appReview(app: App, now: number) {
       priority: 0,
     };
   }
-  if (!app.nextReview || Date.parse(app.nextReview) <= now) {
+  if (isReviewOverdue(app, now)) {
     return {
       label: app.tier === 2 ? 'Attestation overdue' : 'Review overdue',
       status: 'changes needed',
       priority: 0,
     };
   }
-  if (Date.parse(app.nextReview) <= now + 30 * 24 * 60 * 60 * 1000) {
+  const due = scheduledReviewDate(app);
+  if (due && due.getTime() <= now + 30 * 86_400_000) {
     return {
       label: app.tier === 2 ? 'Attestation due soon' : 'Review due soon',
       status: 'pending',
