@@ -107,25 +107,34 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     backend.once('close', () => done()),
   );
 
-  try {
+  async function waitForStatus(path: string, headers?: Record<string, string>) {
     await expect
       .poll(
         async () => {
-          try {
-            const response = await request.get(
-              `${backendUrl}/.backstage/health/v1/readiness`,
-              { timeout: 2_000 },
+          if (backend.exitCode !== null || backend.signalCode !== null) {
+            throw new Error(
+              `The isolated Backstage backend exited while waiting for ${path}.`,
             );
+          }
+          try {
+            const response = await request.get(`${backendUrl}${path}`, {
+              headers,
+              timeout: 2_000,
+            });
             const status = response.status();
             await response.dispose();
             return status;
           } catch {
-            return 'starting';
+            return 'unreachable';
           }
         },
-        { timeout: 30_000 },
+        { timeout: 30_000, message: `Wait for Backstage endpoint ${path}` },
       )
       .toBe(200);
+  }
+
+  try {
+    await waitForStatus('/.backstage/health/v1/readiness');
 
     const auth = await request.get(`${backendUrl}/api/auth/guest/refresh`, {
       headers: { Origin: demoOrigin, 'X-Requested-With': 'XMLHttpRequest' },
@@ -139,22 +148,15 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       Authorization: `Bearer ${identity.backstageIdentity.token}`,
     };
 
-    for (const owner of ['guest', 'backup']) {
-      await expect
-        .poll(
-          async () => {
-            const response = await request.get(
-              `${backendUrl}/api/catalog/entities/by-name/user/default/${owner}`,
-              { headers, timeout: 2_000 },
-            );
-            const status = response.status();
-            await response.dispose();
-            return status;
-          },
-          { timeout: 15_000 },
-        )
-        .toBe(200);
-    }
+    await Promise.all(
+      [
+        'user/default/guest',
+        'user/default/backup',
+        'group/default/platform',
+      ].map(ref =>
+        waitForStatus(`/api/catalog/entities/by-name/${ref}`, headers),
+      ),
+    );
 
     const models = await request.get(`${api}/gateway/models`, { headers });
     await expectStatus(models, 200, 'Read the approved model policy');
