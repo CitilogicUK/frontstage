@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-24.04
+    # Route the prototype PR to the repository runner while hosted minutes are unavailable.
+    runs-on: ${{ github.event_name == 'pull_request' && github.head_ref == 'frontstage-prototype-baseline' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
