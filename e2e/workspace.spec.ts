@@ -391,6 +391,14 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('Attestation overdue');
   await expect(rows.nth(1)).toContainText('Attestation due soon');
+  await reviewStatus.selectOption('upcoming');
+  await expect(page).toHaveURL(/owner=me&review=upcoming$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  await page.reload();
+  await expect(reviewStatus).toHaveValue('upcoming');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
   await reviewStatus.selectOption('');
   const lifecycle = page.getByRole('combobox', {
     name: 'Lifecycle',
