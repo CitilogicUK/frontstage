@@ -419,6 +419,7 @@ export function registerGatewayRoutes(options: {
     principal: BackstageUserPrincipal,
   ) => void;
   meetsLaunchRequirements: (app: GovernanceRecord) => boolean;
+  meetsGatewayReviewRequirements: (app: GovernanceRecord) => boolean;
   evaluateTier: (app: GovernanceRecord) => number;
   ownersAreActive: (app: GovernanceRecord) => Promise<boolean>;
   isReviewer: (principal: BackstageUserPrincipal) => boolean;
@@ -433,6 +434,7 @@ export function registerGatewayRoutes(options: {
     load,
     assertCanEdit,
     meetsLaunchRequirements,
+    meetsGatewayReviewRequirements,
     isReviewer,
     evaluateTier,
     ownersAreActive,
@@ -540,7 +542,7 @@ export function registerGatewayRoutes(options: {
         message: 'Provider-hosted apps use their approved workspace controls.',
       };
     }
-    if (!meetsLaunchRequirements(app)) {
+    if (!meetsGatewayReviewRequirements(app)) {
       return {
         reason: 'review',
         message:

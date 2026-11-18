@@ -60,6 +60,28 @@ const importInput = z.union([
   z.object({ csv: z.string().min(1).max(500_000) }).strict(),
 ]);
 
+type RenewalException = {
+  reason: string;
+  expiresAt: string;
+  grantedAt: string;
+  actor: string;
+  owner: string;
+};
+
+type RecordAction =
+  | 'registered'
+  | 'updated'
+  | 'reviewed'
+  | 'attested'
+  | 'renewal-exception-granted'
+  | 'renewal-exception-revoked';
+
+const renewalWindowMs = 30 * 24 * 60 * 60 * 1_000;
+
+function isRenewalExpiryWithinWindow(due: number, expiry: number) {
+  return expiry > due && expiry <= due + renewalWindowMs;
+}
+
 export type GovernanceRecord = AppInput & {
   id: string;
   tier: number;
@@ -71,6 +93,7 @@ export type GovernanceRecord = AppInput & {
   updatedAt: string;
   reviewNotes?: string;
   signoffs?: Signoffs;
+  renewalException?: RenewalException;
 };
 
 function nextRecordTimestamp(previous: string) {
@@ -376,8 +399,9 @@ export const governancePlugin = createBackendPlugin({
           record: GovernanceRecord,
           revision: number,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
-          action: 'registered' | 'updated' | 'reviewed' | 'attested',
+          action: RecordAction,
           lifecycleReason?: string,
+          renewalException?: RenewalException,
         ) {
           const previous = await transaction(history)
             .where({ app_id: record.id, revision: revision - 1 })
@@ -391,6 +415,7 @@ export const governancePlugin = createBackendPlugin({
             revision,
             previousDigest: previous?.digest ?? null,
             lifecycleReason,
+            renewalException,
             record,
           });
           await transaction(history).insert({
@@ -456,11 +481,16 @@ export const governancePlugin = createBackendPlugin({
           record: GovernanceRecord,
           revision: number,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
-          action: 'updated' | 'reviewed' | 'attested',
+          action: Exclude<RecordAction, 'registered'>,
           {
             ownerChanged = false,
             lifecycleReason,
-          }: { ownerChanged?: boolean; lifecycleReason?: string } = {},
+            renewalException,
+          }: {
+            ownerChanged?: boolean;
+            lifecycleReason?: string;
+            renewalException?: RenewalException;
+          } = {},
         ) {
           await db.transaction(async transaction => {
             const count = await transaction(table)
@@ -493,6 +523,7 @@ export const governancePlugin = createBackendPlugin({
               principal,
               action,
               lifecycleReason,
+              renewalException,
             );
           });
         }
@@ -624,6 +655,7 @@ export const governancePlugin = createBackendPlugin({
             reviewTicketUrl: undefined,
             evidence: undefined,
             signoffs: undefined,
+            renewalException: undefined,
           };
         }
 
@@ -642,17 +674,45 @@ export const governancePlugin = createBackendPlugin({
           }
         }
 
-        function meetsLaunchRequirements(record: GovernanceRecord) {
+        function meetsLaunchRequirements(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
           const tier = evaluateTier(record);
           return (
             tier === record.tier &&
             (tier !== 3 ||
               ((!trackConfig ||
-                trackedReview(record.signoffs, trackConfig, Date.now())
+                trackedReview(record.signoffs, trackConfig, now)
                   .reviewStatus === 'approved') &&
                 record.reviewStatus === 'approved' &&
                 record.nextReview !== null &&
-                Date.parse(record.nextReview) > Date.now()))
+                Date.parse(record.nextReview) > now))
+          );
+        }
+
+        function meetsGatewayReviewRequirements(record: GovernanceRecord) {
+          const now = Date.now();
+          if (meetsLaunchRequirements(record, now)) return true;
+          const exception = record.renewalException;
+          const due = Date.parse(record.nextReview ?? '');
+          const expiry = Date.parse(exception?.expiresAt ?? '');
+          return (
+            !trackConfig &&
+            record.lifecycle === 'active' &&
+            record.tier === 3 &&
+            evaluateTier(record) === record.tier &&
+            record.reviewStatus === 'approved' &&
+            Boolean(
+              exception &&
+                exception.owner === record.owner &&
+                reviewers.includes(exception.actor) &&
+                exception.actor !== record.owner &&
+                exception.actor !== record.backupOwner &&
+                Date.parse(exception.grantedAt) < due &&
+                isRenewalExpiryWithinWindow(due, expiry) &&
+                expiry > now,
+            )
           );
         }
 
@@ -1025,6 +1085,10 @@ export const governancePlugin = createBackendPlugin({
           const updated = {
             ...record,
             lifecycle: lifecycle.data,
+            renewalException:
+              record.lifecycle === 'active' && lifecycle.data === 'active'
+                ? record.renewalException
+                : undefined,
             updatedAt: nextRecordTimestamp(record.updatedAt),
           };
           assertCanLaunch(updated);
@@ -1111,6 +1175,10 @@ export const governancePlugin = createBackendPlugin({
               : {
                   ...record,
                   ...app,
+                  renewalException:
+                    record.lifecycle === 'active' && app.lifecycle === 'active'
+                      ? record.renewalException
+                      : undefined,
                   backupOwner: app.backupOwner,
                   deliveryStage: app.deliveryStage,
                   evidence: app.evidence,
@@ -1174,6 +1242,127 @@ export const governancePlugin = createBackendPlugin({
           };
           await save(updated, revision, principal, 'attested');
           res.json(updated);
+        });
+
+        async function loadRenewalExceptionRecord(
+          id: string,
+          principal: BackstageUserPrincipal,
+          expectedUpdatedAt: string,
+        ) {
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          const current = await load(id);
+          const { record } = current;
+          if (
+            principal.userEntityRef === record.owner ||
+            principal.userEntityRef === record.backupOwner
+          )
+            throw new NotAllowedError(
+              'Only an independent reviewer can change a renewal exception.',
+            );
+          if (expectedUpdatedAt !== record.updatedAt)
+            throw new ConflictError(
+              'The app changed since you opened it. Reopen the current record before changing the renewal exception.',
+            );
+          return current;
+        }
+
+        router.post('/apps/:id/renewal-exception', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              reason: z.string().trim().min(1).max(1000),
+              expiresAt: z.string().datetime(),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide a reason, a UTC expiry, and the current record timestamp.',
+            );
+          const { record, revision } = await loadRenewalExceptionRecord(
+            req.params.id,
+            principal,
+            input.data.expectedUpdatedAt,
+          );
+          if (trackConfig)
+            throw new NotAllowedError(
+              'Renewal exceptions are unavailable when separate review tracks are required.',
+            );
+          if (record.renewalException)
+            throw new ConflictError(
+              'Revoke the existing renewal exception before granting another.',
+            );
+          const now = Date.now();
+          if (
+            record.lifecycle !== 'active' ||
+            record.tier !== 3 ||
+            !meetsLaunchRequirements(record, now)
+          )
+            throw new InputError(
+              'An active tier 3 app needs a current approval before a renewal exception can be granted.',
+            );
+          const due = Date.parse(record.nextReview ?? '');
+          const expiry = Date.parse(input.data.expiresAt);
+          if (!isRenewalExpiryWithinWindow(due, expiry))
+            throw new InputError(
+              'The expiry must be after the scheduled review and at most 30 days later.',
+            );
+          const updatedAt = nextRecordTimestamp(record.updatedAt);
+          const renewalException: RenewalException = {
+            reason: input.data.reason,
+            expiresAt: new Date(expiry).toISOString(),
+            grantedAt: new Date(now).toISOString(),
+            actor: principal.userEntityRef,
+            owner: record.owner,
+          };
+          const updated = { ...record, updatedAt, renewalException };
+          await save(
+            updated,
+            revision,
+            principal,
+            'renewal-exception-granted',
+            {
+              renewalException,
+            },
+          );
+          res.json(visibleRecord(updated, principal));
+        });
+
+        router.delete('/apps/:id/renewal-exception', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .string()
+            .datetime()
+            .safeParse(req.body?.expectedUpdatedAt);
+          if (!input.success)
+            throw new InputError('Provide the current record timestamp.');
+          const { record, revision } = await loadRenewalExceptionRecord(
+            req.params.id,
+            principal,
+            input.data,
+          );
+          if (!record.renewalException)
+            throw new NotFoundError('This app has no renewal exception.');
+          const updated = {
+            ...record,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+            renewalException: undefined,
+          };
+          await save(
+            updated,
+            revision,
+            principal,
+            'renewal-exception-revoked',
+            {
+              renewalException: record.renewalException,
+            },
+          );
+          res.json(visibleRecord(updated, principal));
         });
 
         router.post('/apps/:id/reviews', async (req, res) => {
@@ -1258,6 +1447,7 @@ export const governancePlugin = createBackendPlugin({
             ...summary,
             signoffs: signoffs || undefined,
             reviewNotes: decision.data.notes,
+            renewalException: undefined,
           };
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
@@ -1277,6 +1467,7 @@ export const governancePlugin = createBackendPlugin({
           load,
           assertCanEdit,
           meetsLaunchRequirements,
+          meetsGatewayReviewRequirements,
           evaluateTier,
           ownersAreActive,
           isReviewer: principal => reviewers.includes(principal.userEntityRef),
