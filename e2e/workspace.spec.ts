@@ -1090,12 +1090,28 @@ test('a hosted app owner can correct the declared workspace', async ({
       dataAccess: 'none',
     },
   };
+  const original = app;
+  await page.route('**/api/governance/apps/hosted-app/history', route =>
+    route.fulfill({
+      json: {
+        keyEvents: [],
+        events: [original, app].map((record, index) => ({
+          digest: String(index).padStart(64, '0'),
+          event: JSON.stringify({
+            action: index === 0 ? 'registered' : 'updated',
+            actor: app.owner,
+            record,
+          }),
+        })),
+      },
+    }),
+  );
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
         actor: app.owner,
         gatewayEnabled: true,
-        canReview: false,
+        canReview: true,
         apps: [app],
       },
     }),
@@ -1139,6 +1155,14 @@ test('a hosted app owner can correct the declared workspace', async ({
   await expect(
     details.getByRole('region', { name: 'Gateway playground' }),
   ).toHaveCount(0);
+
+  await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText(/Workspace changed from Personal to Company/),
+  ).toBeVisible();
+  await expect(
+    details.getByText(/Sharing scope changed from private to named people/),
+  ).toBeVisible();
 
   await page.goto('/?view=register');
   await page.getByLabel('App type').selectOption('provider-hosted app');

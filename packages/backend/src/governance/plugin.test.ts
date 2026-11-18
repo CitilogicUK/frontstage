@@ -605,6 +605,7 @@ describe('governance record access', () => {
         hosted: { sharing: 'private', dataClassification: 'restricted' },
       })
       .expect(200, { tier: 3, effectiveClassification: 'restricted' });
+    const hostedRecords = [];
     for (const workspace of ['Company', 'Personal']) {
       const hosted = await api
         .post(apps)
@@ -629,6 +630,7 @@ describe('governance record access', () => {
           },
         })
         .expect(201);
+      hostedRecords.push(hosted.body);
       const scorecard = await api
         .get(`${apps}/${hosted.body.id}/scorecard`)
         .set('Authorization', auth(owner))
@@ -644,44 +646,43 @@ describe('governance record access', () => {
         .set('Authorization', auth(owner))
         .send({ lifecycle: 'active', expectedUpdatedAt: hosted.body.updatedAt })
         .expect(workspace === 'Company' ? 200 : 400);
-      if (workspace === 'Personal') {
-        const corrected = await api
-          .put(`${apps}/${hosted.body.id}`)
-          .set('Authorization', auth(owner))
-          .send({
-            ...hosted.body,
-            hosted: { ...hosted.body.hosted, workspace: 'Company' },
-            expectedUpdatedAt: hosted.body.updatedAt,
-          })
-          .expect(200);
-        const activated = await api
-          .patch(`${apps}/${hosted.body.id}/lifecycle`)
-          .set('Authorization', auth(owner))
-          .send({
-            lifecycle: 'active',
-            expectedUpdatedAt: corrected.body.updatedAt,
-          })
-          .expect(200);
-        jest
-          .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
-          .mockResolvedValueOnce(activeCatalog);
-        const shared = await api
-          .put(`${apps}/${hosted.body.id}`)
-          .set('Authorization', auth(owner))
-          .send({
-            ...activated.body,
-            backupOwner: backup,
-            hosted: { ...activated.body.hosted, sharing: 'public link' },
-            expectedUpdatedAt: activated.body.updatedAt,
-          })
-          .expect(200);
-        expect(shared.body).toMatchObject({
-          tier: 3,
-          lifecycle: 'experimental',
-          reviewStatus: 'pending',
-        });
-      }
     }
+    const personal = hostedRecords[1];
+    const corrected = await api
+      .put(`${apps}/${personal.id}`)
+      .set('Authorization', auth(owner))
+      .send({
+        ...personal,
+        hosted: { ...personal.hosted, workspace: 'Company' },
+        expectedUpdatedAt: personal.updatedAt,
+      })
+      .expect(200);
+    const activated = await api
+      .patch(`${apps}/${personal.id}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({
+        lifecycle: 'active',
+        expectedUpdatedAt: corrected.body.updatedAt,
+      })
+      .expect(200);
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockResolvedValueOnce(activeCatalog);
+    const shared = await api
+      .put(`${apps}/${personal.id}`)
+      .set('Authorization', auth(owner))
+      .send({
+        ...activated.body,
+        backupOwner: backup,
+        hosted: { ...activated.body.hosted, sharing: 'public link' },
+        expectedUpdatedAt: activated.body.updatedAt,
+      })
+      .expect(200);
+    expect(shared.body).toMatchObject({
+      tier: 3,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+    });
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {
     const owner = 'user:default/owner';

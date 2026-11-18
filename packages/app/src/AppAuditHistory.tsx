@@ -8,7 +8,16 @@ import {
 import { deliveryStages, parseDeliveryStage } from './deliveryStages';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 
+const hostedFields = {
+  provider: 'Provider',
+  workspace: 'Workspace',
+  sharing: 'Sharing scope',
+  dataAccess: 'Hosted data access',
+  dataClassification: 'Hosted data classification',
+} as const;
+
 type AuditRecord = {
+  hosted?: Partial<Record<keyof typeof hostedFields, string>>;
   owner: string;
   lifecycle?: string;
   tier?: number;
@@ -92,6 +101,21 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         previous.lifecycle !== record.lifecycle
       ) {
         details.push(`Lifecycle changed to ${record.lifecycle}`);
+      }
+      if (previous && (previous.hosted || record.hosted)) {
+        for (const field of Object.keys(hostedFields) as Array<
+          keyof typeof hostedFields
+        >) {
+          const before = previous.hosted?.[field];
+          const after = record.hosted?.[field];
+          if (before !== after) {
+            details.push(
+              `${hostedFields[field]} changed from ${
+                before ?? 'unspecified'
+              } to ${after ?? 'unspecified'}`,
+            );
+          }
+        }
       }
       if (entry.lifecycleReason)
         details.push(`Reason: ${entry.lifecycleReason}`);
