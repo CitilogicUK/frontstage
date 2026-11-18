@@ -1171,6 +1171,10 @@ test('a hosted app owner can correct the declared workspace', async ({
   await expect(hostedIssues.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await hostedIssues.getByRole('link', { name: app.name }).click();
+  await expect(
+    details.getByRole('link', { name: 'View approved workspaces (new tab)' }),
+  ).toHaveAttribute('href', '/?view=guide#hosted-workspaces-title');
+
   await details
     .getByRole('textbox', { name: 'Workspace', exact: true })
     .fill('Company');
@@ -1203,6 +1207,10 @@ test('a hosted app owner can correct the declared workspace', async ({
   ).toBeVisible();
   await page.goto('/?view=register');
   await page.getByLabel('App type').selectOption('provider-hosted app');
+  await expect(
+    page.getByRole('link', { name: 'View approved workspaces (new tab)' }),
+  ).toHaveAttribute('target', '_blank');
+
   await page
     .getByRole('combobox', { name: 'Data access', exact: true })
     .selectOption('stores input');

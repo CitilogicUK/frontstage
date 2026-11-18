@@ -99,6 +99,7 @@ const evidenceFields = [
   ['incidentPlan', 'Incident plan'],
 ] as const;
 
+const hostedWorkspaceGuidePath = '/?view=guide#hosted-workspaces-title';
 const audiences = ['personal', 'team', 'company', 'external'];
 const sharing = ['private', 'named people', 'company', 'public link'];
 const hostedAccessOptions = [
@@ -1334,6 +1335,13 @@ export function GovernancePage() {
                   {selected.hosted && (
                     <fieldset className="gov-fieldset">
                       <legend>Provider workspace</legend>
+                      <Link
+                        to={hostedWorkspaceGuidePath}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View approved workspaces (new tab)
+                      </Link>
                       <label>
                         Provider
                         <input
@@ -1968,6 +1976,13 @@ export function GovernancePage() {
                       Enterprise workspace
                       <input required name="workspace" />
                     </label>
+                    <Link
+                      to={hostedWorkspaceGuidePath}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View approved workspaces (new tab)
+                    </Link>
                     <label>
                       Sharing scope
                       <select name="sharing">{options(sharing)}</select>
