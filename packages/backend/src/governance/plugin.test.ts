@@ -645,7 +645,7 @@ describe('governance record access', () => {
             expectedUpdatedAt: hosted.body.updatedAt,
           })
           .expect(200);
-        await api
+        const activated = await api
           .patch(`${apps}/${hosted.body.id}/lifecycle`)
           .set('Authorization', auth(owner))
           .send({
@@ -653,6 +653,24 @@ describe('governance record access', () => {
             expectedUpdatedAt: corrected.body.updatedAt,
           })
           .expect(200);
+        jest
+          .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+          .mockResolvedValueOnce(activeCatalog);
+        const shared = await api
+          .put(`${apps}/${hosted.body.id}`)
+          .set('Authorization', auth(owner))
+          .send({
+            ...activated.body,
+            backupOwner: backup,
+            hosted: { ...activated.body.hosted, sharing: 'public link' },
+            expectedUpdatedAt: activated.body.updatedAt,
+          })
+          .expect(200);
+        expect(shared.body).toMatchObject({
+          tier: 3,
+          lifecycle: 'experimental',
+          reviewStatus: 'pending',
+        });
       }
     }
   });

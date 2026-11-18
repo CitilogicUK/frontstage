@@ -1102,7 +1102,13 @@ test('a hosted app owner can correct the declared workspace', async ({
   );
   await page.route('**/api/governance/apps/hosted-app', route => {
     const update = route.request().postDataJSON();
-    expect(update.hosted).toEqual({ ...app.hosted, workspace: 'Company' });
+    expect(update.hosted).toEqual({
+      ...app.hosted,
+      workspace: 'Company',
+      sharing: 'named people',
+      dataAccess: 'stores input',
+      dataClassification: 'internal',
+    });
     app = {
       ...app,
       hosted: update.hosted,
@@ -1119,6 +1125,13 @@ test('a hosted app owner can correct the declared workspace', async ({
   await details
     .getByRole('textbox', { name: 'Workspace', exact: true })
     .fill('Company');
+  await details.getByLabel('Sharing scope').selectOption('named people');
+  await details
+    .getByRole('combobox', { name: 'Data access', exact: true })
+    .selectOption('stores input');
+  await details
+    .getByLabel('Highest hosted data classification')
+    .selectOption('internal');
   await details.getByRole('button', { name: 'Save app details' }).click();
   await expect(
     details.getByText('App updated.', { exact: true }),

@@ -99,6 +99,12 @@ const evidenceFields = [
 
 const audiences = ['personal', 'team', 'company', 'external'];
 const sharing = ['private', 'named people', 'company', 'public link'];
+const hostedAccessOptions = [
+  'none',
+  'stores input',
+  'reads connected data',
+  'both',
+];
 
 type View = Exclude<keyof typeof workspaceViews, 'Catalog'>;
 
@@ -1255,6 +1261,13 @@ export function GovernancePage() {
                             ...selected.hosted,
                             provider: data.get('hostedProvider'),
                             workspace: data.get('hostedWorkspace'),
+                            sharing: data.get('hostedSharing'),
+                            dataAccess: data.get('hostedDataAccess'),
+                            dataClassification:
+                              data.get('hostedDataAccess') === 'none'
+                                ? undefined
+                                : data.get('hostedDataClassification') ||
+                                  undefined,
                           },
                           usesAiAtRuntime: editingUsesAi,
                           models: editingUsesAi
@@ -1317,6 +1330,41 @@ export function GovernancePage() {
                           defaultValue={selected.hosted.workspace}
                         />
                       </label>
+                      <label>
+                        Sharing scope
+                        <select
+                          name="hostedSharing"
+                          defaultValue={selected.hosted.sharing}
+                        >
+                          {options(sharing)}
+                        </select>
+                      </label>
+                      <label>
+                        Data access
+                        <select
+                          name="hostedDataAccess"
+                          defaultValue={selected.hosted.dataAccess}
+                        >
+                          {options(hostedAccessOptions)}
+                        </select>
+                      </label>
+                      <label>
+                        Highest hosted data classification
+                        <select
+                          name="hostedDataClassification"
+                          aria-describedby="hosted-edit-classification-help"
+                          defaultValue={
+                            selected.hosted.dataClassification ?? ''
+                          }
+                        >
+                          <option value="">Select classification</option>
+                          {options(classes)}
+                        </select>
+                      </label>
+                      <small id="hosted-edit-classification-help">
+                        Required when the app stores input or reads connected
+                        data.
+                      </small>
                     </fieldset>
                   )}
                   <label>
@@ -1903,12 +1951,7 @@ export function GovernancePage() {
                     <label>
                       Data access
                       <select name="dataAccess">
-                        {options([
-                          'none',
-                          'stores input',
-                          'reads connected data',
-                          'both',
-                        ])}
+                        {options(hostedAccessOptions)}
                       </select>
                     </label>
                     {draft.dataAccess && draft.dataAccess !== 'none' && (
