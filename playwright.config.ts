@@ -18,6 +18,10 @@ export default defineConfig({
   ],
   webServer: {
     command: 'yarn start',
+    env: {
+      APP_CONFIG_backend_listen_host: JSON.stringify('127.0.0.1'),
+      APP_CONFIG_backend_baseUrl: JSON.stringify('http://127.0.0.1:7007'),
+    },
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
