@@ -19,6 +19,12 @@ jobs:
           node-version: 24.15.0
       - run: corepack enable
       - run: yarn install --immutable
+      - name: Validate local reviewer configuration
+        run: >-
+          yarn backstage-cli config:check
+          --config app-config.yaml
+          --config app-config.development.yaml
+          --config app-config.reviewer.yaml
       - run: yarn tsc --noEmit
       - run: yarn lint:all
       - run: yarn test --watch=false --runInBand
