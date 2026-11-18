@@ -381,6 +381,16 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.first()).toContainText('Current app');
   await lifecycle.selectOption('');
   await expect(rows).toHaveCount(3);
+  const model = page.getByRole('combobox', { name: 'Declared model' });
+  await model.selectOption('gpt-4.1-mini');
+  await expect(page).toHaveURL(/owner=me&model=gpt-4.1-mini$/);
+  await expect(rows).toHaveCount(2);
+  await lifecycle.selectOption('deprecated');
+  await expect(rows).toHaveCount(0);
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(page).toHaveURL(/owner=me$/);
+  await expect(model).toHaveValue('');
+  await expect(rows).toHaveCount(3);
 
   await rows
     .nth(0)
