@@ -252,6 +252,7 @@ async function callOpenai(
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
+      redirect: 'error',
       headers: {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',

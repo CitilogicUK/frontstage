@@ -987,10 +987,25 @@ describe('governance record access', () => {
         .post('/api/governance/gateway/chat')
         .set('Authorization', `Bearer ${issued.body.key}`)
         .send({ model: 'test-model', prompt: 'Synthetic prompt' });
+    provider.mockResolvedValueOnce(
+      new Response('Synthetic upstream details', {
+        status: 307,
+        headers: { Location: 'https://example.com/unexpected-provider-target' },
+      }),
+    );
+    const unavailable = await call().expect(503);
+    expect(unavailable.body.error.message).toBe(
+      'The configured model provider is temporarily unavailable.',
+    );
+    expect(provider).toHaveBeenNthCalledWith(
+      1,
+      'https://api.openai.com/v1/chat/completions',
+      expect.objectContaining({ redirect: 'error' }),
+    );
     await call().expect(200);
     await call().expect(403);
-    expect(provider).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(provider.mock.calls[0][1]?.body))).toMatchObject({
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(provider.mock.calls[1][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
 
