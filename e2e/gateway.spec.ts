@@ -171,6 +171,28 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       workspaces: [{ provider: 'Example AI', workspace: 'Company sandbox' }],
     });
 
+    const connectors = await request.get(`${api}/approved-connectors`, {
+      headers,
+    });
+    await expectStatus(connectors, 200, 'Read the reviewer connector registry');
+    expect(await connectors.json()).toMatchObject({
+      configured: true,
+      connectors: [
+        {
+          id: 'catalog-sandbox',
+          kind: 'mcp',
+          access: 'read',
+          maxClassification: 'internal',
+        },
+        {
+          id: 'inventory-sandbox',
+          kind: 'data',
+          access: 'write',
+          maxClassification: 'public',
+        },
+      ],
+    });
+
     const models = await request.get(`${api}/gateway/models`, { headers });
     await expectStatus(models, 200, 'Read the approved model policy');
     expect(await models.json()).toEqual({
