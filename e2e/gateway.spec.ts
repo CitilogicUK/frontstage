@@ -711,6 +711,21 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       { encoding: 'utf8' },
     );
     expect(verifiedRetirement.status, verifiedRetirement.stderr).toBe(0);
+    const keyCheckpoint = spawnSync(
+      process.execPath,
+      [
+        verifier,
+        exportPath,
+        '--key-checkpoint',
+        sharedAudit.keyEvents[0].digest,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(keyCheckpoint.status, keyCheckpoint.stderr).toBe(0);
+    expect(keyCheckpoint.stdout).toContain(
+      'Saved key checkpoint matched revision 0',
+    );
+
     await writeFile(
       exportPath,
       JSON.stringify({
@@ -745,6 +760,16 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     expect(truncatedKeys.status).toBe(1);
     expect(truncatedKeys.stderr).toContain(
       'does not match the expected key head',
+    );
+
+    const missingKeyCheckpoint = spawnSync(
+      process.execPath,
+      [verifier, exportPath, '--key-checkpoint', keyHead],
+      { encoding: 'utf8' },
+    );
+    expect(missingKeyCheckpoint.status).toBe(1);
+    expect(missingKeyCheckpoint.stderr).toContain(
+      'saved key checkpoint is absent',
     );
 
     const alteredKeys = sharedAudit.keyEvents.map(

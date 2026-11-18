@@ -10,13 +10,15 @@ function parseJson(text, message) {
   }
 }
 
-function verifyKeyEvents(audit, expectedHead) {
+function verifyKeyEvents(audit, expectedHead, checkpoint) {
+  const checkpointDigest = checkpoint?.toLowerCase();
   const entries = audit.keyEvents ?? [];
   if (!Array.isArray(entries))
     throw new Error('Invalid gateway key event list.');
   const chained =
     audit.keyAuditVersion === 1 ||
     expectedHead !== undefined ||
+    checkpoint !== undefined ||
     entries.some(
       entry =>
         typeof entry?.digest === 'string' || typeof entry?.event === 'string',
@@ -28,6 +30,7 @@ function verifyKeyEvents(audit, expectedHead) {
   }
 
   let head = null;
+  let checkpointRevision;
   for (const [revision, entry] of entries.entries()) {
     const position = revision + 1;
     if (typeof entry?.event !== 'string')
@@ -50,14 +53,21 @@ function verifyKeyEvents(audit, expectedHead) {
       throw new Error(
         `Key event ${position} has inconsistent metadata or chain linkage.`,
       );
+    if (digest === checkpointDigest) checkpointRevision = revision;
     head = digest;
   }
   if (expectedHead && expectedHead.toLowerCase() !== head)
     throw new Error(
       'The final key event digest does not match the expected key head.',
     );
+  if (checkpointDigest && checkpointRevision === undefined)
+    throw new Error('The saved key checkpoint is absent from this export.');
   if (head) {
     console.log(`Verified ${entries.length} gateway key events.`);
+    if (checkpointRevision !== undefined)
+      console.log(
+        `Saved key checkpoint matched revision ${checkpointRevision}.`,
+      );
     console.log(`Key event head SHA-256: ${head}`);
   }
 }
@@ -65,21 +75,32 @@ function verifyKeyEvents(audit, expectedHead) {
 try {
   const {
     positionals: [filename, expectedHead, ...extra],
-    values: { checkpoint, 'key-head': keyHead },
+    values: {
+      checkpoint,
+      'key-head': keyHead,
+      'key-checkpoint': keyCheckpoint,
+    },
   } = parseArgs({
     allowPositionals: true,
-    options: { checkpoint: { type: 'string' }, 'key-head': { type: 'string' } },
+    options: {
+      checkpoint: { type: 'string' },
+      'key-head': { type: 'string' },
+      'key-checkpoint': { type: 'string' },
+    },
   });
   const suppliedDigest = expectedHead ?? checkpoint;
+  const suppliedKeyDigest = keyHead ?? keyCheckpoint;
   if (
     !filename ||
     extra.length ||
     (expectedHead !== undefined && checkpoint !== undefined) ||
     (suppliedDigest !== undefined && !/^[a-f0-9]{64}$/i.test(suppliedDigest)) ||
-    (keyHead !== undefined && !/^[a-f0-9]{64}$/i.test(keyHead))
+    (keyHead !== undefined && keyCheckpoint !== undefined) ||
+    (suppliedKeyDigest !== undefined &&
+      !/^[a-f0-9]{64}$/i.test(suppliedKeyDigest))
   ) {
     throw new Error(
-      'Usage: yarn audit:verify <export.json> [expected-head-sha256 | --checkpoint sha256] [--key-head sha256]',
+      'Usage: yarn audit:verify <export.json> [expected-head-sha256 | --checkpoint sha256] [--key-head sha256 | --key-checkpoint sha256]',
     );
   }
   const checkpointDigest = checkpoint?.toLowerCase();
@@ -138,7 +159,7 @@ try {
   if (checkpointDigest && checkpointRevision === undefined)
     throw new Error('The saved checkpoint is absent from this export.');
 
-  verifyKeyEvents(audit, keyHead);
+  verifyKeyEvents(audit, keyHead, keyCheckpoint);
 
   console.log(
     `Verified ${audit.events.length} record events (revisions ${firstRevision}–${previousRevision}).`,
