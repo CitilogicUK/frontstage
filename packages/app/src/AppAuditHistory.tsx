@@ -237,6 +237,10 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         if (record.graduation?.reason)
           details.push(`Recorded reason “${record.graduation.reason}”`);
       }
+      if (entry.action === 'directory-published')
+        action = 'Directory listing published';
+      if (entry.action === 'directory-unpublished')
+        action = 'Directory listing unpublished';
       previous = record;
       return {
         id: digest,
