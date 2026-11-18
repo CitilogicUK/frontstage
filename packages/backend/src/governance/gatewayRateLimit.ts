@@ -47,8 +47,21 @@ export async function reserveGatewayRequest(
     ])
     .returning('app_id');
 
+  const allowed = inserted.length > 0;
+  let retryMinute = minute + 1;
+  if (!allowed) {
+    // A later request may already have advanced the app's shared window.
+    const latest = await db(rateTable)
+      .where('app_id', appId)
+      .andWhere('minute', '>', minute)
+      .first('minute', 'requests');
+    if (latest) {
+      retryMinute = latest.minute + (latest.requests >= limit ? 1 : 0);
+    }
+  }
+
   return {
-    allowed: inserted.length > 0,
-    retryAfter: Math.ceil(((minute + 1) * windowMs - now) / 1000),
+    allowed,
+    retryAfter: Math.ceil((retryMinute * windowMs - now) / 1000),
   };
 }
