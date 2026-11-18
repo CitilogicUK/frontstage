@@ -47,6 +47,42 @@ const keysTable = 'governance_gateway_keys';
 const keyEventsTable = 'governance_gateway_key_events';
 const blocksTable = 'governance_gateway_blocks';
 const usageTable = 'governance_gateway_usage';
+const retirementReviewDays = 90;
+const retirementReviewMs = retirementReviewDays * 86_400_000;
+
+export function isOldLiveCall(lastLiveCall: string, now = Date.now()) {
+  return Date.parse(lastLiveCall) <= now - retirementReviewMs;
+}
+
+export function isRetirementCandidate(
+  app: GovernanceRecord,
+  lastLiveCall: string,
+  now = Date.now(),
+) {
+  const review = app.retirementReview;
+  const recentKeep =
+    review?.status === 'kept' &&
+    review.lastLiveCall === lastLiveCall &&
+    !!review.decidedAt &&
+    Date.parse(review.decidedAt) > now - retirementReviewMs;
+  return (
+    app.lifecycle === 'active' &&
+    app.usesAiAtRuntime !== false &&
+    app.type !== 'provider-hosted app' &&
+    isOldLiveCall(lastLiveCall, now) &&
+    !recentKeep
+  );
+}
+
+export async function lastSuccessfulLiveCall(db: Database, appId: string) {
+  const row = await db(usageTable)
+    .where({ app_id: appId, execution_mode: 'openai' })
+    .max('created_at as lastLiveCall')
+    .first<{ lastLiveCall: Date | string | number | null }>();
+  if (!row || row.lastLiveCall === null) return undefined;
+  return new Date(row.lastLiveCall).toISOString();
+}
+
 const chatPath = '/gateway/chat';
 const nanosPerDollar = 1_000_000_000;
 const rate = z.number().finite().nonnegative().max(1_000_000).default(0);
@@ -995,10 +1031,8 @@ export function registerGatewayRoutes(options: {
         'mode',
         db.raw('count(*) as ??', ['calls']),
       );
-    const retirementReviewDays = 90;
-    const retirementCutoff = new Date(
-      Date.now() - retirementReviewDays * 86_400_000,
-    );
+    const now = Date.now();
+    const retirementCutoff = new Date(now - retirementReviewMs);
     const lastLiveCalls = db(usageTable)
       .where('execution_mode', 'openai')
       .groupBy('app_id')
@@ -1016,14 +1050,10 @@ export function registerGatewayRoutes(options: {
       );
     const retirementCandidates = retirementRows.flatMap(row => {
       const app = JSON.parse(row.payload) as GovernanceRecord;
-      if (app.lifecycle !== 'active' || app.usesAiAtRuntime === false)
-        return [];
-      return [
-        {
-          appId: app.id,
-          lastLiveCall: new Date(row.lastLiveCall).toISOString(),
-        },
-      ];
+      const lastLiveCall = new Date(row.lastLiveCall).toISOString();
+      return isRetirementCandidate(app, lastLiveCall, now)
+        ? [{ appId: app.id, lastLiveCall }]
+        : [];
     });
     let monthlySpendAlerts;
     if (appSpendThresholds.size > 0) {

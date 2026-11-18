@@ -43,6 +43,9 @@ import {
   gatewayBlocksMigration,
   registerGatewayRoutes,
   readGatewayKeyEvents,
+  isOldLiveCall,
+  isRetirementCandidate,
+  lastSuccessfulLiveCall,
   revokeGatewayKey,
 } from './gateway';
 import {
@@ -69,13 +72,26 @@ type RenewalException = {
   owner: string;
 };
 
+type RetirementReview = {
+  requestedAt: string;
+  requestedBy: string;
+  owner: string;
+  lastLiveCall: string;
+} & (
+  | { status: 'pending' }
+  | { status: 'kept' | 'retired'; decidedAt: string; reason: string }
+);
+
 type RecordAction =
   | 'registered'
   | 'updated'
   | 'reviewed'
   | 'attested'
   | 'renewal-exception-granted'
-  | 'renewal-exception-revoked';
+  | 'renewal-exception-revoked'
+  | 'retirement-review-requested'
+  | 'retirement-review-kept'
+  | 'retirement-review-retired';
 
 const renewalWindowMs = 30 * 24 * 60 * 60 * 1_000;
 
@@ -95,7 +111,26 @@ export type GovernanceRecord = AppInput & {
   reviewNotes?: string;
   signoffs?: Signoffs;
   renewalException?: RenewalException;
+  retirementReview?: RetirementReview;
 };
+
+function retirementReviewAfterEdit(
+  previous: GovernanceRecord,
+  current: AppInput,
+) {
+  const review = previous.retirementReview;
+  if (
+    review?.status === 'pending' &&
+    (current.lifecycle !== 'active' ||
+      current.owner !== previous.owner ||
+      current.team !== previous.team ||
+      current.usesAiAtRuntime === false ||
+      current.type === 'provider-hosted app')
+  ) {
+    return undefined;
+  }
+  return review;
+}
 
 function nextRecordTimestamp(previous: string) {
   return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
@@ -490,10 +525,12 @@ export const governancePlugin = createBackendPlugin({
             ownerChanged = false,
             lifecycleReason,
             renewalException,
+            expectedRetirementActivity,
           }: {
             ownerChanged?: boolean;
             lifecycleReason?: string;
             renewalException?: RenewalException;
+            expectedRetirementActivity?: string;
           } = {},
         ) {
           await db.transaction(async transaction => {
@@ -507,6 +544,20 @@ export const governancePlugin = createBackendPlugin({
               throw new ConflictError(
                 'The app changed. Refresh and try again.',
               );
+            if (expectedRetirementActivity) {
+              const lastLiveCall = await lastSuccessfulLiveCall(
+                transaction,
+                record.id,
+              );
+              if (
+                !lastLiveCall ||
+                lastLiveCall !== expectedRetirementActivity ||
+                !isOldLiveCall(lastLiveCall)
+              )
+                throw new ConflictError(
+                  'Live gateway activity changed. Refresh the retirement review.',
+                );
+            }
             if (
               ownerChanged ||
               record.lifecycle === 'retired' ||
@@ -660,6 +711,7 @@ export const governancePlugin = createBackendPlugin({
             evidence: undefined,
             signoffs: undefined,
             renewalException: undefined,
+            retirementReview: undefined,
           };
         }
 
@@ -1064,6 +1116,131 @@ export const governancePlugin = createBackendPlugin({
           res.status(201).json(records);
         });
 
+        function assertRetirementRevision(
+          record: GovernanceRecord,
+          expectedUpdatedAt: string,
+        ) {
+          if (record.updatedAt !== expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before changing its retirement review.',
+            );
+        }
+
+        async function assertRetirementOwnerActive(owner: string) {
+          if ((await unavailableOwners([owner])).size)
+            throw new NotAllowedError(
+              'The app owner must be active in the catalog to review retirement.',
+            );
+        }
+
+        router.post('/apps/:id/retirement-review', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          const input = z
+            .string()
+            .datetime()
+            .safeParse(req.body?.expectedUpdatedAt);
+          if (!input.success)
+            throw new InputError('Provide the current app timestamp.');
+          const { record, revision } = await load(req.params.id);
+          assertRetirementRevision(record, input.data);
+          if (record.retirementReview?.status === 'pending')
+            throw new ConflictError(
+              'This app already has a pending retirement review.',
+            );
+          const lastLiveCall = await lastSuccessfulLiveCall(db, record.id);
+          if (!lastLiveCall || !isRetirementCandidate(record, lastLiveCall))
+            throw new InputError(
+              'This app is not a current retirement candidate.',
+            );
+          await assertRetirementOwnerActive(record.owner);
+          const updatedAt = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt,
+            retirementReview: {
+              requestedAt: updatedAt,
+              requestedBy: principal.userEntityRef,
+              owner: record.owner,
+              lastLiveCall,
+              status: 'pending',
+            },
+          };
+          await save(
+            updated,
+            revision,
+            principal,
+            'retirement-review-requested',
+            {
+              expectedRetirementActivity: lastLiveCall,
+            },
+          );
+          res.json(visibleRecord(updated, principal));
+        });
+
+        router.patch('/apps/:id/retirement-review', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              decision: z.enum(['keep', 'retire']),
+              reason: z.string().trim().min(1).max(500),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide a decision, a reason, and the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          if (principal.userEntityRef !== record.owner)
+            throw new NotAllowedError(
+              'Only the current app owner can decide its retirement review.',
+            );
+          assertRetirementRevision(record, input.data.expectedUpdatedAt);
+          const review = record.retirementReview;
+          if (
+            review?.status !== 'pending' ||
+            record.lifecycle !== 'active' ||
+            review.owner !== record.owner
+          )
+            throw new ConflictError(
+              'There is no pending retirement review for the current owner.',
+            );
+          await assertRetirementOwnerActive(record.owner);
+          const retire = input.data.decision === 'retire';
+          const decidedAt = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt: decidedAt,
+            lifecycle: retire ? 'retired' : record.lifecycle,
+            renewalException: retire ? undefined : record.renewalException,
+            retirementReview: {
+              ...review,
+              status: retire ? 'retired' : 'kept',
+              decidedAt,
+              reason: input.data.reason,
+            },
+          };
+          await save(
+            updated,
+            revision,
+            principal,
+            retire ? 'retirement-review-retired' : 'retirement-review-kept',
+            retire
+              ? {
+                  lifecycleReason: input.data.reason,
+                  expectedRetirementActivity: review.lastLiveCall,
+                }
+              : undefined,
+          );
+          res.json(visibleRecord(updated, principal));
+        });
+
         router.patch('/apps/:id/lifecycle', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
@@ -1094,7 +1271,7 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Use at most 500 characters for the lifecycle reason.',
             );
-          const updated = {
+          const updated: GovernanceRecord = {
             ...record,
             lifecycle: lifecycle.data,
             renewalException:
@@ -1103,6 +1280,7 @@ export const governancePlugin = createBackendPlugin({
                 : undefined,
             updatedAt: nextRecordTimestamp(record.updatedAt),
           };
+          updated.retirementReview = retirementReviewAfterEdit(record, updated);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
           await save(updated, revision, principal, 'updated', {
@@ -1200,6 +1378,7 @@ export const governancePlugin = createBackendPlugin({
                   effectiveClassification: effectiveClassification(app),
                   updatedAt: nextRecordTimestamp(record.updatedAt),
                 };
+          updated.retirementReview = retirementReviewAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
@@ -1461,6 +1640,7 @@ export const governancePlugin = createBackendPlugin({
             reviewNotes: decision.data.notes,
             renewalException: undefined,
           };
+          updated.retirementReview = retirementReviewAfterEdit(record, updated);
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });
