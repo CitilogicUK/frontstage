@@ -472,8 +472,6 @@ describe('governance record access', () => {
     const task = scheduleTask.mock.calls[0][0];
     const api = request(server);
     const auth = (user: string) => mockCredentials.user.header(user);
-    const now = Date.now();
-    const old = now - 91 * 86_400_000;
     const appInput = {
       purpose: 'Test automated dormancy review',
       type: 'app',
@@ -489,6 +487,7 @@ describe('governance record access', () => {
       'inactive',
       'kept',
       'simulation',
+      'reactivated',
       ...Array.from({ length: 51 }, (_, index) => `eligible-${index + 1}`),
     ];
     const { body: apps } = await api
@@ -504,7 +503,33 @@ describe('governance record access', () => {
       })
       .expect(201);
     expect(apps).toHaveLength(names.length);
-    const [resumed, inactive, kept, simulation] = apps;
+    const [resumed, inactive, kept, simulation, reactivated] = apps;
+    const activation = Math.max(
+      ...apps.map((app: { activeSince: string }) =>
+        Date.parse(app.activeSince),
+      ),
+    );
+    const now = activation + 91 * 86_400_000;
+    const old = activation;
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    const reactivatedPath = `/api/governance/apps/${reactivated.id}/lifecycle`;
+    const deprecated = await api
+      .patch(reactivatedPath)
+      .set('Authorization', auth(owner))
+      .send({
+        lifecycle: 'deprecated',
+        expectedUpdatedAt: reactivated.updatedAt,
+      })
+      .expect(200);
+    const restarted = await api
+      .patch(reactivatedPath)
+      .set('Authorization', auth(owner))
+      .send({
+        lifecycle: 'active',
+        expectedUpdatedAt: deprecated.body.updatedAt,
+      })
+      .expect(200);
+    expect(restarted.body.activeSince).toBe(restarted.body.updatedAt);
     const usage = (
       app: { id: string; name: string },
       at: number,
@@ -588,11 +613,14 @@ describe('governance record access', () => {
     expect(reviews.get(resumed.name)).not.toHaveProperty('retirementReview');
     expect(reviews.get(inactive.name)).not.toHaveProperty('retirementReview');
     expect(reviews.get(simulation.name)).not.toHaveProperty('retirementReview');
+    expect(reviews.get(reactivated.name)).not.toHaveProperty(
+      'retirementReview',
+    );
     expect(reviews.get(kept.name)?.retirementReview?.status).toBe('kept');
     await task.fn(new AbortController().signal);
     expect(openedBySchedule(await readReviews())).toEqual(opened);
 
-    const eligible = apps[4];
+    const eligible = apps[5];
     const { body: history } = await api
       .get(`/api/governance/apps/${eligible.id}/history`)
       .set('Authorization', auth(reviewer))
@@ -619,9 +647,7 @@ describe('governance record access', () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';
     const teammate = 'user:default/teammate';
-    const currentTime = Date.now();
     const day = 86_400_000;
-    const clock = jest.spyOn(Date, 'now').mockReturnValue(currentTime);
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
@@ -680,6 +706,9 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send(appInput)
       .expect(201);
+    expect(app.body.activeSince).toBe(app.body.updatedAt);
+    const currentTime = Date.parse(app.body.activeSince) + 91 * day;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(currentTime);
     const path = `/api/governance/apps/${app.body.id}`;
     const retirementPath = `${path}/retirement-review`;
     const gatewayKey = () =>
@@ -780,18 +809,40 @@ describe('governance record access', () => {
       })
       .expect(200);
     expect(deprecated.body).not.toHaveProperty('retirementReview');
+    expect(deprecated.body).not.toHaveProperty('activeSince');
+    clock.mockReturnValue(later + 1_000);
     const active = await api
-      .patch(`${path}/lifecycle`)
+      .put(path)
+      .set('Authorization', auth(owner))
+      .send({ ...appInput, expectedUpdatedAt: deprecated.body.updatedAt })
+      .expect(200);
+    expect(active.body.activeSince).toBe(active.body.updatedAt);
+    clock.mockReturnValue(later + 2_000);
+    const shared = await api
+      .put(path)
       .set('Authorization', auth(owner))
       .send({
-        lifecycle: 'active',
-        expectedUpdatedAt: deprecated.body.updatedAt,
+        ...appInput,
+        audience: 'team',
+        backupOwner: 'user:default/backup',
+        expectedUpdatedAt: active.body.updatedAt,
       })
       .expect(200);
-    await open(active.body.updatedAt).expect(400);
+    expect(shared.body).toMatchObject({
+      tier: 2,
+      activeSince: active.body.activeSince,
+    });
+    expect(shared.body.updatedAt).not.toBe(shared.body.activeSince);
 
-    clock.mockReturnValue(later + 90 * day);
-    const finalPending = await open(active.body.updatedAt).expect(200);
+    const nextEligible = Date.parse(active.body.activeSince) + 90 * day;
+    clock.mockReturnValue(nextEligible - 1);
+    expect((await usageReport()).body.retirementReview.apps).toEqual([]);
+    await open(shared.body.updatedAt).expect(400);
+    clock.mockReturnValue(nextEligible);
+    expect((await usageReport()).body.retirementReview.apps).toEqual([
+      { appId: app.body.id, lastLiveCall: new Date(later).toISOString() },
+    ]);
+    const finalPending = await open(shared.body.updatedAt).expect(200);
     const retired = await decide('retire', finalPending.body.updatedAt).expect(
       200,
     );
@@ -803,6 +854,7 @@ describe('governance record access', () => {
         owner,
       },
     });
+    expect(retired.body).not.toHaveProperty('activeSince');
     await keyStatus().expect(200, { issued: false });
     const history = await api
       .get(`${path}/history`)
@@ -1234,6 +1286,28 @@ describe('governance record access', () => {
       created_at: oldLiveCall,
       estimated_cost_nanos_usd: 0,
     });
+    const freshActivation = await api
+      .get('/api/governance/reports/usage?days=1')
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(freshActivation.body.retirementReview).toEqual({
+      days: 90,
+      apps: [],
+    });
+    const legacyRuntimeRow = db('governance_apps').where('id', runtime.body.id);
+    const legacyRuntime = await legacyRuntimeRow.clone().first('payload');
+    await legacyRuntimeRow.update({
+      payload: JSON.stringify({
+        ...JSON.parse(legacyRuntime.payload),
+        activeSince: undefined,
+      }),
+    });
+    const legacyActive = await api
+      .patch(`${runtimePath}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active' })
+      .expect(200);
+    expect(legacyActive.body).not.toHaveProperty('activeSince');
     const retirement = await api
       .get('/api/governance/reports/usage?days=1')
       .set('Authorization', auth(reviewer))
