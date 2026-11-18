@@ -1609,6 +1609,48 @@ export function GovernancePage() {
                 </a>
               </p>
             )}
+            {selected.tier === 3 &&
+              selected.lifecycle !== 'retired' &&
+              (actor === selected.owner || canReview) && (
+                <details
+                  className="gov-app-editor"
+                  key={`review-ticket-${selected.id}`}
+                >
+                  <summary>Edit review ticket</summary>
+                  <p>Clear the URL and save to remove the ticket link.</p>
+                  <form
+                    key={selected.updatedAt}
+                    onSubmit={event =>
+                      submit(event, async data => {
+                        const url =
+                          String(data.get('ticket-url') ?? '').trim() || null;
+                        applySavedApp(
+                          await api(
+                            `/apps/${selected.id}/review-ticket`,
+                            { url, expectedUpdatedAt: selected.updatedAt },
+                            'PATCH',
+                          ),
+                        );
+                        setMessage(
+                          url
+                            ? 'Review ticket saved.'
+                            : 'Review ticket removed.',
+                        );
+                      })
+                    }
+                  >
+                    <label>
+                      Ticket URL
+                      <input
+                        name="ticket-url"
+                        type="url"
+                        defaultValue={selected.reviewTicketUrl}
+                      />
+                    </label>
+                    <button disabled={busy}>Save review ticket</button>
+                  </form>
+                </details>
+              )}
             {selected.reviewNotes && <p>{selected.reviewNotes}</p>}
             {(actor === selected.owner || canReview) && (
               <details
