@@ -144,9 +144,9 @@ The development profile scans public repositories in the Hugging Face organizati
 
 Reviewers can dismiss false positives with a reason and reopen them from the **Dismissed** filter. Dismissals survive rescans. Frontstage records who made each decision and when.
 
-Signed-in builders can load descriptors from public repositories. Reviewers can also load descriptors from private repositories that the configured discovery token can read.
+Signed-in builders can browse and claim repositories verified as public by Discovery. Reviewers can also work with private repositories that the configured discovery token can read. Rescan older discovery records to verify their visibility.
 
-Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. Reviewers can run a scan and authenticated builders can claim a repository as its owner. The scan looks at up to 100 matches and indicates when GitHub returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
+Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. A scan looks at up to 100 matches. Complete scans remove missing unclaimed candidates from the queue and preserve their decision history. A partial scan preserves unseen candidates. Reviewers see whether a scan returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
 
 ## Approved connector registry
 
