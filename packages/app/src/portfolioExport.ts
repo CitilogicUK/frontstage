@@ -1,3 +1,5 @@
+import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
+
 const usageColumns = [
   'window_start_utc',
   'app_id',
@@ -173,6 +175,36 @@ export function firstDecisionsCsv(
       app.team,
       app.workingDays ?? '',
       target ?? '',
+    ]),
+  );
+}
+
+export function pendingSignoffsCsv(
+  apps: Array<{
+    id: string;
+    name: string;
+    owner: string;
+    team: string;
+    missingTracks: ReviewTrack[];
+    nextReview: string | null;
+  }>,
+) {
+  return encodeCsv(
+    [
+      'app_id',
+      'app_name',
+      'owner',
+      'team',
+      'pending_sign_offs',
+      'next_review_utc',
+    ],
+    apps.map(app => [
+      app.id,
+      app.name,
+      app.owner,
+      app.team,
+      app.missingTracks.map(track => reviewTrackLabels[track]).join(' | '),
+      app.nextReview ?? '',
     ]),
   );
 }
