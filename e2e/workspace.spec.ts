@@ -1404,3 +1404,83 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
     page.getByRole('link', { name: 'Open app record' }),
   ).toBeVisible();
 });
+
+test('claiming a repository opens its app in the registered Discovery queue', async ({
+  page,
+}) => {
+  const repository = {
+    id: 'claimable',
+    name: 'Example workbook',
+    description: 'A prototype for stock counts',
+    sourceUrl: 'https://github.com/example/workbook',
+    dismissed: 0,
+  };
+  const actor = 'user:default/demo-owner';
+  const claimed = {
+    id: 'claimed-app',
+    name: repository.name,
+    sourceUrl: repository.sourceUrl,
+    purpose: repository.description,
+    platform: 'GitHub',
+    owner: actor,
+    team: 'group:default/platform',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    tier: 1,
+    models: [],
+    usesAiAtRuntime: false,
+    reviewStatus: 'not required',
+  };
+  let registered = false;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { actor, canReview: false, apps: registered ? [claimed] : [] },
+    }),
+  );
+  await page.route('**/api/governance/discovery/github', route =>
+    route.fulfill({
+      json: {
+        source: { organization: 'example', topic: 'governance' },
+        lastScan: null,
+        intervalMinutes: null,
+        repositories: [
+          { ...repository, appId: registered ? claimed.id : null },
+        ],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/discovery/github/claimable/claim',
+    route => {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({
+        sourceUrl: repository.sourceUrl,
+        usesAiAtRuntime: false,
+      });
+      registered = true;
+      return route.fulfill({ status: 201, json: claimed });
+    },
+  );
+  await page.goto('/?view=discovery');
+  const claim = page.getByRole('link', { name: 'Claim repository' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(claim.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await claim.click();
+  await page
+    .getByLabel('Purpose', { exact: true })
+    .fill(repository.description);
+  await page.getByLabel('App type').selectOption('app');
+  await page.getByLabel('Does the app use AI at runtime?').selectOption('no');
+  await page.getByLabel('Owning team').fill(claimed.team);
+  await page.getByRole('button', { name: 'Register app' }).click();
+  const record = page.getByRole('dialog', { name: claimed.name });
+  await expect(
+    record.getByText('Repository claimed and app registered.'),
+  ).toBeVisible();
+  await record.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/view=discovery&discoveryStatus=registered$/);
+  await expect(
+    page.getByRole('link', { name: 'Open app record' }),
+  ).toBeVisible();
+});

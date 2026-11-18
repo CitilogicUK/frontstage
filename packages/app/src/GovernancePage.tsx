@@ -1866,7 +1866,7 @@ export function GovernancePage() {
                 const deliveryStage = parseDeliveryStage(
                   value('deliveryStage'),
                 );
-                await api(endpoint, {
+                const registered = await api(endpoint, {
                   name: value('name'),
                   purpose: value('purpose'),
                   type: value('type'),
@@ -1920,8 +1920,16 @@ export function GovernancePage() {
                   },
                 });
                 await refresh();
-                setDraft({});
-                navigate('Inventory');
+                if (candidate) {
+                  resetView();
+                  setParams({
+                    view: 'discovery',
+                    discoveryStatus: 'registered',
+                    app: registered.id,
+                  });
+                } else {
+                  navigate('Inventory');
+                }
                 setMessage(
                   candidate
                     ? 'Repository claimed and app registered.'
