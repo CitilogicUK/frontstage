@@ -596,6 +596,15 @@ describe('governance record access', () => {
     jest.spyOn(CatalogClient.prototype, 'getEntitiesByRefs').mockResolvedValue({
       items: activeCatalog.items.slice(0, 2),
     });
+    await api
+      .post('/api/governance/tier-preview')
+      .set('Authorization', auth(owner))
+      .send({
+        audience: 'personal',
+        classification: 'internal',
+        hosted: { sharing: 'private', dataClassification: 'restricted' },
+      })
+      .expect(200, { tier: 3, effectiveClassification: 'restricted' });
     for (const workspace of ['Company', 'Personal']) {
       const hosted = await api
         .post(apps)

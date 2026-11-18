@@ -609,7 +609,10 @@ export const governancePlugin = createBackendPlugin({
           const result = riskInput.safeParse(req.body);
           if (!result.success)
             throw new InputError('Supply valid risk questionnaire answers.');
-          res.json({ tier: evaluateTier(result.data) });
+          res.json({
+            tier: evaluateTier(result.data),
+            effectiveClassification: effectiveClassification(result.data),
+          });
         });
 
         router.get('/apps/:id', async (req, res) => {

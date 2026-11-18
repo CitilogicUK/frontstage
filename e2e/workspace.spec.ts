@@ -1139,6 +1139,20 @@ test('a hosted app owner can correct the declared workspace', async ({
   await expect(
     details.getByRole('region', { name: 'Gateway playground' }),
   ).toHaveCount(0);
+
+  await page.goto('/?view=register');
+  await page.getByLabel('App type').selectOption('provider-hosted app');
+  await page
+    .getByRole('combobox', { name: 'Data access', exact: true })
+    .selectOption('stores input');
+  await page
+    .getByLabel('Highest hosted data classification')
+    .selectOption('restricted');
+  await expect(
+    page.getByRole('complementary', { name: 'Registration requirements' }),
+  ).toContainText(
+    'Estimated risk tier 3 · Critical · Effective data classification: restricted',
+  );
 });
 
 test('Discovery refreshes after a stale dismissal', async ({ page }) => {

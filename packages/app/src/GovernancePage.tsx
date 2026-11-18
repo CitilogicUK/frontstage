@@ -258,6 +258,7 @@ export function GovernancePage() {
   const [riskPreview, setRiskPreview] = useState<{
     answers: string;
     tier?: number;
+    effectiveClassification?: string;
   }>();
   const detailId =
     view === 'Inventory' || view === 'Reviews' || view === 'Reports'
@@ -560,7 +561,13 @@ export function GovernancePage() {
     const timer = window.setTimeout(() => {
       api('/tier-preview', JSON.parse(answers)).then(
         result => {
-          if (current) setRiskPreview({ answers, tier: result.tier });
+          if (current) {
+            setRiskPreview({
+              answers,
+              tier: result.tier,
+              effectiveClassification: result.effectiveClassification,
+            });
+          }
         },
         () => {
           if (current) setRiskPreview({ answers });
@@ -1636,6 +1643,9 @@ export function GovernancePage() {
                 `Estimated risk tier ${preview.tier} · ${
                   ['Personal', 'Shared', 'Critical'][preview.tier - 1]
                 }`}
+              {preview?.effectiveClassification &&
+                preview.effectiveClassification !== registrationClass &&
+                ` · Effective data classification: ${preview.effectiveClassification}`}
             </p>
             {preview?.tier === 2 && (
               <p>Shared apps need a backup owner and a yearly attestation.</p>
