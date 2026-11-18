@@ -51,25 +51,22 @@ For apps that call AI at runtime, choose the assistant, agent, or automation sta
 
 ## Gateway demo
 
-The gateway checks active catalog ownership before issuing or rotating a key and before forwarding a permitted model call. Missing or inactive ownership blocks that call. If the catalog is unavailable, the gateway returns a retryable error.
-
-The local development profile enables a simulated gateway. It exercises the same key, lifecycle, review, and model controls as the live adapter and keeps prompts on the machine. Use synthetic data for the demo.
+Run this walkthrough with synthetic data. Follow [Run locally](#run-locally) for prerequisites, then start the reviewer profile against a fresh database. Stop any other local Frontstage server first so the demo can use ports 3000 and 7007.
 
 ```sh
+export APP_CONFIG_backend_database_connection_directory="$(mktemp -d)"
 yarn start --config ../../app-config.reviewer.yaml
 ```
 
-In another terminal, run `yarn demo:seed` once the backend is running. The script waits for the local catalog’s demo identities before registering apps. It creates five demo records on behalf of the local Guest owner. Open Inventory and sign in as Guest using the reviewer profile above.
+In a second terminal at the repository root, run `yarn demo:seed` after the backend starts. Open [Frontstage](http://localhost:3000) in a private window and sign in as **Guest**. In this profile, Guest signs in as the reviewer. The seed creates five records owned by `user:default/guest`, a separate demo identity.
 
-1. Open **Meeting summary demo**. Issue a gateway key, select `gpt-4.1-mini`, and send a synthetic meeting prompt. The result is labelled simulated. The app record updates its all-time live, simulated, and blocked call counts. Only live calls contribute to the live cost estimate.
-2. Open **Restricted intake demo**. Issue a key and send a synthetic prompt with `gpt-4.1-mini`. The gateway blocks the call while review is pending.
-3. Record an approval in that app’s details and set its lifecycle to **Active**. Retry with the same key and model. Then select `gpt-4.1-nano` and retry. The gateway still rejects that model for restricted data.
+1. **Show both ways to build.** In **Templates**, compare **AI-assisted software** with **Gateway assistant**. In **Inventory**, **Stock count proof of concept** and **Purchase order pilot** both run without models or gateway keys. The stock count is Tier 1. The purchase order pilot is Tier 3 because it submits orders to a sandbox. **Meeting summary demo** uses a model at runtime. Issue a key, select `gpt-4.1-mini`, and send `Summarize these synthetic notes: the team agreed to test the sandbox on Friday.` The result is marked as simulated. See [App templates](#app-templates).
+2. **Hand off a critical app for review.** Open **Restricted intake demo** from **Reviews**. Issue a key and attempt a synthetic call with `gpt-4.1-mini`. The pending review blocks it. Under **Edit app details**, enter `https://example.com/reviews/restricted-intake` as the **Review ticket URL**, then save. The app’s details URL can be shared with a signed-in reviewer. Record an approval with sandbox-only scope in **Review notes**, set **Lifecycle** to active, and select **Update lifecycle**. Retry with the same key and model. The playground lists `gpt-4.1-nano` as unavailable for restricted data. See [Review evidence](#review-evidence) and [Separate critical sign-offs](#separate-critical-sign-offs).
+3. **Trace model impact.** In **Reports**, choose **Declared model** under **Group inventory by**, then select the count for `gpt-4.1-nano` to open the matching records. The count includes declarations even when a call is blocked or no call is recorded. Back in **Reports**, set **Group gateway usage** to **Model** to see the successful simulated calls under **Other calls**. **Gateway policy blocks** shows the denied attempts. Live estimated spend stays at zero. See [Portfolio reports](#portfolio-reports).
 
-For the software-only path, compare **Stock count proof of concept** with **Purchase order pilot**. Both run without models. The first is Tier 1. The second is Tier 3 because it acts in another system. Open it from **Reviews**, record an approval for the sandbox scope, and set it to **Active**. Its app record does not offer gateway keys. In **Reports**, select a runtime AI count to open its matching records.
+To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace.
 
-For the hosted path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The reviewer profile uses a fictional provider and workspace for this check.
-
-Seeding leaves existing demo records in their current state. The end-to-end test creates its own database for a clean replay.
+The gateway checks active catalog ownership before issuing or rotating keys and before forwarding calls. The simulation uses the same key, lifecycle, review, and model checks as the live adapter. Seeding again preserves existing records. Restart with a fresh temporary database to replay from the initial state.
 
 ### Live OpenAI call
 
