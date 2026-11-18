@@ -127,6 +127,13 @@ export function PortfolioReport({
       values: appRiskTierNames.map((_, index) => String(index + 1)),
       valueOf: (app: AppSummary) => String(app.tier),
     },
+    team: {
+      label: 'Team',
+      values: [...new Set(apps.map(app => app.team).filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b),
+      ),
+      valueOf: (app: AppSummary) => app.team,
+    },
     platform: {
       label: 'Platform',
       values: [...new Set(apps.map(app => app.platform))].sort((a, b) =>
@@ -386,7 +393,8 @@ export function PortfolioReport({
             {inventoryBreakdown.values.map(value => {
               const count = inventoryCounts.get(value) ?? 0;
               let label = value[0].toUpperCase() + value.slice(1);
-              if (inventoryGroup === 'platform') label = value;
+              if (inventoryGroup === 'platform' || inventoryGroup === 'team')
+                label = value;
               if (inventoryGroup === 'tier')
                 label = appRiskTierNames[Number(value) - 1];
               return (

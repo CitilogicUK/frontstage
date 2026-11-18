@@ -599,6 +599,10 @@ export function GovernancePage() {
       ? classes.find(value => value === classificationParam)
       : undefined;
   const platformFilter = view === 'Inventory' ? params.get('platform') : null;
+  const teamFilter = view === 'Inventory' ? params.get('team') : null;
+  const owningTeams = [
+    ...new Set(apps.map(app => app.team).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
   const platforms = [...new Set(apps.map(app => app.platform))].sort((a, b) =>
     a.localeCompare(b),
   );
@@ -610,7 +614,8 @@ export function GovernancePage() {
       inventoryReviewFilter ||
       lifecycleFilter ||
       classificationFilter ||
-      platformFilter,
+      platformFilter ||
+      teamFilter,
   );
   const filteredApps = scopedApps.filter(
     app =>
@@ -625,7 +630,8 @@ export function GovernancePage() {
       (!classificationFilter ||
         (app.effectiveClassification ?? app.classification) ===
           classificationFilter) &&
-      (!platformFilter || app.platform === platformFilter),
+      (!platformFilter || app.platform === platformFilter) &&
+      (!teamFilter || app.team === teamFilter),
   );
 
   function setAppListFilter(
@@ -636,6 +642,7 @@ export function GovernancePage() {
       | 'lifecycle'
       | 'classification'
       | 'platform'
+      | 'team'
       | 'tier',
     value: string,
   ) {
@@ -834,6 +841,21 @@ export function GovernancePage() {
                     </select>
                   </label>
                   <label>
+                    <span className="gov-visually-hidden">Owning team</span>
+                    <select
+                      value={teamFilter ?? ''}
+                      onChange={event =>
+                        setAppListFilter('team', event.target.value)
+                      }
+                    >
+                      <option value="">All teams</option>
+                      {teamFilter && !owningTeams.includes(teamFilter) && (
+                        <option>{teamFilter}</option>
+                      )}
+                      {options(owningTeams)}
+                    </select>
+                  </label>
+                  <label>
                     <span className="gov-visually-hidden">Review status</span>
                     <select
                       value={inventoryReviewFilter}
@@ -955,6 +977,7 @@ export function GovernancePage() {
                         lifecycleFilter ||
                         classificationFilter ||
                         platformFilter ||
+                        teamFilter ||
                         tier
                       ) {
                         setParams(previous => {
@@ -964,6 +987,7 @@ export function GovernancePage() {
                           next.delete('lifecycle');
                           next.delete('classification');
                           next.delete('platform');
+                          next.delete('team');
                           next.delete('tier');
                           if (inventoryReviewFilter) next.delete('review');
                           return next;

@@ -515,6 +515,19 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page).toHaveURL(/localhost:3000\/$/);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('team');
+  await page
+    .getByRole('region', { name: 'Apps by team' })
+    .getByRole('link', { name: 'group:default/operations: 1 app' })
+    .click();
+  await expect(page.getByRole('combobox', { name: 'Owning team' })).toHaveValue(
+    'group:default/operations',
+  );
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
   const overdueMetric = page.locator('.gov-report-summary > div').filter({
     hasText: 'Overdue reviews and attestations',
   });
