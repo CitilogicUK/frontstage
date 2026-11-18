@@ -106,10 +106,15 @@ describe('governance record access', () => {
         })
         .expect(201);
     const { body: shared } = await create('Shared');
-    const { body: critical } = await create('Critical', {
+    const criticalInput = {
       lifecycle: 'experimental',
       audience: 'external',
       deliveryStage: 'production',
+    };
+    const { body: critical } = await create('Critical', criticalInput);
+    const { body: overlappingRoles } = await create('Overlapping-roles', {
+      ...criticalInput,
+      backupOwner: engineer,
     });
     const { body: personal } = await create('Personal', {
       audience: 'personal',
@@ -168,31 +173,37 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ confirmed: true, expectedUpdatedAt: shared.updatedAt })
       .expect(200);
-    const { body: approved } = await api
-      .post(`${path(critical.id)}/reviews`)
-      .set('Authorization', auth(reviewer))
-      .send({
-        status: 'approved',
-        notes: 'Reviewed.',
-        expectedUpdatedAt: critical.updatedAt,
-      })
-      .expect(200);
-    const { body: activated } = await api
-      .patch(`${path(critical.id)}/lifecycle`)
-      .set('Authorization', auth(owner))
-      .send({ lifecycle: 'active', expectedUpdatedAt: approved.updatedAt })
-      .expect(200);
-    const { body: criticalKey } = await issue(critical.id);
-    const { body: nomination } = await api
-      .post(`${path(critical.id)}/graduation`)
-      .set('Authorization', auth(owner))
-      .send({ nominee: engineer, expectedUpdatedAt: activated.updatedAt })
-      .expect(200);
-    const { body: graduated } = await api
-      .patch(`${path(critical.id)}/graduation`)
-      .set('Authorization', auth(engineer))
-      .send({ decision: 'accept', expectedUpdatedAt: nomination.updatedAt })
-      .expect(200);
+    async function activateAndGraduate(app: { id: string; updatedAt: string }) {
+      const { body: approved } = await api
+        .post(`${path(app.id)}/reviews`)
+        .set('Authorization', auth(reviewer))
+        .send({
+          status: 'approved',
+          notes: 'Reviewed.',
+          expectedUpdatedAt: app.updatedAt,
+        })
+        .expect(200);
+      const { body: activated } = await api
+        .patch(`${path(app.id)}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle: 'active', expectedUpdatedAt: approved.updatedAt })
+        .expect(200);
+      const { body: key } = await issue(app.id);
+      const { body: nomination } = await api
+        .post(`${path(app.id)}/graduation`)
+        .set('Authorization', auth(owner))
+        .send({ nominee: engineer, expectedUpdatedAt: activated.updatedAt })
+        .expect(200);
+      const { body: graduated } = await api
+        .patch(`${path(app.id)}/graduation`)
+        .set('Authorization', auth(engineer))
+        .send({ decision: 'accept', expectedUpdatedAt: nomination.updatedAt })
+        .expect(200);
+      return { key, graduated };
+    }
+    const { key: criticalKey, graduated } = await activateAndGraduate(critical);
+    const { key: overlappingKey, graduated: overlappingGraduation } =
+      await activateAndGraduate(overlappingRoles);
     const { body: retired } = await api
       .patch(`${path(retiredApp.id)}/lifecycle`)
       .set('Authorization', auth(owner))
@@ -380,6 +391,39 @@ describe('governance record access', () => {
         expect.objectContaining({ action: 'revoked', actor: backup }),
       ]),
     );
+
+    await status(overlappingRoles.id, engineer).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(
+      overlappingRoles.id,
+      overlappingGraduation.updatedAt,
+      replacement,
+      engineer,
+    ).expect(403);
+    const { body: unchanged } = await api
+      .get(path(overlappingRoles.id))
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(unchanged).toMatchObject({
+      owner,
+      backupOwner: engineer,
+      updatedAt: overlappingGraduation.updatedAt,
+      lifecycle: 'active',
+      reviewStatus: 'approved',
+      graduation: { nominee: engineer, status: 'accepted' },
+    });
+
+    missing.delete(owner);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${overlappingKey.key}`)
+      .send({
+        model: 'test-model',
+        prompt: 'Verify the existing key still works.',
+      })
+      .expect(200);
   });
 
   const approvedConnector = {

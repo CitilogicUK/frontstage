@@ -99,12 +99,18 @@ type Graduation = {
   | { status: 'accepted' | 'declined'; decidedAt: string; reason?: string }
 );
 
+function isAcceptedCoOwner(record: GovernanceRecord, actor: string) {
+  return (
+    record.graduation?.status === 'accepted' &&
+    record.graduation.nominee === actor
+  );
+}
+
 function isIndependentReviewer(record: GovernanceRecord, reviewer: string) {
   return (
     reviewer !== record.owner &&
     reviewer !== record.backupOwner &&
-    (record.graduation?.status !== 'accepted' ||
-      reviewer !== record.graduation.nominee)
+    !isAcceptedCoOwner(record, reviewer)
   );
 }
 
@@ -1633,7 +1639,10 @@ export const governancePlugin = createBackendPlugin({
           assertRegisteredBackup(record, actor);
           const backupRequired = evaluateTier(record) >= 2;
           let available = false;
-          if (record.lifecycle !== 'retired') {
+          if (
+            record.lifecycle !== 'retired' &&
+            !isAcceptedCoOwner(record, actor)
+          ) {
             const active = await handoverCatalog(record, actor).catch(
               () => undefined,
             );
@@ -1671,6 +1680,10 @@ export const governancePlugin = createBackendPlugin({
             );
           if (record.lifecycle === 'retired')
             throw new ConflictError('Retired apps cannot be handed over.');
+          if (isAcceptedCoOwner(record, actor))
+            throw new NotAllowedError(
+              'An accepted engineering co-owner cannot end their own handoff.',
+            );
 
           const replacement = input.data.backupOwner;
           if (replacement === actor)
