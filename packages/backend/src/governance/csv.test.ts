@@ -27,10 +27,7 @@ describe('parseAppCsv', () => {
   it.each(['', '\uFEFFsep=;\r\n'])(
     'reads semicolon-separated exports with separator declaration %j',
     declaration => {
-      const content =
-        declaration +
-        '"name";"purpose";"models";"critical"\r\n' +
-        'Inventory;"Summarizes A, B; and C.";one | two;Yes';
+      const content = `${declaration}"name";"purpose";"models";"critical"\r\nInventory;"Summarizes A, B; and C.";one | two;Yes`;
 
       expect(parseAppCsv(content)).toEqual([
         {

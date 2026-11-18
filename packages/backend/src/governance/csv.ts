@@ -42,10 +42,10 @@ export function parseAppCsv(content: string) {
   // Excel may add a separator declaration before the actual column headers.
   const declaration = /^\uFEFF?sep=([,;])(?:\r\n|\n|\r)/i.exec(content);
   const csv = declaration ? content.slice(declaration[0].length) : content;
-  const header = csv.split(/\r\n|\n|\r/).find(line => line.trim());
+  const headerLine = csv.split(/\r\n|\n|\r/).find(line => line.trim());
   // Column names never contain separators. Only inspect the header so commas
   // and semicolons in spreadsheet cells remain ordinary data.
-  const delimiter = declaration?.[1] ?? header?.match(/[,;]/)?.[0] ?? ',';
+  const delimiter = declaration?.[1] ?? headerLine?.match(/[,;]/)?.[0] ?? ',';
 
   let rows: Array<Record<string, string>>;
   try {
