@@ -628,6 +628,24 @@ export function registerGatewayRoutes(options: {
           !!record.nextReview &&
           Date.parse(record.nextReview) > Date.now()) ||
         (tier === 3 && meetsLaunchRequirements(record)));
+    const gatewayApp =
+      config.enabled &&
+      record.usesAiAtRuntime !== false &&
+      record.type !== 'provider-hosted app';
+    let reviewDetail = reviewed
+      ? 'The current risk tier has no outstanding review requirement.'
+      : 'The app needs reassessment or a current review.';
+    if (
+      !reviewed &&
+      gatewayApp &&
+      record.renewalException &&
+      meetsGatewayReviewRequirements(record)
+    ) {
+      const expiry = record.renewalException.expiresAt
+        .slice(0, 19)
+        .replace('T', ' ');
+      reviewDetail = `Renewal is overdue. The exception permits eligible calls with an existing gateway key until ${expiry} UTC.`;
+    }
     const checks: Array<{
       name: string;
       status: boolean | null | undefined;
@@ -642,16 +660,10 @@ export function registerGatewayRoutes(options: {
       {
         name: 'Review status',
         status: reviewed,
-        detail: reviewed
-          ? 'The current risk tier has no outstanding review requirement.'
-          : 'The app needs reassessment or a current review.',
+        detail: reviewDetail,
       },
     ];
-    if (
-      config.enabled &&
-      record.usesAiAtRuntime !== false &&
-      record.type !== 'provider-hosted app'
-    ) {
+    if (gatewayApp) {
       const recentModes = await db(usageTable)
         .where({ app_id: record.id })
         .andWhere(

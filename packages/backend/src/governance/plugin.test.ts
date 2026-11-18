@@ -329,8 +329,27 @@ describe('governance record access', () => {
 
     const clock = jest.spyOn(Date, 'now').mockReturnValue(due);
     await call().expect(200);
+    const scorecard = () =>
+      api
+        .get(`${path}/scorecard`)
+        .set('Authorization', auth(owner))
+        .expect(200);
+    const duringException = await scorecard();
+    expect(duringException.body.checks).toContainEqual({
+      name: 'Review status',
+      status: 'attention',
+      detail: expect.stringContaining(
+        'Renewal is overdue. The exception permits eligible calls',
+      ),
+    });
     clock.mockReturnValue(Date.parse(expiresAt));
     await call().expect(403);
+    const afterExpiry = await scorecard();
+    expect(afterExpiry.body.checks).toContainEqual({
+      name: 'Review status',
+      status: 'attention',
+      detail: 'The app needs reassessment or a current review.',
+    });
     const revoke = (expectedUpdatedAt: string) =>
       api
         .delete(exceptionPath)
