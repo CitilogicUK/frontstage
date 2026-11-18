@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { appRecordPath } from './appRecordPath';
 import {
   appClassifications,
   appLifecycles,
@@ -558,7 +557,7 @@ export function PortfolioReport({
               <ul>
                 {report.monthlySpendAlerts.apps.map(app => (
                   <li key={app.appId}>
-                    <Link to={appRecordPath(app.appId)}>
+                    <Link to={reportAppLink(app.appId)}>
                       {byId.get(app.appId)?.name ?? app.appId}
                     </Link>
                     {' · '}
@@ -794,7 +793,7 @@ export function PortfolioReport({
                 {rows.map(row => (
                   <tr key={JSON.stringify([row.appId, row.model, row.mode])}>
                     <td className="gov-app-cell">
-                      <Link to={appRecordPath(row.appId)}>{row.name}</Link>
+                      <Link to={reportAppLink(row.appId)}>{row.name}</Link>
                     </td>
                     <td data-label="Team">{row.team}</td>
                     <td data-label="Model">{row.model}</td>
@@ -863,7 +862,7 @@ export function PortfolioReport({
                   {blocks.map(row => (
                     <tr key={JSON.stringify([row.appId, row.reason, row.mode])}>
                       <td className="gov-app-cell">
-                        <Link to={appRecordPath(row.appId)}>
+                        <Link to={reportAppLink(row.appId)}>
                           {byId.get(row.appId)?.name ?? row.appId}
                         </Link>
                       </td>

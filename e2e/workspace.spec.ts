@@ -912,7 +912,7 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(thresholds).toContainText('$21.50 estimated live cost');
   await expect(
     thresholds.getByRole('link', { name: handoff.name }),
-  ).toHaveAttribute('href', '/?app=purchase-order');
+  ).toHaveAttribute('href', '/?view=reports&app=purchase-order');
   const retirementReview = page.getByRole('region', {
     name: 'Retirement review',
   });
@@ -971,6 +971,16 @@ test('audit history shows production review and ownership handoff', async ({
   expect(teamCsv).toContain('"group:default/procurement"');
   expect(teamCsv).toContain('"review"');
   expect(teamCsv).not.toContain('missing-app');
+  await page
+    .getByRole('region', { name: 'Gateway usage', exact: true })
+    .getByRole('link', { name: handoff.name })
+    .click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/usageTeam=group%3Adefault%2Fprocurement$/);
+  await expect(page.getByRole('combobox', { name: 'Usage team' })).toHaveValue(
+    'group:default/procurement',
+  );
 
   await page.getByRole('combobox', { name: 'Usage team' }).selectOption('');
   await expect(blockReport.getByText('missing-app')).toBeVisible();
