@@ -973,7 +973,8 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       },
     });
     await expectStatus(production, 200, 'Move the pilot to production review');
-    expect(await production.json()).toMatchObject({
+    const productionApp = await production.json();
+    expect(productionApp).toMatchObject({
       deliveryStage: 'production',
       lifecycle: 'experimental',
       reviewStatus: 'pending',
@@ -984,6 +985,35 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       400,
       'Require fresh approval before activating in production',
     );
+    await waitForStatus(
+      '/api/catalog/entities/by-name/user/default/engineer',
+      headers,
+    );
+    await waitForStatus(
+      '/api/catalog/entities/by-name/group/default/engineering',
+      headers,
+    );
+    const coOwnership = await request.post(`${pilotPath}/graduation`, {
+      headers,
+      data: {
+        nominee: 'user:default/engineer',
+        expectedUpdatedAt: productionApp.updatedAt,
+      },
+    });
+    await expectStatus(
+      coOwnership,
+      200,
+      'Nominate a catalog engineering co-owner',
+    );
+    expect(await coOwnership.json()).toMatchObject({
+      owner: productionApp.owner,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      graduation: {
+        nominee: 'user:default/engineer',
+        status: 'pending',
+      },
+    });
     const softwareDescriptor = (
       await readFile(
         join(startersRoot, 'ai-assisted-software/catalog-info.yaml'),
