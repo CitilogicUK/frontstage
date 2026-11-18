@@ -552,13 +552,29 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
 test('reviewers can download the spreadsheet import sample', async ({
   page,
 }) => {
+  const descriptorApp = {
+    id: 'local-app',
+    name: 'Imported local app',
+    purpose: 'Synthetic proof of concept',
+    owner: 'user:default/demo-owner',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    classification: 'internal',
+    deliveryStage: 'poc',
+    lifecycle: 'experimental',
+    tier: 1,
+    models: [],
+    usesAiAtRuntime: false,
+    reviewStatus: 'not required',
+  };
+  let descriptorImported = false;
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
         actor: 'user:default/demo-owner',
         canReview: true,
         gatewayEnabled: false,
-        apps: [],
+        apps: descriptorImported ? [descriptorApp] : [],
       },
     }),
   );
@@ -622,6 +638,29 @@ test('reviewers can download the spreadsheet import sample', async ({
   await page.getByRole('button', { name: 'Import apps' }).click();
   await expect(page.getByText('Import complete.')).toBeVisible();
   expect(importWrites).toBe(1);
+
+  await page.route('**/api/governance/repository?dryRun=true', route =>
+    route.fulfill({ json: { apps: [descriptorApp] } }),
+  );
+  await page.route('**/api/governance/repository', route => {
+    descriptorImported = true;
+    return route.fulfill({ status: 201, json: descriptorApp });
+  });
+  await page.getByRole('link', { name: 'Import', exact: true }).click();
+  await page.getByLabel('App file').setInputFiles({
+    name: 'catalog-info.yaml',
+    mimeType: 'application/yaml',
+    buffer: Buffer.from('kind: AIApp'),
+  });
+  await page.getByRole('button', { name: 'Validate file' }).click();
+  await expect(
+    page.getByRole('region', { name: 'Import preview' }),
+  ).toContainText(descriptorApp.name);
+  await page.getByRole('button', { name: 'Import apps' }).click();
+  await expect(page).toHaveURL(/app=local-app$/);
+  await expect(
+    page.getByRole('dialog', { name: descriptorApp.name }),
+  ).toBeVisible();
 });
 
 test('audit history shows production review and ownership handoff', async ({

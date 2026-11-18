@@ -1932,9 +1932,17 @@ export function GovernancePage() {
                   setImportPreview({ endpoint, payload, apps: result.apps });
                   return;
                 }
-                await api(importPreview.endpoint, importPreview.payload);
+                const imported = await api(
+                  importPreview.endpoint,
+                  importPreview.payload,
+                );
                 await refresh();
-                navigate('Inventory');
+                if (importPreview.endpoint === '/repository') {
+                  resetView();
+                  setParams({ app: imported.id });
+                } else {
+                  navigate('Inventory');
+                }
                 setMessage('Import complete.');
               })
             }
