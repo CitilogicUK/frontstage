@@ -1418,6 +1418,7 @@ export function GovernancePage() {
               </form>
             )}
             {selected.tier === 3 &&
+              selected.lifecycle !== 'retired' &&
               reviewTracks.length > 0 &&
               (canReview ||
                 actor === selected.owner ||
@@ -1438,7 +1439,8 @@ export function GovernancePage() {
               actor !== selected.owner &&
               actor !== selected.backupOwner &&
               (!reviewTracks.length || reviewerTracks.length > 0) &&
-              selected.tier === 3 && (
+              selected.tier === 3 &&
+              selected.lifecycle !== 'retired' && (
                 <form
                   key={selected.id}
                   onSubmit={event =>

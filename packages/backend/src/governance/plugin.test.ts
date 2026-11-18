@@ -576,6 +576,20 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .expect(200, { issued: false });
     await call().expect(401);
+    const retired = await api
+      .get(runtimePath)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(retired.body.lifecycle).toBe('retired');
+    await api
+      .post(`${runtimePath}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        notes: 'Attempt to review a retired app.',
+        expectedUpdatedAt: retired.body.updatedAt,
+      })
+      .expect(400);
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {
     const owner = 'user:default/owner';

@@ -1061,8 +1061,10 @@ export const governancePlugin = createBackendPlugin({
           ) {
             throw new NotAllowedError('Owners cannot review their own apps.');
           }
-          if (record.tier !== 3)
-            throw new InputError('Reviewer decisions apply to tier 3 apps.');
+          if (record.tier !== 3 || record.lifecycle === 'retired')
+            throw new InputError(
+              'Reviewer decisions apply to non-retired tier 3 apps.',
+            );
           if (decision.data.status === 'approved') {
             if (evaluateTier(record) !== record.tier) {
               throw new ConflictError(
