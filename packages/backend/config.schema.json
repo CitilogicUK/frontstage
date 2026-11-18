@@ -17,6 +17,12 @@
           "minimum": 1,
           "description": "Optional target in UTC weekdays for the first overall Tier 3 review decision."
         },
+        "retirementReviewIntervalMinutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 10080,
+          "description": "Interval for opening owner retirement reviews based on recorded live gateway activity. Unset disables scheduling."
+        },
         "approvedHostedWorkspaces": {
           "type": "array",
           "description": "Approved provider and workspace pairs for declared-workspace scorecard checks.",

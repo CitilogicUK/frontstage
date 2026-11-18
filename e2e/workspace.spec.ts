@@ -2064,6 +2064,10 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
     review.getByRole('combobox', { name: 'Retirement decision' }),
   ).toHaveCount(0);
 
+  await expect(
+    review.getByText(`Requested by ${reviewer} on 2025-05-02.`),
+  ).toBeVisible();
+
   actor = app.owner;
   await page.goto('/');
   await expect(
@@ -2107,4 +2111,50 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
   ).toHaveValue('retired');
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(page.getByText('Retirement decision requested')).toHaveCount(0);
+});
+
+test('the assigned owner can act on a scheduled retirement request', async ({
+  page,
+}) => {
+  const requestedAt = '2025-05-02T00:00:00.000Z';
+  const owner = 'user:default/owner';
+  const app = {
+    id: 'scheduled-retirement',
+    name: 'Scheduled retirement candidate',
+    purpose: 'Summarize invoices for an archived workflow.',
+    owner,
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/scheduled-retirement',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    models: ['gpt-4.1-mini'],
+    reviewStatus: 'not required',
+    updatedAt: requestedAt,
+    retirementReview: {
+      owner,
+      requestedBy: 'plugin:governance',
+      requestedAt,
+      lastLiveCall: '2025-01-01T00:00:00.000Z',
+      status: 'pending',
+    },
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor: owner, canReview: false, apps: [app] } }),
+  );
+  await page.goto('/?app=scheduled-retirement');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const review = details.getByRole('region', { name: 'Retirement review' });
+  await expect(
+    review.getByText('Requested by Scheduled inactivity check on 2025-05-02.'),
+  ).toBeVisible();
+  await review
+    .getByRole('combobox', { name: 'Retirement decision' })
+    .selectOption('keep');
+  await expect(
+    review.getByRole('button', { name: 'Record retirement decision' }),
+  ).toBeEnabled();
 });
