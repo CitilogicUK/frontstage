@@ -161,6 +161,8 @@ export function PortfolioReport({
     return { search: next.toString() };
   }
 
+  const byId = new Map(apps.map(app => [app.id, app]));
+
   function renderGatewayApp(appId: string) {
     const app = byId.get(appId);
     return app ? (
@@ -184,7 +186,6 @@ export function PortfolioReport({
       return next;
     });
   }
-  const byId = new Map(apps.map(app => [app.id, app]));
   const ownershipIssues =
     ownership?.issues.map(issue => {
       const app = byId.get(issue.appId);
