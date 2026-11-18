@@ -45,6 +45,7 @@ import {
   AppRenewalException,
   type RenewalException,
 } from './AppRenewalException';
+import { ApprovedConnectorsGuide } from './ApprovedConnectorsGuide';
 import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
 import { GatewayModelGuide, useGatewayModelPolicy } from './GatewayModelGuide';
 import { GatewayPlayground } from './GatewayPlayground';
@@ -2595,6 +2596,7 @@ export function GovernancePage() {
             </Link>
           </section>
           <GatewayModelGuide />
+          <ApprovedConnectorsGuide />
           <HostedWorkspaceGuide />
         </>
       )}
