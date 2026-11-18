@@ -108,6 +108,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         record: AuditRecord;
         lifecycleReason?: string;
         renewalException?: RenewalException;
+        graduationNominee?: string;
       } = JSON.parse(event);
       const { record } = entry;
       const details = [];
@@ -227,11 +228,12 @@ export function AppAuditHistory({ appId }: { appId: string }) {
       if (
         entry.action === 'graduation-requested' ||
         entry.action === 'graduation-accepted' ||
-        entry.action === 'graduation-declined'
+        entry.action === 'graduation-declined' ||
+        entry.action === 'graduation-cancelled'
       ) {
         action = `Graduation ${entry.action.slice('graduation-'.length)}`;
-        if (record.graduation?.nominee)
-          details.push(`Nominated owner ${record.graduation.nominee}`);
+        const nominee = entry.graduationNominee ?? record.graduation?.nominee;
+        if (nominee) details.push(`Nominated owner ${nominee}`);
         if (record.graduation?.reason)
           details.push(`Recorded reason “${record.graduation.reason}”`);
       }

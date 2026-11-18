@@ -2215,9 +2215,15 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
         expect(actor).toBe(owner);
         expect(request.postDataJSON()).toEqual({
           nominee,
-          expectedUpdatedAt: app.updatedAt,
+          expectedUpdatedAt: current.updatedAt,
         });
         current = { ...app, updatedAt: requestedAt, graduation: pending };
+      } else if (request.method() === 'DELETE') {
+        expect(actor).toBe(owner);
+        expect(request.postDataJSON()).toEqual({
+          expectedUpdatedAt: requestedAt,
+        });
+        current = { ...app, updatedAt: '2025-05-02T00:00:00.001Z' };
       } else {
         expect(actor).toBe(nominee);
         expect(request.method()).toBe('PATCH');
@@ -2256,6 +2262,21 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     panel.getByRole('button', { name: 'Nominate engineering co-owner' }),
   ).toHaveCount(0);
 
+  await panel.getByRole('button', { name: 'Cancel nomination' }).click();
+  await expect(
+    details.getByText('Engineering nomination cancelled.'),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('button', { name: 'Cancel nomination' }),
+  ).toHaveCount(0);
+  await panel.getByRole('textbox', { name: 'Co-owner nominee' }).fill(nominee);
+  await panel
+    .getByRole('button', { name: 'Nominate engineering co-owner' })
+    .click();
+  await expect(
+    panel.getByText(`Awaiting a decision from ${nominee}.`),
+  ).toBeVisible();
+
   actor = nominee;
   await page.goto('/');
   const notice = page.getByText('Engineering co-owner decision requested');
@@ -2264,6 +2285,9 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   await expect(notice).toBeVisible();
   await page.getByRole('button', { name: new RegExp(app.name) }).click();
   await expect(details).toBeVisible();
+  await expect(
+    panel.getByRole('button', { name: 'Cancel nomination' }),
+  ).toHaveCount(0);
   await panel
     .getByRole('combobox', { name: 'Co-owner decision' })
     .selectOption('accept');
@@ -2284,4 +2308,152 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   ).toHaveCount(0);
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(notice).toHaveCount(0);
+});
+
+test('the playground clears a revealed key after ownership changes', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/reviewer';
+  const newOwner = 'user:default/new-owner';
+  const key = 'synthetic-gateway-key';
+  let issued = false;
+  let statusReads = 0;
+  let app = {
+    id: 'key-transfer',
+    name: 'Key transfer assistant',
+    owner: 'user:default/owner',
+    backupOwner: 'user:default/backup',
+    team: 'group:default/platform',
+    purpose: 'Summarize synthetic notes.',
+    type: 'assistant',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/key-transfer',
+    classification: 'internal',
+    models: ['gpt-4.1-mini'],
+    audience: 'team',
+    lifecycle: 'experimental',
+    tier: 3,
+    reviewStatus: 'pending',
+    nextReview: null as string | null,
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: reviewer,
+        canReview: true,
+        gatewayEnabled: true,
+        apps: [app],
+      },
+    }),
+  );
+  await page.route('**/api/governance/gateway/models', route =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        models: [
+          {
+            id: 'gpt-4.1-mini',
+            allowedClassifications: ['internal'],
+            maxCompletionTokens: 1024,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/key-transfer/gateway-key', route => {
+    if (route.request().method() === 'POST') {
+      issued = true;
+      return route.fulfill({ status: 201, json: { key } });
+    }
+    expect(route.request().method()).toBe('GET');
+    statusReads += 1;
+    return route.fulfill({ json: { issued } });
+  });
+  await page.route('**/api/governance/apps/key-transfer/reviews', route => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      status: 'approved',
+      expectedUpdatedAt: app.updatedAt,
+    });
+    app = {
+      ...app,
+      reviewStatus: 'approved',
+      nextReview: '2025-11-02T00:00:00.000Z',
+      updatedAt: '2025-05-02T00:00:00.000Z',
+    };
+    return route.fulfill({ json: app });
+  });
+  await page.route('**/api/governance/apps/key-transfer/lifecycle', route => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      lifecycle: 'active',
+      expectedUpdatedAt: app.updatedAt,
+    });
+    app = {
+      ...app,
+      lifecycle: 'active',
+      updatedAt: '2025-05-03T00:00:00.000Z',
+    };
+    return route.fulfill({ json: app });
+  });
+  await page.route('**/api/governance/apps/key-transfer', route => {
+    expect(route.request().method()).toBe('PUT');
+    expect(route.request().postDataJSON()).toMatchObject({
+      owner: newOwner,
+      expectedUpdatedAt: app.updatedAt,
+    });
+    issued = false;
+    app = {
+      ...app,
+      owner: newOwner,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      nextReview: null,
+      updatedAt: '2025-05-04T00:00:00.000Z',
+    };
+    return route.fulfill({ json: app });
+  });
+
+  await page.goto('/?app=key-transfer');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const playground = details.getByRole('region', {
+    name: 'Gateway playground',
+  });
+  const issue = playground.getByRole('button', { name: 'Issue gateway key' });
+  const revealed = playground.getByText(key, { exact: true });
+  await issue.click();
+  await playground.getByRole('button', { name: 'Show key' }).click();
+  await expect(revealed).toBeVisible();
+
+  await details
+    .getByRole('textbox', { name: 'Review notes' })
+    .fill('Approved for synthetic use.');
+  await details.getByRole('button', { name: 'Record decision' }).click();
+  await expect(details.getByText('Review recorded.')).toBeVisible();
+  await expect(revealed).toBeVisible();
+
+  await details
+    .getByRole('combobox', { name: 'Lifecycle' })
+    .selectOption('active');
+  await details.getByRole('button', { name: 'Update lifecycle' }).click();
+  await expect(details.getByText('Lifecycle updated.')).toBeVisible();
+  await expect(revealed).toBeVisible();
+
+  const readsBeforeTransfer = statusReads;
+  await details.getByText('Edit app details', { exact: true }).click();
+  await details
+    .getByRole('textbox', { name: 'Owner', exact: true })
+    .fill(newOwner);
+  await details.getByRole('button', { name: 'Save app details' }).click();
+  await expect(issue).toBeEnabled();
+  expect(statusReads).toBeGreaterThan(readsBeforeTransfer);
+  await expect(revealed).toHaveCount(0);
+  await expect(
+    playground.getByRole('button', { name: /Show key|Hide key|Rotate key/ }),
+  ).toHaveCount(0);
+  await expect(
+    playground.getByRole('button', { name: 'Send prompt' }),
+  ).toBeDisabled();
 });

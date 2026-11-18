@@ -125,7 +125,8 @@ type RecordAction =
   | 'retirement-review-retired'
   | 'graduation-requested'
   | 'graduation-accepted'
-  | 'graduation-declined';
+  | 'graduation-declined'
+  | 'graduation-cancelled';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
@@ -534,6 +535,7 @@ export const governancePlugin = createBackendPlugin({
           action: RecordAction,
           lifecycleReason?: string,
           renewalException?: RenewalException,
+          graduationNominee?: string,
         ) {
           const previous = await transaction(history)
             .where({ app_id: record.id, revision: revision - 1 })
@@ -545,6 +547,7 @@ export const governancePlugin = createBackendPlugin({
             previousDigest: previous?.digest ?? null,
             lifecycleReason,
             renewalException,
+            graduationNominee,
             record,
           });
           await transaction(history).insert({
@@ -616,11 +619,13 @@ export const governancePlugin = createBackendPlugin({
             lifecycleReason,
             renewalException,
             expectedRetirementActivity,
+            graduationNominee,
           }: {
             ownerChanged?: boolean;
             lifecycleReason?: string;
             renewalException?: RenewalException;
             expectedRetirementActivity?: string;
+            graduationNominee?: string;
           } = {},
         ) {
           await db.transaction(async transaction => {
@@ -667,6 +672,7 @@ export const governancePlugin = createBackendPlugin({
               action,
               lifecycleReason,
               renewalException,
+              graduationNominee,
             );
           });
         }
@@ -1594,6 +1600,37 @@ export const governancePlugin = createBackendPlugin({
             },
           };
           await save(updated, revision, principal, 'graduation-requested');
+          res.json(visibleRecord(updated, principal));
+        });
+
+        router.delete('/apps/:id/graduation', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const timestamp = z
+            .string()
+            .datetime()
+            .safeParse(req.body?.expectedUpdatedAt);
+          if (!timestamp.success)
+            throw new InputError('Provide the current app timestamp.');
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          if (record.updatedAt !== timestamp.data)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before cancelling its engineering handoff.',
+            );
+          if (record.graduation?.status !== 'pending')
+            throw new ConflictError(
+              'Only pending engineering nominations can be cancelled.',
+            );
+          const updated: GovernanceRecord = {
+            ...record,
+            graduation: undefined,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'graduation-cancelled', {
+            graduationNominee: record.graduation.nominee,
+          });
           res.json(visibleRecord(updated, principal));
         });
 

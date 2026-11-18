@@ -13,16 +13,20 @@ export function AppGraduation({
   graduation,
   canNominate,
   canDecide,
+  canCancel,
   busy,
   onNominate,
   onDecide,
+  onCancel,
 }: {
   graduation?: Graduation;
   canNominate: boolean;
   canDecide: boolean;
+  canCancel: boolean;
   busy: boolean;
   onNominate: (event: FormEvent<HTMLFormElement>) => void;
   onDecide: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <section
@@ -40,6 +44,11 @@ export function AppGraduation({
             </time>
             .
           </p>
+          {canCancel && (
+            <form onSubmit={onCancel}>
+              <button disabled={busy}>Cancel nomination</button>
+            </form>
+          )}
         </>
       )}
       {graduation && graduation.status !== 'pending' && (
