@@ -409,8 +409,14 @@ export function PortfolioReport({
             </small>
             {reviewTurnaround?.target && (
               <small>
-                {reviewTurnaround.target.pendingAtOrOver} at or over the{' '}
-                {reviewTurnaround.target.workingDays}-weekday target
+                {reviewTurnaround.target.pendingAtOrOver > 0 ? (
+                  <Link to="/?view=reviews&review=first-target">
+                    {reviewTurnaround.target.pendingAtOrOver} at or over the{' '}
+                    {reviewTurnaround.target.workingDays}-weekday target
+                  </Link>
+                ) : (
+                  `0 at or over the ${reviewTurnaround.target.workingDays}-weekday target`
+                )}
               </small>
             )}
             {reviewTurnaround?.oldestPending && (

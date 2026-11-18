@@ -1050,6 +1050,13 @@ test('audit history shows production review and ownership handoff', async ({
   expect(decisionsCsv).not.toContain(renewal.name);
 
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('link', { name: '1 at or over the 3-weekday target' })
+    .click();
+  await expect(page).toHaveURL(/view=reviews&review=first-target$/);
+  await expect(reviewRows).toHaveCount(1);
+  await expect(reviewRows.first()).toContainText(handoff.name);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
   await expect(page).toHaveURL(/view=reviews&review=required$/);
   await expect(reviewRows).toHaveCount(1);

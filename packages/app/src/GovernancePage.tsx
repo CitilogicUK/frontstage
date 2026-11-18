@@ -243,7 +243,8 @@ export function GovernancePage() {
   const reviewFilter =
     reviewParam === 'all' ||
     reviewParam === 'required' ||
-    (reviewParam === 'first' && canReview) ||
+    ((reviewParam === 'first' || reviewParam === 'first-target') &&
+      canReview) ||
     (reviewParam === 'mine' && reviewerTracks.length > 0)
       ? reviewParam
       : 'attention';
@@ -425,7 +426,11 @@ export function GovernancePage() {
     };
   }, [api, apps, canReview, view]);
 
-  const firstDecisionQueue = view === 'Reviews' && reviewFilter === 'first';
+  const firstDecisionTargetQueue =
+    view === 'Reviews' && reviewFilter === 'first-target';
+  const firstDecisionQueue =
+    (view === 'Reviews' && reviewFilter === 'first') ||
+    firstDecisionTargetQueue;
   useEffect(() => {
     if (!canReview || (view !== 'Reports' && !firstDecisionQueue))
       return undefined;
@@ -726,7 +731,13 @@ export function GovernancePage() {
     if (app.tier !== 3 || app.lifecycle === 'retired') return false;
     if (reviewFilter === 'attention') return appReview(app, now).priority <= 1;
     if (reviewFilter === 'required') return requiresCriticalReview(app, now);
-    if (reviewFilter === 'first') return pendingFirstDecisions.has(app.id);
+    if (firstDecisionQueue) {
+      if (!pendingFirstDecisions.has(app.id)) return false;
+      if (!firstDecisionTargetQueue) return true;
+      const wait = firstDecisionWait.get(app.id);
+      const target = reviewTurnaround?.target?.workingDays;
+      return wait !== undefined && target !== undefined && wait >= target;
+    }
     if (reviewFilter === 'mine') {
       return (
         actor !== app.owner &&
@@ -793,6 +804,12 @@ export function GovernancePage() {
     emptyTitle =
       reviewFilter === 'all' ? 'No critical apps' : 'No reviews need attention';
     emptyMessage = 'Critical apps appear here after registration.';
+    if (firstDecisionTargetQueue) {
+      emptyTitle = 'No apps at or over the review target';
+      emptyMessage = reviewTurnaround?.target
+        ? 'Check all first decisions to see the rest of the queue.'
+        : 'No first-decision target is configured.';
+    }
     if (reviewFilter === 'mine') {
       emptyTitle = 'No pending sign-offs for you';
       emptyMessage = 'Check all critical apps to see the rest of the queue.';
@@ -966,6 +983,13 @@ export function GovernancePage() {
                     {canReview && (
                       <option value="first">Awaiting first decision</option>
                     )}
+                    {canReview &&
+                      (reviewTurnaround?.target ||
+                        firstDecisionTargetQueue) && (
+                        <option value="first-target">
+                          At or over first-decision target
+                        </option>
+                      )}
                     {reviewerTracks.length > 0 && (
                       <option value="mine">My pending sign-offs</option>
                     )}
