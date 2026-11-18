@@ -26,6 +26,7 @@ type AppSummary = {
   tier: number;
   lifecycle: string;
   platform: string;
+  models: string[];
   classification: string;
   effectiveClassification?: string;
   deliveryStage?: string;
@@ -140,32 +141,40 @@ export function PortfolioReport({
     lifecycle: {
       label: 'Lifecycle',
       values: appLifecycles,
-      valueOf: (app: AppSummary) => app.lifecycle,
+      valuesOf: (app: AppSummary) => [app.lifecycle],
     },
     classification: {
       label: 'Data classification',
       values: appClassifications,
-      valueOf: (app: AppSummary) =>
+      valuesOf: (app: AppSummary) => [
         app.effectiveClassification ?? app.classification,
+      ],
     },
     tier: {
       label: 'Risk tier',
       values: appRiskTierNames.map((_, index) => String(index + 1)),
-      valueOf: (app: AppSummary) => String(app.tier),
+      valuesOf: (app: AppSummary) => [String(app.tier)],
     },
     team: {
       label: 'Team',
       values: [...new Set(apps.map(app => app.team).filter(Boolean))].sort(
         (a, b) => a.localeCompare(b),
       ),
-      valueOf: (app: AppSummary) => app.team,
+      valuesOf: (app: AppSummary) => [app.team],
     },
     platform: {
       label: 'Platform',
       values: [...new Set(apps.map(app => app.platform))].sort((a, b) =>
         a.localeCompare(b),
       ),
-      valueOf: (app: AppSummary) => app.platform,
+      valuesOf: (app: AppSummary) => [app.platform],
+    },
+    model: {
+      label: 'Declared model',
+      values: [...new Set(apps.flatMap(app => app.models))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
+      valuesOf: (app: AppSummary) => new Set(app.models),
     },
   };
   const requestedGroup = params.get('inventoryGroup');
@@ -176,8 +185,9 @@ export function PortfolioReport({
   const inventoryBreakdown = inventoryGroups[inventoryGroup];
   const inventoryCounts = new Map<string, number>();
   for (const app of apps) {
-    const value = inventoryBreakdown.valueOf(app);
-    inventoryCounts.set(value, (inventoryCounts.get(value) ?? 0) + 1);
+    for (const value of inventoryBreakdown.valuesOf(app)) {
+      inventoryCounts.set(value, (inventoryCounts.get(value) ?? 0) + 1);
+    }
   }
 
   function reportAppLink(appId: string, edit = false) {
@@ -479,11 +489,22 @@ export function PortfolioReport({
               ))}
             </select>
           </label>
+          {inventoryGroup === 'model' && (
+            <p>
+              {inventoryBreakdown.values.length
+                ? 'Apps can appear under more than one model.'
+                : 'No apps declare a model.'}
+            </p>
+          )}
           <dl className="gov-report-summary">
             {inventoryBreakdown.values.map(value => {
               const count = inventoryCounts.get(value) ?? 0;
               let label = value[0].toUpperCase() + value.slice(1);
-              if (inventoryGroup === 'platform' || inventoryGroup === 'team')
+              if (
+                inventoryGroup === 'platform' ||
+                inventoryGroup === 'team' ||
+                inventoryGroup === 'model'
+              )
                 label = value;
               if (inventoryGroup === 'tier')
                 label = appRiskTierNames[Number(value) - 1];

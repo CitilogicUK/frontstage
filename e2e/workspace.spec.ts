@@ -293,6 +293,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             ...base,
             id: 'soon',
             name: 'Due soon app',
+            models: ['gpt-4.1-mini', 'gpt-4.1-mini'],
             nextReview: dateInDays(15),
           },
           {
@@ -556,6 +557,18 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   );
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Another owner’s app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('model');
+  await page
+    .getByRole('region', { name: 'Apps by declared model' })
+    .getByRole('link', { name: 'gpt-4.1-mini: 3 apps' })
+    .click();
+  await expect(
+    page.getByRole('combobox', { name: 'Declared model' }),
+  ).toHaveValue('gpt-4.1-mini');
+  await expect(rows).toHaveCount(3);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   const overdueMetric = page.locator('.gov-report-summary > div').filter({
     hasText: 'Overdue reviews and attestations',
