@@ -19,6 +19,7 @@ export default defineConfig({
   webServer: {
     command: 'yarn start',
     url: baseURL,
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
   },
 });

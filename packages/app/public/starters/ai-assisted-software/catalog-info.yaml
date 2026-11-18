@@ -1,0 +1,17 @@
+apiVersion: governance.backstage.io/v1alpha1
+kind: AIApp
+metadata:
+  name: ai-assisted-software
+spec:
+  name: AI-assisted software
+  purpose: Describe the problem the app solves and who it is for.
+  type: app
+  platform: GitHub
+  sourceUrl: https://github.com/example-org/ai-assisted-software
+  owner: user:default/guest
+  team: group:default/platform
+  lifecycle: experimental
+  deliveryStage: trial
+  audience: personal
+  classification: internal
+  usesAiAtRuntime: false

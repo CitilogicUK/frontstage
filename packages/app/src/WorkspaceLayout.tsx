@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ArrowForwardIcon from '@material-ui/icons/ArrowForward';
+import AssessmentOutlinedIcon from '@material-ui/icons/AssessmentOutlined';
+import CodeIcon from '@material-ui/icons/Code';
 import AppsIcon from '@material-ui/icons/Apps';
 import AddIcon from '@material-ui/icons/Add';
 import AssignmentTurnedInOutlinedIcon from '@material-ui/icons/AssignmentTurnedInOutlined';
@@ -23,11 +25,23 @@ export const workspaceViews = {
     summary: 'Browse AI apps, software components, people, and teams.',
     icon: CategoryIcon,
   },
+  Discovery: {
+    path: '/?view=discovery',
+    title: 'App discovery',
+    summary: 'Review repositories and give unowned AI apps a catalog record.',
+    icon: SearchIcon,
+  },
   Reviews: {
     path: '/?view=reviews',
     title: 'Critical app reviews',
     summary: 'Track tier 3 apps and the decisions that govern their launch.',
     icon: AssignmentTurnedInOutlinedIcon,
+  },
+  Reports: {
+    path: '/?view=reports',
+    title: 'Portfolio reports',
+    summary: 'See review exposure and gateway usage across registered apps.',
+    icon: AssessmentOutlinedIcon,
   },
   Import: {
     path: '/?view=import',
@@ -35,6 +49,12 @@ export const workspaceViews = {
     summary:
       'Add apps from a repository descriptor or a reviewer’s inventory file.',
     icon: CloudUploadOutlinedIcon,
+  },
+  Templates: {
+    path: '/?view=templates',
+    title: 'App templates',
+    summary: 'Start with a working example that uses the Frontstage gateway.',
+    icon: CodeIcon,
   },
   'Builder guide': {
     path: '/?view=guide',

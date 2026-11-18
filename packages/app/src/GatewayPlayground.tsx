@@ -1,0 +1,345 @@
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import {
+  discoveryApiRef,
+  fetchApiRef,
+  useApi,
+} from '@backstage/core-plugin-api';
+import { gatewayBlockReason } from './gatewayBlockReasons';
+import { useGatewayModelPolicy } from './GatewayModelGuide';
+
+type Usage = {
+  liveCalls: number;
+  simulatedCalls: number;
+  unclassifiedCalls: number;
+  liveEstimatedCostUsd: number;
+  liveTokens: { calls: number; input: number; output: number };
+  requestsPerMinute: number | null;
+  monthlySpend?: {
+    monthStart: string;
+    liveEstimatedCostUsd: number;
+    thresholdUsd: number;
+    stopAtThreshold: boolean;
+  };
+  blockedCalls: number;
+  blocks: Array<{ reason: string; calls: number }>;
+};
+
+type GatewayResponse = {
+  output: string;
+  model: string;
+  simulated: boolean;
+};
+
+type GatewayApp = {
+  id: string;
+  models: string[];
+  classification: string;
+  effectiveClassification?: string;
+  lifecycle: string;
+};
+
+const estimate = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 8,
+});
+
+async function readResponse<T>(response: Response): Promise<T> {
+  if (response.ok) return response.json();
+  const body = await response.json().catch(() => undefined);
+  throw new Error(
+    body?.error?.message ?? `Gateway request failed (HTTP ${response.status}).`,
+  );
+}
+
+export function GatewayPlayground({ app }: { app: GatewayApp }) {
+  const discovery = useApi(discoveryApiRef);
+  const { fetch: backstageFetch } = useApi(fetchApiRef);
+  const [key, setKey] = useState<string>();
+  const [readingKeyStatus, setReadingKeyStatus] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [issued, setIssued] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [usage, setUsage] = useState<Usage>();
+  const [usageError, setUsageError] = useState(false);
+  const [reply, setReply] = useState<GatewayResponse>();
+  const [error, setError] = useState('');
+  const [pendingAction, setPendingAction] = useState<
+    'issue' | 'send' | 'revoke'
+  >();
+
+  const readUsage = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const base = await discovery.getBaseUrl('governance');
+        const response = await backstageFetch(
+          `${base}/apps/${encodeURIComponent(app.id)}/usage`,
+          { signal },
+        );
+        const result = await readResponse<Usage>(response);
+        setUsage(result);
+        setUsageError(false);
+      } catch {
+        if (!signal?.aborted) setUsageError(true);
+      }
+    },
+    [app.id, backstageFetch, discovery],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void readUsage(controller.signal);
+    discovery
+      .getBaseUrl('governance')
+      .then(base =>
+        backstageFetch(
+          `${base}/apps/${encodeURIComponent(app.id)}/gateway-key`,
+          { signal: controller.signal },
+        ),
+      )
+      .then(readResponse<{ issued: boolean }>)
+      .then(result => {
+        if (!controller.signal.aborted) setIssued(result.issued);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setNotice('Gateway key status is unavailable.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setReadingKeyStatus(false);
+      });
+
+    return () => controller.abort();
+  }, [app.id, backstageFetch, discovery, readUsage]);
+
+  async function issueKey() {
+    setPendingAction('issue');
+    setNotice('');
+    setError('');
+    setRevealed(false);
+    try {
+      const base = await discovery.getBaseUrl('governance');
+      const response = await backstageFetch(
+        `${base}/apps/${encodeURIComponent(app.id)}/gateway-key`,
+        { method: 'POST' },
+      );
+      const result = await readResponse<{ key: string }>(response);
+      setKey(result.key);
+      setIssued(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPendingAction(undefined);
+    }
+  }
+
+  async function revokeKey() {
+    setPendingAction('revoke');
+    setNotice('');
+    setError('');
+    try {
+      const base = await discovery.getBaseUrl('governance');
+      const response = await backstageFetch(
+        `${base}/apps/${encodeURIComponent(app.id)}/gateway-key`,
+        { method: 'DELETE' },
+      );
+      if (!response.ok) await readResponse(response);
+      setIssued(false);
+      setKey(undefined);
+      setRevealed(false);
+      setReply(undefined);
+      setNotice('Gateway key revoked.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPendingAction(undefined);
+    }
+  }
+
+  async function sendPrompt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!key) return;
+    const data = new FormData(event.currentTarget);
+    const prompt = String(data.get('prompt') ?? '').trim();
+    if (!prompt) {
+      setError('Enter a prompt.');
+      return;
+    }
+    setPendingAction('send');
+    setError('');
+    setReply(undefined);
+    try {
+      const base = await discovery.getBaseUrl('governance');
+      const response = await globalThis.fetch(`${base}/gateway/chat`, {
+        method: 'POST',
+        credentials: 'omit',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model: data.get('model'), prompt }),
+      });
+      setReply(await readResponse<GatewayResponse>(response));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      await readUsage();
+      setPendingAction(undefined);
+    }
+  }
+
+  const { policy } = useGatewayModelPolicy();
+  const classification = app.effectiveClassification ?? app.classification;
+  const approvedModels = policy
+    ? app.models.filter(id =>
+        policy.models.some(
+          model =>
+            model.id === id &&
+            model.allowedClassifications.includes(classification),
+        ),
+      )
+    : app.models;
+  const unavailableModels = app.models.filter(
+    id => !approvedModels.includes(id),
+  );
+  const keyAction = issued ? 'Rotate key' : 'Issue gateway key';
+  let usageText = 'Loading usage…';
+  if (usage) {
+    const counts = [
+      `${usage.liveCalls} live`,
+      `${usage.simulatedCalls} simulated`,
+      `${usage.blockedCalls} blocked`,
+    ];
+    if (usage.unclassifiedCalls)
+      counts.push(`${usage.unclassifiedCalls} with unknown mode`);
+    usageText = `All-time gateway requests: ${counts.join(
+      ' · ',
+    )} · ${estimate.format(usage.liveEstimatedCostUsd)} live estimated cost`;
+  }
+  if (usageError) usageText = 'Usage is unavailable.';
+
+  return (
+    <section className="gov-gateway" aria-label="Gateway playground">
+      <h3>Gateway playground</h3>
+      {app.lifecycle !== 'active' && (
+        <p>The app must be active to use the gateway.</p>
+      )}
+      {unavailableModels.length > 0 && (
+        <p>
+          Unavailable for {classification} data: {unavailableModels.join(', ')}.
+        </p>
+      )}
+      <div className="gov-gateway-key">
+        <button
+          type="button"
+          disabled={
+            readingKeyStatus ||
+            Boolean(pendingAction) ||
+            app.lifecycle === 'retired' ||
+            approvedModels.length === 0
+          }
+          onClick={issueKey}
+        >
+          {pendingAction === 'issue' ? 'Issuing key…' : keyAction}
+        </button>
+        {issued && (
+          <button
+            type="button"
+            disabled={Boolean(pendingAction)}
+            onClick={revokeKey}
+          >
+            {pendingAction === 'revoke'
+              ? 'Revoking key…'
+              : 'Revoke gateway key'}
+          </button>
+        )}
+        {key && (
+          <button type="button" onClick={() => setRevealed(value => !value)}>
+            {revealed ? 'Hide key' : 'Show key'}
+          </button>
+        )}
+      </div>
+      {notice && <p role="status">{notice}</p>}
+      {issued && !key && (
+        <p>A gateway key is issued. Rotate it to use it in this playground.</p>
+      )}
+      {key && (
+        <p className="gov-gateway-secret">
+          {revealed ? <code>{key}</code> : 'Gateway key issued and hidden.'}
+        </p>
+      )}
+      <form onSubmit={sendPrompt}>
+        <label>
+          Model
+          <select name="model" required disabled={approvedModels.length === 0}>
+            {approvedModels.map(model => (
+              <option key={model}>{model}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Prompt
+          <textarea name="prompt" required />
+        </label>
+        <button
+          disabled={
+            !key || Boolean(pendingAction) || approvedModels.length === 0
+          }
+        >
+          {pendingAction === 'send' ? 'Sending…' : 'Send prompt'}
+        </button>
+      </form>
+      {error && (
+        <p className="gov-notice" role="alert">
+          {error}
+        </p>
+      )}
+      {reply && (
+        <div className="gov-gateway-output" role="status">
+          <p>
+            {reply.model} ·{' '}
+            {reply.simulated ? 'Simulated response' : 'Live response'}
+          </p>
+          <pre>{reply.output}</pre>
+        </div>
+      )}
+      <p aria-live="polite">{usageText}</p>
+      {!usageError && !!usage?.liveTokens?.calls && (
+        <p>
+          Live tokens: {usage.liveTokens.input.toLocaleString()} input ·{' '}
+          {usage.liveTokens.output.toLocaleString()} output
+          {usage.liveTokens.calls < usage.liveCalls &&
+            ` · Counts available for ${usage.liveTokens.calls} of ${usage.liveCalls} live calls`}
+        </p>
+      )}
+      {!usageError && usage?.requestsPerMinute && (
+        <p>Request limit: {usage.requestsPerMinute} per minute.</p>
+      )}
+      {!usageError && usage?.monthlySpend && (
+        <p>
+          UTC month starting {usage.monthlySpend.monthStart.slice(0, 10)} ·{' '}
+          {estimate.format(usage.monthlySpend.liveEstimatedCostUsd)} estimated
+          live cost
+          {' · '}
+          {estimate.format(usage.monthlySpend.thresholdUsd)} threshold
+          {usage.monthlySpend.liveEstimatedCostUsd >=
+            usage.monthlySpend.thresholdUsd && ' · Threshold reached'}
+          {usage.monthlySpend.stopAtThreshold &&
+            ' · Live requests stop at threshold'}
+        </p>
+      )}
+      {!usageError && !!usage?.blocks.length && (
+        <details>
+          <summary>Blocked requests by reason</summary>
+          <ul>
+            {usage.blocks.map(block => (
+              <li key={block.reason}>
+                {gatewayBlockReason(block.reason)} · {block.calls}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}

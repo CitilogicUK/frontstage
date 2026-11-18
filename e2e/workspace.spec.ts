@@ -1,11 +1,16 @@
+import { readFile } from 'node:fs/promises';
+import { unzipSync, strFromU8 } from 'fflate';
 import { expect, test, type Page } from '@playwright/test';
 
 const catalogPath =
   '/catalog?filters%5Bkind%5D=component&filters%5Buser%5D=all&limit=20';
 const destinations = [
   { label: 'Inventory', heading: 'AI app inventory' },
+  { label: 'Discovery', heading: 'App discovery' },
   { label: 'Reviews', heading: 'Critical app reviews' },
+  { label: 'Reports', heading: 'Portfolio reports' },
   { label: 'Import', heading: 'Import existing apps' },
+  { label: 'Templates', heading: 'App templates' },
   { label: 'Builder guide', heading: 'Builder guide' },
 ];
 
@@ -21,8 +26,11 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
   await expect(navigation.getByRole('link')).toHaveText([
     'Inventory',
     'Catalog',
+    'Discovery',
     'Reviews',
+    'Reports',
     'Import',
+    'Templates',
     'Builder guide',
   ]);
   const activeLink = navigation.locator('[aria-current="page"]');
@@ -39,7 +47,41 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
 
 test('workspace screens share navigation and fit the viewport', async ({
   page,
+  request,
 }) => {
+  await expect
+    .poll(
+      async () => {
+        const health = await request
+          .get('http://localhost:7007/.backstage/health/v1/readiness', {
+            timeout: 2_000,
+          })
+          .catch(() => undefined);
+        if (!health) return 0;
+        const status = health.status();
+        await health.dispose();
+        return status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(200);
+  await page.route('**/api/governance/discovery/github', route =>
+    route.fulfill({
+      json: {
+        source: { organization: 'example', topic: 'governance' },
+        lastScan: null,
+        intervalMinutes: null,
+        repositories: ['registered', 'unowned', 'dismissed'].map(status => ({
+          id: status,
+          name: `${status} repository`,
+          description: '',
+          sourceUrl: `https://github.com/example/${status}`,
+          appId: status === 'registered' ? 'existing-app' : null,
+          dismissed: status === 'dismissed' ? 1 : 0,
+        })),
+      },
+    }),
+  );
   await page.goto(catalogPath);
   const heading = page.getByRole('heading', {
     level: 1,
@@ -63,8 +105,932 @@ test('workspace screens share navigation and fit the viewport', async ({
   }
 
   await navigation
+    .getByRole('link', { name: 'Discovery', exact: true })
+    .click();
+  await expect(
+    page.getByText(/1 of 2 tracked repositories registered.*50% coverage/),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unowned 1' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dismissed 1' })).toBeVisible();
+  await navigation
+    .getByRole('link', { name: 'Builder guide', exact: true })
+    .click();
+  await expect(
+    page.getByText(/if AI only helps write the code/i),
+  ).toBeVisible();
+  const guide = page.getByRole('region', { name: 'Approved gateway models' });
+  await expect(guide.getByText('1,024 tokens', { exact: true })).toHaveCount(2);
+  await page.getByRole('link', { name: 'Browse app templates' }).click();
+  await assertWorkspace(page, 'App templates', 'Templates');
+  await page.getByLabel('Delivery stage').selectOption('poc');
+  await page
+    .getByRole('combobox', { name: 'Approved model' })
+    .selectOption('gpt-4.1-nano');
+  await page
+    .getByRole('combobox', { name: 'Starter data classification' })
+    .selectOption('restricted');
+  const starterModel = page.getByRole('combobox', { name: 'Approved model' });
+  await expect(starterModel).toHaveValue('gpt-4.1-mini');
+  await expect(
+    starterModel.getByRole('option', { name: 'gpt-4.1-nano' }),
+  ).toHaveCount(0);
+  for (const [id, button, usesAi] of [
+    ['gateway-assistant', 'assistant', true],
+    ['gateway-agent', 'agent', true],
+    ['gateway-automation', 'automation', true],
+    ['ai-assisted-software', 'AI-assisted software', false],
+  ] as const) {
+    const pending = page.waitForEvent('download');
+    await page
+      .getByRole('button', { name: `Download ${button} starter` })
+      .click();
+    const download = await pending;
+    expect(download.suggestedFilename()).toBe(`frontstage-${id}.zip`);
+    const path = await download.path();
+    if (!path) throw new Error('Starter download has no local path');
+    const files = unzipSync(await readFile(path));
+    expect(strFromU8(files[`${id}/CLAUDE.md`]).trim()).toBe('@AGENTS.md');
+    expect(strFromU8(files[`${id}/AGENTS.md`])).toContain('Proof of concept');
+    const brief = strFromU8(files[`${id}/PROJECT_BRIEF.md`]);
+    expect(brief).toContain('Delivery stage: Proof of concept');
+    expect(brief).toContain(
+      usesAi
+        ? 'calls models through the gateway'
+        : 'No runtime model calls are planned',
+    );
+    const descriptor = strFromU8(files[`${id}/catalog-info.yaml`]);
+    expect(descriptor).toContain('deliveryStage: poc');
+    expect(descriptor).toContain(`usesAiAtRuntime: ${usesAi}`);
+    expect(Boolean(files[`${id}/gateway.mjs`])).toBe(usesAi);
+    expect(descriptor).toContain('classification: restricted');
+    expect(descriptor).toContain('backupOwner: user:default/backup');
+    expect(brief).toContain('Highest data classification: restricted');
+    if (usesAi) {
+      expect(brief).toContain('Configured model: `gpt-4.1-mini`');
+      expect(descriptor).toContain('models: ["gpt-4.1-mini"]');
+      expect(strFromU8(files[`${id}/gateway.mjs`])).toContain(
+        'FRONTSTAGE_BACKEND_URL ?? "http://localhost:7007"',
+      );
+      expect(strFromU8(files[`${id}/README.md`])).toContain(
+        'workspace that generated this starter',
+      );
+
+      expect(strFromU8(files[`${id}/gateway.mjs`])).toContain(
+        'FRONTSTAGE_MODEL ?? "gpt-4.1-mini"',
+      );
+    }
+  }
+  await page
+    .getByRole('link', { name: 'Register from ai-assisted software' })
+    .click();
+  await expect(page.getByLabel('Does the app use AI at runtime?')).toHaveValue(
+    'no',
+  );
+  await expect(
+    page.getByLabel('Does the app use AI at runtime?'),
+  ).toHaveAccessibleDescription(
+    'Using a coding agent to build the app does not count as runtime AI.',
+  );
+  await expect(page.getByLabel('Delivery stage')).toHaveValue('poc');
+  await expect(page.getByLabel('Highest data classification')).toHaveValue(
+    'restricted',
+  );
+  await expect(page.getByLabel('Models', { exact: true })).toHaveCount(0);
+  await navigation
+    .getByRole('link', { name: 'Templates', exact: true })
+    .click();
+
+  await page.getByLabel('Delivery stage').selectOption('pilot');
+  await page
+    .getByRole('combobox', { name: 'Approved model' })
+    .selectOption('gpt-4.1-nano');
+  await page
+    .getByRole('combobox', { name: 'Starter data classification' })
+    .selectOption('confidential');
+  await page.getByRole('link', { name: 'Register from gateway agent' }).click();
+  await expect(page.getByLabel('Delivery stage')).toHaveValue('pilot');
+  await assertWorkspace(page, 'Register an AI app');
+  await expect(page.getByLabel('App type')).toHaveValue('agent');
+  await expect(page.getByLabel('App name')).toHaveValue('Gateway agent');
+  await expect(page.getByLabel('Highest data classification')).toHaveValue(
+    'confidential',
+  );
+  await expect(page.getByLabel('Models', { exact: true })).toHaveValue(
+    'gpt-4.1-mini',
+  );
+  await expect(
+    page.getByLabel('Backup owner (required for tiers 2 and 3)'),
+  ).toHaveAttribute('required');
+  const modelInput = page.getByLabel('Models', { exact: true });
+  await modelInput.fill('gpt-4.1-nano');
+  await expect(modelInput).toHaveAccessibleDescription(
+    'The gateway does not approve gpt-4.1-nano for confidential data.',
+  );
+  await page.getByLabel('Highest data classification').selectOption('internal');
+  await expect(modelInput).not.toHaveAttribute('aria-describedby');
+  await expect(page.getByLabel('Source URL')).toHaveValue('');
+
+  await navigation
     .getByRole('link', { name: 'Inventory', exact: true })
     .click();
   await page.getByRole('link', { name: 'Register app', exact: true }).click();
   await assertWorkspace(page, 'Register an AI app');
+  await expect(page.getByLabel('App name')).toHaveValue('');
+  await expect(page.getByLabel('Highest data classification')).toHaveValue(
+    'public',
+  );
+});
+
+test('the owner inventory prioritizes upcoming and overdue reviews', async ({
+  page,
+}) => {
+  const actor = 'user:default/demo-owner';
+  const base = {
+    owner: actor,
+    purpose: 'Synthetic inventory fixture',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'active',
+    models: ['gpt-4.1-mini', 'unapproved-model'],
+    tier: 2,
+    reviewStatus: 'not required',
+  };
+  const dateInDays = (days: number) =>
+    new Date(Date.now() + days * 86_400_000).toISOString();
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor,
+        canReview: false,
+        gatewayEnabled: true,
+        apps: [
+          {
+            ...base,
+            id: 'current',
+            name: 'Current app',
+            platform: 'Hosted workspace & tools',
+            effectiveClassification: 'confidential',
+            lifecycle: 'deprecated',
+            deliveryStage: 'poc',
+            usesAiAtRuntime: false,
+            models: [],
+            nextReview: dateInDays(60),
+          },
+          {
+            ...base,
+            id: 'soon',
+            name: 'Due soon app',
+            nextReview: dateInDays(15),
+          },
+          {
+            ...base,
+            id: 'overdue',
+            name: 'Overdue app',
+            deliveryStage: 'production',
+            nextReview: dateInDays(-1),
+          },
+          {
+            ...base,
+            id: 'other',
+            name: 'Another owner’s app',
+            owner: 'user:default/another',
+            backupOwner: actor,
+            nextReview: dateInDays(-5),
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/*/gateway-key', route =>
+    route.fulfill({ json: { issued: false } }),
+  );
+  await page.route('**/api/governance/apps/*/usage', route =>
+    route.fulfill({
+      json: {
+        liveCalls: 0,
+        simulatedCalls: 0,
+        unclassifiedCalls: 0,
+        liveEstimatedCostUsd: 0,
+        requestsPerMinute: 30,
+        blockedCalls: 0,
+        blocks: [],
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/other/scorecard', route =>
+    route.fulfill({
+      json: {
+        checks: [
+          {
+            name: 'Review status',
+            status: 'attention',
+            detail: 'The app needs a current attestation.',
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?owner=me');
+  const heading = page.getByRole('heading', { name: 'AI app inventory' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(page.getByLabel('Ownership')).toHaveValue('me');
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText('Attestation overdue');
+  await expect(rows.nth(1)).toContainText('Attestation due soon');
+  await expect(rows.nth(2)).toContainText('Attestation current');
+  const reviewStatus = page.getByRole('combobox', { name: 'Review status' });
+  await page
+    .getByRole('link', { name: '2 of your apps need review attention' })
+    .click();
+  await expect(reviewStatus).toHaveValue('attention');
+  await expect(page).toHaveURL(/owner=me&review=attention$/);
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Attestation overdue');
+  await expect(rows.nth(1)).toContainText('Attestation due soon');
+  await reviewStatus.selectOption('');
+  const lifecycle = page.getByRole('combobox', {
+    name: 'Lifecycle',
+    exact: true,
+  });
+  await lifecycle.selectOption('deprecated');
+  await expect(page).toHaveURL(/owner=me&lifecycle=deprecated$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Current app');
+  await lifecycle.selectOption('');
+  await expect(rows).toHaveCount(3);
+
+  await rows
+    .nth(0)
+    .getByRole('button', { name: /Overdue app/ })
+    .click();
+  await expect(page).toHaveURL(/owner=me&app=overdue/);
+  await expect(page.getByRole('dialog', { name: 'Overdue app' })).toBeVisible();
+  const playground = page.getByRole('region', { name: 'Gateway playground' });
+  await expect(
+    playground.getByText('Unavailable for internal data: unapproved-model.'),
+  ).toBeVisible();
+  await expect(
+    playground.getByRole('option', { name: 'unapproved-model' }),
+  ).toHaveCount(0);
+  await expect(
+    playground.getByRole('option', { name: 'gpt-4.1-mini' }),
+  ).toHaveCount(1);
+  const reminderPending = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download calendar reminder' })
+    .click();
+  const reminder = await reminderPending;
+  expect(reminder.suggestedFilename()).toBe('frontstage-review.ics');
+  const calendar = await readFile(await reminder.path(), 'utf8');
+  expect(calendar).toContain('SUMMARY:App attestation: Overdue app');
+  expect(calendar).toContain('URL:http://localhost:3000/?app=overdue');
+  expect(calendar).toContain('TRIGGER:-P7D');
+  await page.goBack();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await page.goForward();
+  await expect(page.getByRole('dialog', { name: 'Overdue app' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/owner=me$/);
+  await page.getByLabel('Delivery stage').selectOption('poc');
+  await expect(page).toHaveURL(/owner=me&stage=poc$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Proof of concept');
+  const bulkPending = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const bulkCalendar = await bulkPending;
+  expect(bulkCalendar.suggestedFilename()).toBe('frontstage-my-reviews.ics');
+  const calendarText = await readFile(await bulkCalendar.path(), 'utf8');
+  expect(calendarText.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(calendarText).toContain('SUMMARY:App attestation: Current app');
+  expect(calendarText).not.toContain('Another owner');
+
+  const csvPending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const csvDownload = await csvPending;
+  expect(csvDownload.suggestedFilename()).toBe('frontstage-inventory.csv');
+  const csv = await readFile(await csvDownload.path(), 'utf8');
+  expect(csv).toContain('delivery_stage,uses_ai_at_runtime');
+  expect(csv).toContain('"Current app"');
+  expect(csv).toContain('"poc","No"');
+  expect(csv).not.toContain('Overdue app');
+
+  await page.getByLabel('Delivery stage').selectOption('unset');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  await page.getByLabel('Delivery stage').selectOption('trial');
+  await expect(page.getByText('No matching apps')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(page).toHaveURL(/owner=me$/);
+  await expect(rows).toHaveCount(3);
+  await page.getByLabel('Ownership').selectOption('backup');
+  await expect(page).toHaveURL(/owner=backup$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await expect(rows.first()).toContainText('Attestation overdue');
+  await rows
+    .first()
+    .getByRole('button', { name: /Another owner/ })
+    .click();
+  const backupDetails = page.getByRole('dialog', {
+    name: 'Another owner’s app',
+  });
+  await backupDetails.getByText('App scorecard', { exact: true }).click();
+  await expect(
+    backupDetails.getByText('Review status · Needs attention'),
+  ).toBeVisible();
+  await expect(
+    backupDetails.getByRole('button', { name: 'Record attestation' }),
+  ).toHaveCount(0);
+  await backupDetails
+    .getByRole('button', { name: 'Close app details' })
+    .click();
+  await page.getByLabel('Ownership').selectOption('all');
+  await expect(rows).toHaveCount(4);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const lifecycleReport = page.getByRole('region', {
+    name: 'Apps by lifecycle',
+  });
+  await lifecycleReport
+    .getByRole('link', { name: 'Deprecated: 1 app' })
+    .click();
+  await expect(page).toHaveURL(/lifecycle=deprecated$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Current app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('classification');
+  const classificationReport = page.getByRole('region', {
+    name: 'Apps by data classification',
+  });
+  await classificationReport
+    .getByRole('link', { name: 'Confidential: 1 app' })
+    .click();
+  await expect(
+    page.getByRole('combobox', { name: 'Data classification', exact: true }),
+  ).toHaveValue('confidential');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Current app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('platform');
+  const platformReport = page.getByRole('region', { name: 'Apps by platform' });
+  await platformReport
+    .getByRole('link', { name: 'Hosted workspace & tools: 1 app' })
+    .click();
+  await expect(
+    page.getByRole('combobox', { name: 'Platform', exact: true }),
+  ).toHaveValue('Hosted workspace & tools');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Current app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('tier');
+  const riskReport = page.getByRole('region', { name: 'Apps by risk tier' });
+  await riskReport.getByRole('link', { name: 'Shared: 4 apps' }).click();
+  await expect(page).toHaveURL(/tier=2$/);
+  await expect(page.getByRole('button', { name: 'Shared 4' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(rows).toHaveCount(4);
+  await page.getByRole('button', { name: 'Personal 0' }).click();
+  await expect(page.getByText('No matching apps')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(page).toHaveURL(/localhost:3000\/$/);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const overdueMetric = page.locator('.gov-report-summary > div').filter({
+    hasText: 'Overdue reviews and attestations',
+  });
+  await expect(overdueMetric).toContainText('50%');
+  await expect(overdueMetric).toContainText(
+    '2 of 4 non-retired Tier 2 and Tier 3 apps',
+  );
+  await overdueMetric.getByRole('link', { name: 'View overdue apps' }).click();
+  await expect(page).toHaveURL(/review=overdue$/);
+  await expect(reviewStatus).toHaveValue('overdue');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('Overdue app');
+  await reviewStatus.selectOption('');
+  await expect(rows).toHaveCount(4);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const portfolio = page.getByRole('region', {
+    name: 'Apps by delivery stage',
+  });
+  const poc = portfolio
+    .getByRole('row')
+    .filter({ hasText: 'Proof of concept' });
+  await expect(poc.locator('td')).toHaveText(['Proof of concept', '0', '1']);
+  const production = portfolio
+    .getByRole('row')
+    .filter({ hasText: 'Production' });
+  await expect(production.locator('td')).toHaveText(['Production', '1', '0']);
+  await poc
+    .getByRole('link', { name: 'Proof of concept, No runtime AI, 1 app' })
+    .click();
+  await expect(page.getByLabel('Delivery stage')).toHaveValue('poc');
+  await expect(
+    page.getByRole('combobox', { name: 'Runtime AI', exact: true }),
+  ).toHaveValue('no');
+  await expect(rows).toHaveCount(1);
+  await page
+    .getByRole('combobox', { name: 'Runtime AI', exact: true })
+    .selectOption('yes');
+  await expect(page.getByText('No matching apps')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(rows).toHaveCount(4);
+});
+
+test('reviewers can download the spreadsheet import sample', async ({
+  page,
+}) => {
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: 'user:default/demo-owner',
+        canReview: true,
+        gatewayEnabled: false,
+        apps: [],
+      },
+    }),
+  );
+  let importWrites = 0;
+  let validatedImport: unknown;
+  await page.route('**/api/governance/imports?dryRun=true', route => {
+    validatedImport = route.request().postDataJSON();
+    return route.fulfill({
+      json: {
+        apps: [
+          {
+            name: 'Imported sample',
+            tier: 2,
+            deliveryStage: 'poc',
+            usesAiAtRuntime: false,
+            effectiveClassification: 'internal',
+            owner: 'user:default/demo-owner',
+            backupOwner: 'user:default/backup',
+            team: 'group:default/platform',
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/governance/imports', route => {
+    expect(route.request().postDataJSON()).toEqual(validatedImport);
+    importWrites += 1;
+    return route.fulfill({ status: 201, json: [] });
+  });
+  await page.goto('/?view=import');
+  const heading = page.getByRole('heading', { name: 'Import existing apps' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  const pending = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download sample CSV' }).click();
+  const download = await pending;
+  expect(download.suggestedFilename()).toBe('frontstage-app-import.csv');
+  const path = await download.path();
+  expect(await readFile(path, 'utf8')).toContain(
+    'deliveryStage,usesAiAtRuntime',
+  );
+  await page.getByLabel('App file').setInputFiles({
+    name: 'sample.csv',
+    mimeType: 'text/csv',
+    buffer: await readFile(path),
+  });
+  await page.getByRole('button', { name: 'Validate file' }).click();
+  await expect(
+    page.getByRole('region', { name: 'Import preview' }),
+  ).toContainText(
+    'Imported sample · Tier 2 · Proof of concept · No runtime AI · internal',
+  );
+  await expect(
+    page.getByRole('region', { name: 'Import preview' }),
+  ).toContainText(
+    'Owner: user:default/demo-owner · Backup owner: user:default/backup · Team: group:default/platform',
+  );
+  expect(importWrites).toBe(0);
+  await page.getByRole('button', { name: 'Import apps' }).click();
+  await expect(page.getByText('Import complete.')).toBeVisible();
+  expect(importWrites).toBe(1);
+});
+
+test('audit history shows production review and ownership handoff', async ({
+  page,
+}) => {
+  const pilot = {
+    id: 'purchase-order',
+    name: 'Purchase order pilot',
+    owner: 'user:default/demo-owner',
+    team: 'group:default/procurement',
+    purpose: 'Sandbox purchase orders',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'active',
+    models: [],
+    usesAiAtRuntime: false,
+    deliveryStage: 'pilot',
+    tier: 3,
+    reviewStatus: 'approved',
+    updatedAt: '2025-01-01T10:00:00.000Z',
+  };
+  const production = {
+    ...pilot,
+    deliveryStage: 'production',
+    lifecycle: 'experimental',
+    reviewStatus: 'pending',
+    updatedAt: '2025-01-02T10:00:00.000Z',
+  };
+  const handoff = {
+    ...production,
+    reviewTicketUrl: 'https://tickets.example.com/review/123',
+    owner: 'user:default/new-owner',
+    updatedAt: '2025-01-03T10:00:00.000Z',
+  };
+  const securityReview = {
+    ...handoff,
+    updatedAt: '2025-01-04T10:00:00.000Z',
+    signoffs: {
+      security: { status: 'approved', at: '2025-01-04T10:00:00.000Z' },
+    },
+  };
+  const renewal = {
+    ...pilot,
+    id: 'renewal',
+    name: 'Upcoming renewal',
+    usesAiAtRuntime: true,
+    deliveryStage: 'production',
+    nextReview: new Date(Date.now() + 10 * 86_400_000).toISOString(),
+  };
+  let currentHandoff = handoff;
+  let currentRenewal = renewal;
+  await page.route('**/api/governance/apps/renewal/lifecycle', async route => {
+    expect(route.request().method()).toBe('PATCH');
+    const update = route.request().postDataJSON();
+    expect(update.reason).toBe('Replaced by the shared workflow');
+    currentRenewal = { ...renewal, lifecycle: update.lifecycle };
+    await route.fulfill({ json: currentRenewal });
+  });
+  await page.route('**/api/governance/apps/purchase-order', async route => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    const update = route.request().postDataJSON();
+    currentHandoff = { ...handoff, owner: update.owner, team: update.team };
+    await route.fulfill({ json: currentHandoff });
+  });
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: pilot.owner,
+        canReview: true,
+        reviewTracks: ['security', 'dataProtection'],
+        reviewerTracks: ['security'],
+        apps: [currentRenewal, currentHandoff],
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/purchase-order/history', route =>
+    route.fulfill({
+      json: {
+        keyEvents: [],
+        events: [pilot, production, handoff, securityReview].map(
+          (record, revision) => ({
+            digest: String(revision).padStart(64, '0'),
+            event: JSON.stringify({
+              action: ['registered', 'updated', 'updated', 'reviewed'][
+                revision
+              ],
+              actor: pilot.owner,
+              record,
+            }),
+          }),
+        ),
+      },
+    }),
+  );
+  await page.route('**/api/governance/reports/ownership', route =>
+    route.fulfill({
+      json: {
+        issues:
+          currentHandoff.owner === handoff.owner
+            ? [
+                {
+                  appId: handoff.id,
+                  name: handoff.name,
+                  unavailable: [handoff.owner, handoff.team],
+                  availableBackupOwner: pilot.owner,
+                },
+              ]
+            : [],
+      },
+    }),
+  );
+  await page.route('**/api/governance/reports/usage', route =>
+    route.fulfill({
+      json: {
+        from: '2025-01-01T00:00:00.000Z',
+        retirementReview: {
+          days: 90,
+          apps:
+            currentRenewal.lifecycle === 'retired'
+              ? []
+              : [
+                  {
+                    appId: renewal.id,
+                    lastLiveCall: '2024-09-01T00:00:00.000Z',
+                  },
+                ],
+        },
+        monthlySpendAlerts: {
+          monthStart: '2025-01-01T00:00:00.000Z',
+          apps: [
+            { appId: handoff.id, liveEstimatedCostUsd: 21.5, thresholdUsd: 20 },
+          ],
+        },
+
+        usage: [
+          {
+            appId: handoff.id,
+            model: 'fixture',
+            mode: 'openai',
+            calls: 2,
+            estimatedCostUsd: 0.12,
+          },
+          {
+            appId: renewal.id,
+            model: 'fixture',
+            mode: 'simulation',
+            calls: 3,
+            estimatedCostUsd: 9,
+          },
+        ],
+        blocks: [
+          { appId: renewal.id, mode: 'simulation', reason: 'review', calls: 4 },
+          {
+            appId: 'missing-app',
+            mode: 'simulation',
+            reason: 'review',
+            calls: 1,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/governance/reports/usage?days=7', route =>
+    route.fulfill({
+      json: { from: '2025-01-24T00:00:00.000Z', usage: [], blocks: [] },
+    }),
+  );
+  await page.goto('/?view=reviews&stage=production');
+  const dialog = page.getByRole('dialog', { name: pilot.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  const heading = page.getByRole('heading', { name: 'Critical app reviews' });
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const stage = page.getByRole('combobox', { name: 'Delivery stage' });
+  await expect(stage).toHaveValue('production');
+  const reviewRows = page.locator('tbody tr');
+  await expect(reviewRows).toHaveCount(2);
+  await expect(
+    reviewRows.first().getByRole('link', {
+      name: 'Open review ticket for Purchase order pilot',
+    }),
+  ).toHaveAttribute('href', handoff.reviewTicketUrl);
+  await expect(reviewRows.first()).toContainText('Purchase order pilot');
+  await expect(reviewRows.last()).toContainText('Review due soon');
+
+  await stage.selectOption('pilot');
+  await expect(page.getByText('No matching apps')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(page).toHaveURL(/view=reviews$/);
+  await stage.selectOption('production');
+  await page.getByRole('button', { name: /Purchase order pilot/ }).click();
+  await expect(
+    dialog.getByRole('link', { name: 'Open review ticket' }),
+  ).toHaveAttribute('href', handoff.reviewTicketUrl);
+  await dialog.getByText('Audit history', { exact: true }).click();
+  await expect(
+    dialog.getByRole('textbox', { name: 'Final record digest (SHA-256)' }),
+  ).toHaveValue('3'.padStart(64, '0'));
+  await expect(dialog.getByText('Security: approved')).toBeVisible();
+  await expect(
+    dialog.getByText('Lifecycle changed to experimental', { exact: false }),
+  ).toBeVisible();
+  await expect(dialog.getByText('Overall review: pending')).toBeVisible();
+
+  await expect(
+    dialog.getByText(
+      'Owner changed from user:default/demo-owner to user:default/new-owner · Review ticket linked',
+    ),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText('Delivery stage: Production · Approval reopened'),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText('Delivery stage: Pilot · No runtime AI'),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close app details' }).click();
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const windowSelect = page.getByRole('combobox', { name: 'Reporting window' });
+  await expect(windowSelect).toHaveValue('30');
+  await windowSelect.selectOption('7');
+  await expect(page).toHaveURL(/view=reports&days=7$/);
+  await expect(page.getByText('No gateway calls recorded')).toBeVisible();
+  await expect(page.getByText('Live estimated cost · 7 days')).toBeVisible();
+  await windowSelect.selectOption('30');
+  const thresholds = page.getByRole('region', {
+    name: 'Monthly spend thresholds',
+  });
+  await expect(thresholds).toContainText('$21.50 estimated live cost');
+  await expect(
+    thresholds.getByRole('link', { name: handoff.name }),
+  ).toHaveAttribute('href', '/?app=purchase-order');
+  const retirementReview = page.getByRole('region', {
+    name: 'Retirement review',
+  });
+  await expect(retirementReview).toContainText('Last live call 2024-09-01');
+  await expect(
+    retirementReview.getByRole('link', { name: renewal.name }),
+  ).toHaveAttribute('href', '/?view=reports&app=renewal');
+  const teamUsage = page.getByRole('region', { name: 'Gateway usage by team' });
+  const procurement = teamUsage
+    .getByRole('row')
+    .filter({ hasText: 'group:default/procurement' });
+  await expect(procurement.locator('td')).toHaveText([
+    'group:default/procurement',
+    '2',
+    '3',
+    '4',
+    '$0.12',
+  ]);
+  const groupUsage = page.getByRole('combobox', {
+    name: 'Group gateway usage',
+  });
+  await groupUsage.selectOption('model');
+  await expect(page).toHaveURL(/view=reports&usageGroup=model$/);
+  const modelUsage = page.getByRole('region', {
+    name: 'Gateway usage by model',
+  });
+  const fixtureModel = modelUsage
+    .getByRole('row')
+    .filter({ hasText: 'fixture' });
+  await expect(fixtureModel.locator('td')).toHaveText([
+    'fixture',
+    '2',
+    '3',
+    '$0.12',
+  ]);
+  await groupUsage.selectOption('team');
+  const blockReport = page.getByRole('region', {
+    name: 'Gateway policy blocks',
+  });
+  await expect(blockReport.getByText('missing-app')).toBeVisible();
+  await procurement.getByRole('button').click();
+  await expect(page).toHaveURL(/usageTeam=group%3Adefault%2Fprocurement$/);
+  await expect(page.getByRole('combobox', { name: 'Usage team' })).toHaveValue(
+    'group:default/procurement',
+  );
+  await expect(blockReport.getByText('missing-app')).toBeHidden();
+  const teamCsvPending = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download selected team CSV' })
+    .click();
+  const teamCsvDownload = await teamCsvPending;
+  expect(teamCsvDownload.suggestedFilename()).toBe(
+    'frontstage-gateway-team.csv',
+  );
+  const teamCsv = await readFile(await teamCsvDownload.path(), 'utf8');
+  expect(teamCsv).toContain('"group:default/procurement"');
+  expect(teamCsv).toContain('"review"');
+  expect(teamCsv).not.toContain('missing-app');
+
+  await page.getByRole('combobox', { name: 'Usage team' }).selectOption('');
+  await expect(blockReport.getByText('missing-app')).toBeVisible();
+  await page.getByRole('link', { name: 'View required reviews' }).click();
+  await expect(page).toHaveURL(/view=reviews&review=required$/);
+  await expect(reviewRows).toHaveCount(1);
+  await expect(
+    page.getByRole('combobox', { name: 'Review status' }),
+  ).toHaveValue('required');
+  await expect(
+    page.getByRole('button', { name: /Purchase order pilot/ }),
+  ).toBeVisible();
+  await page
+    .getByRole('combobox', { name: 'Review status' })
+    .selectOption('mine');
+  await expect(page).toHaveURL(/view=reviews&review=mine$/);
+  await expect(reviewRows).toHaveCount(1);
+  await expect(reviewRows.first()).toContainText('Purchase order pilot');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const ownership = page.getByRole('region', { name: 'Ownership issues' });
+  await expect(
+    ownership.getByText(
+      `Accountable owner: ${handoff.owner} · Team: ${handoff.team}`,
+    ),
+  ).toBeVisible();
+  await expect(
+    ownership.getByText(`Active backup owner: ${pilot.owner}`),
+  ).toBeVisible();
+  await ownership.getByRole('link', { name: handoff.name }).click();
+  await expect(dialog).toBeVisible();
+  await dialog
+    .getByRole('textbox', { name: 'Owner', exact: true })
+    .fill(pilot.owner);
+  await dialog
+    .getByRole('textbox', { name: 'Backup owner' })
+    .fill('user:default/backup');
+  await dialog
+    .getByRole('textbox', { name: 'Owning team' })
+    .fill('group:default/platform');
+  await dialog.getByRole('button', { name: 'Save app details' }).click();
+  await expect(dialog.getByText('App updated.', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/view=reports$/);
+  await expect(ownership.getByText('No ownership issues found.')).toBeVisible();
+  await retirementReview.getByRole('link', { name: renewal.name }).click();
+  const retirementDialog = page.getByRole('dialog', { name: renewal.name });
+  await retirementDialog
+    .getByRole('combobox', { name: 'Lifecycle' })
+    .selectOption('retired');
+  await retirementDialog
+    .getByRole('textbox', { name: 'Reason for lifecycle change (optional)' })
+    .fill('Replaced by the shared workflow');
+  await retirementDialog
+    .getByRole('button', { name: 'Update lifecycle' })
+    .click();
+  await expect(retirementDialog.getByText('Lifecycle updated.')).toBeVisible();
+  await retirementDialog
+    .getByRole('button', { name: 'Close app details' })
+    .click();
+  await expect(page).toHaveURL(/view=reports$/);
+  await expect(
+    retirementReview.getByText(
+      'No apps match this gateway activity threshold.',
+    ),
+  ).toBeVisible();
+});
+
+test('Discovery refreshes after a stale dismissal', async ({ page }) => {
+  let registered = false;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { actor: 'user:default/reviewer', canReview: true, apps: [] },
+    }),
+  );
+  await page.route('**/api/governance/discovery/github', route =>
+    route.fulfill({
+      json: {
+        source: { organization: 'example', topic: 'governance' },
+        lastScan: null,
+        intervalMinutes: null,
+        repositories: [
+          {
+            id: 'sample',
+            name: 'Sample repository',
+            description: '',
+            sourceUrl: 'https://github.com/example/sample',
+            appId: registered ? 'registered-app' : null,
+            dismissed: 0,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/discovery/github/sample/decision',
+    route => {
+      registered = true;
+      return route.fulfill({
+        status: 409,
+        json: {
+          error: {
+            message: 'The repository is no longer available for this decision.',
+          },
+        },
+      });
+    },
+  );
+
+  await page.goto('/?view=discovery');
+  const heading = page.getByRole('heading', { name: 'App discovery' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await page.getByText('Dismiss repository', { exact: true }).click();
+  await page.getByLabel('Dismissal reason').fill('Not an app');
+  await page.getByRole('button', { name: 'Confirm dismissal' }).click();
+  await expect(page.getByRole('alert')).toContainText('no longer available');
+  await expect(page.getByRole('button', { name: 'Unowned 0' })).toBeVisible();
+  await page.getByRole('button', { name: 'Registered 1' }).click();
+  await expect(
+    page.getByRole('link', { name: 'Open app record' }),
+  ).toHaveAttribute('href', '/?app=registered-app');
 });

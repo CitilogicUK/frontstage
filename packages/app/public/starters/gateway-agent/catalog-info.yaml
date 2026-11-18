@@ -1,0 +1,18 @@
+apiVersion: governance.backstage.io/v1alpha1
+kind: AIApp
+metadata:
+  name: gateway-agent
+spec:
+  name: Gateway agent
+  purpose: Drafts a plan and answer in two gateway calls.
+  type: agent
+  platform: GitHub
+  sourceUrl: https://github.com/example-org/gateway-agent
+  owner: user:default/guest
+  team: group:default/platform
+  lifecycle: experimental
+  deliveryStage: trial
+  usesAiAtRuntime: true
+  audience: personal
+  classification: internal
+  models: [gpt-4.1-mini]

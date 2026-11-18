@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseAppCsv } from './csv';
 
 describe('parseAppCsv', () => {
@@ -19,6 +21,23 @@ describe('parseAppCsv', () => {
           connections: [{ name: 'CRM', access: 'read' }],
         },
       },
+    ]);
+  });
+
+  it('reads both runtime modes and delivery stages from the downloadable sample', () => {
+    const sample = readFileSync(
+      resolve(__dirname, '../../../app/public/examples/ai-apps.csv'),
+      'utf8',
+    );
+    expect(parseAppCsv(sample)).toMatchObject([
+      {
+        app: {
+          usesAiAtRuntime: true,
+          deliveryStage: 'trial',
+          models: ['example-model'],
+        },
+      },
+      { app: { usesAiAtRuntime: false, deliveryStage: 'poc', models: [] } },
     ]);
   });
 

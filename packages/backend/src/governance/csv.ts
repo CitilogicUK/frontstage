@@ -11,12 +11,14 @@ const textFields = [
   'backupOwner',
   'team',
   'lifecycle',
+  'deliveryStage',
   'audience',
   'classification',
   'actionDescription',
 ];
 const booleanFields = [
   'takesActions',
+  'usesAiAtRuntime',
   'affectsPeople',
   'critical',
   'personalData',
@@ -89,7 +91,8 @@ export function parseAppCsv(content: string) {
       if (value !== undefined) hosted[field] = value;
     }
     if (Object.keys(hosted).length) app.hosted = hosted;
-    app.models = (read('models') ?? '').split('|').map(model => model.trim());
+    const models = read('models');
+    app.models = models ? models.split('|').map(model => model.trim()) : [];
     const connections = read('connections');
     if (connections !== undefined) {
       try {

@@ -1,0 +1,18 @@
+apiVersion: governance.backstage.io/v1alpha1
+kind: AIApp
+metadata:
+  name: gateway-automation
+spec:
+  name: Gateway automation
+  purpose: Summarizes a text file through the Frontstage gateway.
+  type: automation
+  platform: GitHub
+  sourceUrl: https://github.com/example-org/gateway-automation
+  owner: user:default/guest
+  team: group:default/platform
+  lifecycle: experimental
+  deliveryStage: trial
+  usesAiAtRuntime: true
+  audience: personal
+  classification: internal
+  models: [gpt-4.1-mini]

@@ -19,7 +19,9 @@
     "lint:all": "backstage-cli repo lint",
     "prettier:check": "prettier --check .",
     "new": "backstage-cli new",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "demo:seed": "node scripts/seed-gateway-demo.mjs",
+    "audit:verify": "node scripts/verify-audit.mjs"
   },
   "backstage": {
     "cli": {
@@ -41,6 +43,7 @@
     "@jest/environment-jsdom-abstract": "^30.5.0",
     "@playwright/test": "^1.32.3",
     "@types/jest": "^30.0.0",
+    "fflate": "^0.8.2",
     "jest": "^30.5.0",
     "jsdom": "^27.1.0",
     "node-gyp": "^10.0.0",

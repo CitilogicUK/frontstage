@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "skills": {
+    "backend-plugin-development": {
+      "source": "backstage.io",
+      "sourceUrl": "https://backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "8960c38d7d074e8acfeeee7feca1f342427b9ebe5b0e668263d2a54989acc2d7",
+      "wellKnownDigest": "sha256:ca6d732d3faa372b3515bf355a73e06bc6b1987415aaefd4642a04b480ef9d40"
+    },
+    "frontend-plugin-development": {
+      "source": "backstage.io",
+      "sourceUrl": "https://backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "ec6ef0e6e78cf3d5d915dd80ddf3053510d9a577cbbd0a558a2d31b2f8ce044b",
+      "wellKnownDigest": "sha256:5cab040b07beb566d941c35661d361b217550e76193a4856765586f25ad8428a"
+    },
+    "mui-to-bui-migration": {
+      "source": "backstage.io",
+      "sourceUrl": "https://backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "6e4d29ca6b5a9d2e832faf2c666903763458f2083d3bb5ea8e137fc83b445c8e",
+      "wellKnownDigest": "sha256:e9afca431e3ad64ae51017c08596659a80b7fde62c50965d9a29f0718eb5ab3e"
+    },
+    "onboard-to-openapi-server": {
+      "source": "backstage.io",
+      "sourceUrl": "https://backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "70ed0f816e49ab9e07af3ac9623a856a683783555b0663dfcbbaa5292cee3ca7",
+      "wellKnownDigest": "sha256:b4f12d7e7845fc2ab7bc8757dce5da335841be40550abb6253a2903e1553a605"
+    },
+    "plugin-analytics-instrumentation": {
+      "source": "backstage.io",
+      "sourceUrl": "https://backstage.io",
+      "sourceType": "well-known",
+      "computedHash": "751f1442665fc61d0b69d50710a6048556ddfd966662155cd2a60038a504c22c",
+      "wellKnownDigest": "sha256:093a0e74d9fdf18fab697c5e7857f9dbdeb45b0f53ea36c7d1e6cc1bcd9fd357"
+    }
+  }
+}
