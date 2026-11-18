@@ -32,7 +32,7 @@ export type PortfolioExportRow = {
 
 function csvCell(value: string | number) {
   if (typeof value === 'number') return String(value);
-  const spreadsheetSafe = /^[\t\r\n]|^\s*[=+@-]/u.test(value)
+  const spreadsheetSafe = /^[\t\r\n]|^\s*[=+@＝＋－＠-]/u.test(value)
     ? `'${value}`
     : value;
   return `"${spreadsheetSafe.replace(/"/g, '""')}"`;

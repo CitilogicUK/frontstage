@@ -48,7 +48,7 @@ it('exports pending sign-off labels with spreadsheet-safe names and a blank unkn
     },
     {
       id: 'app-two',
-      name: 'Plain app',
+      name: '＋Example app',
       owner: 'user:default/taylor',
       team: 'group:default/engineering',
       missingTracks: ['security'],
@@ -60,7 +60,7 @@ it('exports pending sign-off labels with spreadsheet-safe names and a blank unkn
     [
       'app_id,app_name,owner,team,pending_sign_offs,next_review_utc',
       `"app-one","' =SUM(1,2)","user:default/dana","Team ""North""","Security | Data Protection",""`,
-      '"app-two","Plain app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z"',
+      `"app-two","'＋Example app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z"`,
       '',
     ].join('\r\n'),
   );
