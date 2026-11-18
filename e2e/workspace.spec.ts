@@ -2165,9 +2165,12 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
 }) => {
   const owner = 'user:default/owner';
   const nominee = 'user:default/engineering';
+  const reviewer = 'user:default/reviewer';
   const requestedAt = '2025-05-02T00:00:00.000Z';
   const decidedAt = '2025-05-03T00:00:00.000Z';
   const reason = 'I can support this production app.';
+  const endReason = 'The app is moving to a different engineering team.';
+  const endedAt = '2025-05-04T00:00:00.000Z';
   const app = {
     id: 'graduation-candidate',
     name: 'Production invoice assistant',
@@ -2200,7 +2203,9 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     route.fulfill({
       json: {
         actor,
-        canReview: false,
+        canReview:
+          actor === reviewer ||
+          (actor === nominee && current.graduation?.status === 'accepted'),
         gatewayEnabled: true,
         graduationEnabled: true,
         apps: [current],
@@ -2219,11 +2224,20 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
         });
         current = { ...app, updatedAt: requestedAt, graduation: pending };
       } else if (request.method() === 'DELETE') {
-        expect(actor).toBe(owner);
-        expect(request.postDataJSON()).toEqual({
-          expectedUpdatedAt: requestedAt,
-        });
-        current = { ...app, updatedAt: '2025-05-02T00:00:00.001Z' };
+        if (current.graduation?.status === 'accepted') {
+          expect(actor).toBe(reviewer);
+          expect(request.postDataJSON()).toEqual({
+            expectedUpdatedAt: decidedAt,
+            reason: endReason,
+          });
+          current = { ...app, updatedAt: endedAt };
+        } else {
+          expect(actor).toBe(owner);
+          expect(request.postDataJSON()).toEqual({
+            expectedUpdatedAt: requestedAt,
+          });
+          current = { ...app, updatedAt: '2025-05-02T00:00:00.001Z' };
+        }
       } else {
         expect(actor).toBe(nominee);
         expect(request.method()).toBe('PATCH');
@@ -2240,6 +2254,27 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
       }
       return route.fulfill({ json: current });
     },
+  );
+  await page.route(
+    '**/api/governance/apps/graduation-candidate/history',
+    route =>
+      route.fulfill({
+        json: {
+          keyEvents: [],
+          events: [
+            {
+              digest: 'd'.repeat(64),
+              event: JSON.stringify({
+                action: 'graduation-ended',
+                actor: reviewer,
+                graduationNominee: nominee,
+                graduationReason: endReason,
+                record: current,
+              }),
+            },
+          ],
+        },
+      }),
   );
   const details = page.getByRole('dialog', { name: app.name });
   const panel = details.getByRole('region', { name: 'Engineering co-owner' });
@@ -2308,6 +2343,43 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   ).toHaveCount(0);
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(notice).toHaveCount(0);
+
+  await page.goto('/?app=graduation-candidate');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    panel.getByText(`Accepted by ${nominee} on 2025-05-03.`),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Audit history', { exact: true }),
+  ).toBeVisible();
+  const end = panel.getByRole('button', { name: 'End engineering handoff' });
+  await expect(end).toHaveCount(0);
+
+  actor = reviewer;
+  await page.goto('/?app=graduation-candidate');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    panel.getByText(
+      `Ending this handoff removes ${nominee} as engineering co-owner.`,
+    ),
+  ).toBeVisible();
+  const endingReason = panel.getByRole('textbox', {
+    name: 'Reason for ending the handoff',
+  });
+  await expect(endingReason).toHaveAttribute('required', '');
+  await endingReason.fill(endReason);
+  await end.click();
+  await expect(details.getByText('Engineering handoff ended.')).toBeVisible();
+  await expect(
+    panel.getByRole('textbox', { name: 'Co-owner nominee' }),
+  ).toBeVisible();
+  await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText('Graduation ended', { exact: true }),
+  ).toBeVisible();
+  await expect(details.getByText(endReason, { exact: false })).toBeVisible();
 });
 
 test('the playground clears a revealed key after ownership changes', async ({
