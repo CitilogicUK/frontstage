@@ -59,13 +59,15 @@ The local development profile enables a simulated gateway. It exercises the same
 yarn start --config ../../app-config.reviewer.yaml
 ```
 
-In another terminal, run `yarn demo:seed` once the backend is running. The script waits for the local catalog’s demo identities before registering apps. It creates four demo records on behalf of the local Guest owner. Open Inventory and sign in as Guest using the reviewer profile above.
+In another terminal, run `yarn demo:seed` once the backend is running. The script waits for the local catalog’s demo identities before registering apps. It creates five demo records on behalf of the local Guest owner. Open Inventory and sign in as Guest using the reviewer profile above.
 
 1. Open **Meeting summary demo**. Issue a gateway key, select `gpt-4.1-mini`, and send a synthetic meeting prompt. The result is labelled simulated. The app record updates its all-time live, simulated, and blocked call counts. Only live calls contribute to the live cost estimate.
 2. Open **Restricted intake demo**. Issue a key and send a synthetic prompt with `gpt-4.1-mini`. The gateway blocks the call while review is pending.
 3. Record an approval in that app’s details and set its lifecycle to **Active**. Retry with the same key and model. Then select `gpt-4.1-nano` and retry. The gateway still rejects that model for restricted data.
 
 For the software-only path, compare **Stock count proof of concept** with **Purchase order pilot**. Both run without models. The first is Tier 1. The second is Tier 3 because it acts in another system. Open it from **Reviews**, record an approval for the sandbox scope, and set it to **Active**. Its app record does not offer gateway keys. In **Reports**, select a runtime AI count to open its matching records.
+
+For the hosted path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The reviewer profile uses a fictional provider and workspace for this check.
 
 Seeding leaves existing demo records in their current state. The end-to-end test creates its own database for a clean replay.
 

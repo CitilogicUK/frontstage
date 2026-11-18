@@ -2,3 +2,7 @@ auth:
   providers:
     guest:
       userEntityRef: user:default/reviewer
+governance:
+  approvedHostedWorkspaces:
+    - provider: Example AI
+      workspace: Company sandbox

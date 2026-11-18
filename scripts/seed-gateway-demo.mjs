@@ -124,6 +124,24 @@ const scenarios = [
     backupOwner: 'user:default/backup',
     lifecycle: 'experimental',
   },
+  {
+    ...base,
+    name: 'Hosted workspace demo',
+    purpose:
+      'Demonstrates declared provider workspace checks with synthetic data.',
+    type: 'provider-hosted app',
+    platform: 'Hosted workspace & tools',
+    sourceUrl: 'https://example.com/frontstage-demo/hosted-workspace',
+    classification: 'internal',
+    deliveryStage: 'trial',
+    lifecycle: 'experimental',
+    hosted: {
+      provider: 'Example AI',
+      workspace: 'Personal sandbox',
+      sharing: 'private',
+      dataAccess: 'none',
+    },
+  },
 ];
 
 for (const scenario of scenarios) {

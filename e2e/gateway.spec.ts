@@ -934,7 +934,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       (record: { sourceUrl: string }) =>
         record.sourceUrl.startsWith('https://example.com/frontstage-demo/'),
     );
-    expect(seeded).toHaveLength(4);
+    expect(seeded).toHaveLength(5);
     expect(seeded).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -958,6 +958,28 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
           reviewStatus: 'pending',
         }),
       ]),
+    );
+    const hostedDemo = seeded.find(
+      (record: { name: string }) => record.name === 'Hosted workspace demo',
+    );
+    expect(hostedDemo).toMatchObject({
+      lifecycle: 'experimental',
+      hosted: { workspace: 'Personal sandbox' },
+    });
+    const hostedDemoScorecard = await request.get(
+      `${api}/apps/${hostedDemo.id}/scorecard`,
+      { headers },
+    );
+    await expectStatus(
+      hostedDemoScorecard,
+      200,
+      'Read the seeded hosted workspace scorecard',
+    );
+    expect((await hostedDemoScorecard.json()).checks).toContainEqual(
+      expect.objectContaining({
+        name: 'Declared provider workspace',
+        status: 'attention',
+      }),
     );
   } catch (error) {
     await testInfo.attach('isolated backend output', {
