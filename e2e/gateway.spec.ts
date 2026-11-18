@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -848,6 +848,56 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       400,
       'Require fresh approval before activating in production',
     );
+    const softwareDescriptor = (
+      await readFile(
+        join(startersRoot, 'ai-assisted-software/catalog-info.yaml'),
+        'utf8',
+      )
+    ).replace('deliveryStage: trial', 'deliveryStage: poc');
+    const validateStarter = await request.post(
+      `${api}/repository?dryRun=true`,
+      {
+        headers,
+        data: { content: softwareDescriptor },
+      },
+    );
+    await expectStatus(
+      validateStarter,
+      200,
+      'Validate a software-only starter descriptor',
+    );
+    expect((await validateStarter.json()).apps).toEqual([
+      expect.objectContaining({
+        name: 'AI-assisted software',
+        tier: 1,
+        deliveryStage: 'poc',
+        usesAiAtRuntime: false,
+        effectiveClassification: 'internal',
+      }),
+    ]);
+    const importStarter = await request.post(`${api}/repository`, {
+      headers,
+      data: { content: softwareDescriptor },
+    });
+    await expectStatus(
+      importStarter,
+      201,
+      'Import the software-only starter descriptor',
+    );
+    const importedStarter = await importStarter.json();
+    expect(importedStarter).toMatchObject({
+      usesAiAtRuntime: false,
+      models: [],
+      deliveryStage: 'poc',
+    });
+    await expectStatus(
+      await request.post(`${api}/apps/${importedStarter.id}/gateway-key`, {
+        headers,
+      }),
+      403,
+      'Keep gateway keys unavailable for the imported software-only starter',
+    );
+
     const seed = () =>
       spawnSync(
         process.execPath,
