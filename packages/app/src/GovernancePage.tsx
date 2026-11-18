@@ -42,6 +42,10 @@ import {
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
 import {
+  AppRetirementReview,
+  type RetirementReview,
+} from './AppRetirementReview';
+import {
   AppRenewalException,
   type RenewalException,
 } from './AppRenewalException';
@@ -95,6 +99,7 @@ type App = {
   updatedAt: string;
   reviewNotes?: string;
   renewalException?: RenewalException;
+  retirementReview?: RetirementReview;
   reviewTicketUrl?: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
@@ -138,6 +143,15 @@ const viewParameters = new Map<string, View>([
 
 function appOwner(ref: string) {
   return ref.replace(/^user:default\//, '');
+}
+
+function ownerCanDecideRetirement(app: App, actor: string) {
+  return (
+    actor === app.owner &&
+    app.lifecycle === 'active' &&
+    app.retirementReview?.owner === actor &&
+    app.retirementReview.status === 'pending'
+  );
 }
 
 function appReview(app: App, now: number) {
@@ -313,6 +327,15 @@ export function GovernancePage() {
   const [message, setMessage] = useState('');
 
   const reviewDate = selected && scheduledReviewDate(selected);
+  const retirementCandidate =
+    canReview &&
+    view === 'Reports' &&
+    selected?.lifecycle === 'active' &&
+    usageReport?.days === usageDays
+      ? usageReport.data.retirementReview?.apps.find(
+          entry => entry.appId === selected.id,
+        )
+      : undefined;
   const canManageRenewalException =
     canReview && actor !== selected?.owner && actor !== selected?.backupOwner;
   const canDownloadReminder =
@@ -892,6 +915,12 @@ export function GovernancePage() {
     );
   } else if (view === 'Reviews' || ownershipScope !== 'all') {
     matching.sort((a, b) => {
+      if (view === 'Inventory' && ownershipScope === 'me') {
+        const retirementPriority =
+          Number(ownerCanDecideRetirement(b, actor)) -
+          Number(ownerCanDecideRetirement(a, actor));
+        if (retirementPriority) return retirementPriority;
+      }
       const priority = appReview(a, now).priority - appReview(b, now).priority;
       const aDue =
         scheduledReviewDate(a)?.getTime() ?? Number.POSITIVE_INFINITY;
@@ -1347,6 +1376,10 @@ export function GovernancePage() {
                             >
                               {review.label}
                             </span>
+                            {view === 'Inventory' &&
+                              ownerCanDecideRetirement(app, actor) && (
+                                <small>Retirement decision requested</small>
+                              )}
                             {waitingDays !== undefined && (
                               <small>
                                 {waitingDays.toLocaleString('en-US', {
@@ -1747,6 +1780,42 @@ export function GovernancePage() {
                   <button disabled={busy}>Save app details</button>
                 </form>
               </details>
+            )}
+            {(retirementCandidate || selected.retirementReview) && (
+              <AppRetirementReview
+                key={`retirement-review-${selected.updatedAt}`}
+                owner={selected.owner}
+                candidateLastLiveCall={retirementCandidate?.lastLiveCall}
+                review={selected.retirementReview}
+                canDecide={ownerCanDecideRetirement(selected, actor)}
+                busy={busy}
+                onRequest={event =>
+                  submit(event, async () => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/retirement-review`, {
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('Retirement review requested.');
+                  })
+                }
+                onDecide={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(
+                        `/apps/${selected.id}/retirement-review`,
+                        {
+                          decision: data.get('decision'),
+                          reason: String(data.get('reason') ?? '').trim(),
+                          expectedUpdatedAt: selected.updatedAt,
+                        },
+                        'PATCH',
+                      ),
+                    );
+                    setMessage('Retirement decision recorded.');
+                  })
+                }
+              />
             )}
             {(actor === selected.owner || canReview) && (
               <form

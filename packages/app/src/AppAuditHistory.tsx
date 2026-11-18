@@ -32,6 +32,11 @@ type AuditRecord = {
   reviewStatus: string;
   reviewTicketUrl?: string;
   renewalException?: RenewalException;
+  retirementReview?: {
+    owner: string;
+    lastLiveCall: string;
+    reason?: string;
+  };
   updatedAt: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string; at: string }>>;
 };
@@ -191,6 +196,29 @@ export function AppAuditHistory({ appId }: { appId: string }) {
           if (!Number.isNaN(+expiry))
             details.push(`Scheduled expiry ${expiry.toLocaleString()}`);
         }
+      }
+      if (entry.action === 'retirement-review-requested') {
+        action = 'Retirement review requested';
+        if (record.retirementReview) {
+          details.push(
+            `Requested confirmation from ${record.retirementReview.owner}`,
+          );
+          const lastCall = new Date(record.retirementReview.lastLiveCall);
+          if (!Number.isNaN(+lastCall))
+            details.push(`Last live gateway call ${lastCall.toLocaleString()}`);
+        }
+      }
+      if (
+        entry.action === 'retirement-review-kept' ||
+        entry.action === 'retirement-review-retired'
+      ) {
+        action =
+          entry.action === 'retirement-review-kept'
+            ? 'Owner kept app active'
+            : 'Owner confirmed retirement';
+        const reason = record.retirementReview?.reason;
+        if (reason && reason !== entry.lifecycleReason)
+          details.push(`Owner response “${reason}”`);
       }
       previous = record;
       return {

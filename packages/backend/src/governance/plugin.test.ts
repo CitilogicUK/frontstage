@@ -405,6 +405,232 @@ describe('governance record access', () => {
     );
   });
 
+  it('requires owner confirmation and rechecks live traffic before retirement', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    const teammate = 'user:default/teammate';
+    const currentTime = Date.now();
+    const day = 86_400_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(currentTime);
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const appInput = {
+      name: 'Legacy helper',
+      purpose: 'Use gateway for notes',
+      type: 'app',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/legacy-helper',
+      owner,
+      team: 'group:default/platform',
+      lifecycle: 'active',
+      audience: 'personal',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const app = await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `/api/governance/apps/${app.body.id}`;
+    const retirementPath = `${path}/retirement-review`;
+    const gatewayKey = () =>
+      api.post(`${path}/gateway-key`).set('Authorization', auth(owner));
+    const keyStatus = () =>
+      api.get(`${path}/gateway-key`).set('Authorization', auth(owner));
+    const open = (expectedUpdatedAt: string, actor = reviewer) =>
+      api
+        .post(retirementPath)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt });
+    const decide = (
+      decision: 'keep' | 'retire',
+      expectedUpdatedAt: string,
+      actor = owner,
+    ) =>
+      api.patch(retirementPath).set('Authorization', auth(actor)).send({
+        decision,
+        expectedUpdatedAt,
+        reason: 'Confirmed by app operations.',
+      });
+    const usageReport = () =>
+      api
+        .get('/api/governance/reports/usage?days=1')
+        .set('Authorization', auth(reviewer))
+        .expect(200);
+    const usage = (id: string, at: number, mode = 'openai') =>
+      db('governance_gateway_usage').insert({
+        id,
+        app_id: app.body.id,
+        model: 'test-model',
+        execution_mode: mode,
+        created_at: new Date(at),
+        estimated_cost_nanos_usd: 0,
+      });
+    await gatewayKey().expect(201);
+    const start = app.body.updatedAt;
+    const old = currentTime - 90 * day;
+    await usage('simulation-only', old, 'simulation');
+    await open(start).expect(400);
+    await usage('just-too-recent', old + 1);
+    await open(start).expect(400);
+    clock.mockReturnValue(currentTime + 1);
+    await open(start, owner).expect(403);
+    catalog.mockResolvedValueOnce({ items: [undefined] });
+    await open(start).expect(403);
+    const pending = await open(start).expect(200);
+    expect(pending.body).toMatchObject({
+      lifecycle: 'active',
+      retirementReview: {
+        owner,
+        status: 'pending',
+        requestedBy: reviewer,
+        lastLiveCall: new Date(old + 1).toISOString(),
+      },
+    });
+    const candidate = {
+      appId: app.body.id,
+      lastLiveCall: new Date(old + 1).toISOString(),
+    };
+    expect((await usageReport()).body.retirementReview.apps).toEqual([
+      candidate,
+    ]);
+    expect(
+      (await api.get(path).set('Authorization', auth(teammate)).expect(200))
+        .body,
+    ).not.toHaveProperty('retirementReview');
+    await keyStatus().expect(200, { issued: true });
+    await open(pending.body.updatedAt).expect(409);
+    await decide('keep', start).expect(409);
+    await decide('retire', pending.body.updatedAt, reviewer).expect(403);
+    catalog.mockResolvedValueOnce({ items: [undefined] });
+    await decide('keep', pending.body.updatedAt).expect(403);
+    const kept = await decide('keep', pending.body.updatedAt).expect(200);
+    expect(kept.body.retirementReview).toMatchObject({
+      status: 'kept',
+      reason: 'Confirmed by app operations.',
+    });
+    await keyStatus().expect(200, { issued: true });
+    expect((await usageReport()).body.retirementReview.apps).toEqual([]);
+    await open(kept.body.updatedAt).expect(400);
+
+    const later = Date.parse(kept.body.retirementReview.decidedAt) + 90 * day;
+    clock.mockReturnValue(later);
+    expect((await usageReport()).body.retirementReview.apps).toEqual([
+      candidate,
+    ]);
+    const reopened = await open(kept.body.updatedAt).expect(200);
+    await usage('resumed-live', later);
+    await decide('retire', reopened.body.updatedAt).expect(409);
+    await keyStatus().expect(200, { issued: true });
+    const deprecated = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({
+        lifecycle: 'deprecated',
+        expectedUpdatedAt: reopened.body.updatedAt,
+      })
+      .expect(200);
+    expect(deprecated.body).not.toHaveProperty('retirementReview');
+    const active = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({
+        lifecycle: 'active',
+        expectedUpdatedAt: deprecated.body.updatedAt,
+      })
+      .expect(200);
+    await open(active.body.updatedAt).expect(400);
+
+    clock.mockReturnValue(later + 90 * day);
+    const finalPending = await open(active.body.updatedAt).expect(200);
+    const retired = await decide('retire', finalPending.body.updatedAt).expect(
+      200,
+    );
+    expect(retired.body).toMatchObject({
+      lifecycle: 'retired',
+      retirementReview: {
+        status: 'retired',
+        reason: 'Confirmed by app operations.',
+        owner,
+      },
+    });
+    await keyStatus().expect(200, { issued: false });
+    const history = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = history.body.events.map((event: { event: string }) =>
+      JSON.parse(event.event),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'retirement-review-requested',
+          actor: reviewer,
+          record: expect.objectContaining({
+            retirementReview: pending.body.retirementReview,
+          }),
+        }),
+        expect.objectContaining({
+          action: 'retirement-review-kept',
+          actor: owner,
+          record: expect.objectContaining({
+            retirementReview: kept.body.retirementReview,
+          }),
+        }),
+        expect.objectContaining({
+          action: 'retirement-review-retired',
+          actor: owner,
+          lifecycleReason: 'Confirmed by app operations.',
+          record: expect.objectContaining({
+            retirementReview: retired.body.retirementReview,
+          }),
+        }),
+      ]),
+    );
+    expect(history.body.keyEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'revoked', actor: owner }),
+      ]),
+    );
+  });
+
   it('enforces evidence, history, and ownership permissions', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';

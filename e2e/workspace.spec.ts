@@ -1947,3 +1947,150 @@ test('Builder guide shows connector approval limits and registry states', async 
     'The connector registry could not load.',
   );
 });
+
+test('a retirement candidate goes from reviewer request to owner confirmation', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/reviewer';
+  const lastLiveCall = '2025-01-01T00:00:00.000Z';
+  const app = {
+    id: 'retirement-candidate',
+    name: 'Legacy invoice assistant',
+    purpose: 'Summarize invoices for an archived workflow.',
+    owner: 'user:default/owner',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/invoices',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    models: ['gpt-4.1-mini'],
+    reviewStatus: 'not required',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  const requestedAt = '2025-05-02T00:00:00.000Z';
+  const decidedAt = '2025-05-03T00:00:00.000Z';
+  const pending = {
+    requestedAt,
+    requestedBy: reviewer,
+    owner: app.owner,
+    lastLiveCall,
+    status: 'pending',
+  };
+  const reason = 'The finance team moved to the shared workflow.';
+  let current: typeof app & {
+    retirementReview?: typeof pending & { reason?: string; decidedAt?: string };
+  } = app;
+  let actor = reviewer;
+
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { actor, canReview: actor === reviewer, apps: [current] },
+    }),
+  );
+  await page.route('**/api/governance/reports/usage', route =>
+    route.fulfill({
+      json: {
+        from: requestedAt,
+        retirementReview: {
+          days: 90,
+          apps:
+            current.lifecycle === 'active'
+              ? [{ appId: app.id, lastLiveCall }]
+              : [],
+        },
+        usage: [],
+        blocks: [],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/retirement-candidate/retirement-review',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(actor).toBe(reviewer);
+        expect(request.postDataJSON()).toEqual({
+          expectedUpdatedAt: app.updatedAt,
+        });
+        current = { ...app, updatedAt: requestedAt, retirementReview: pending };
+      } else {
+        expect(actor).toBe(app.owner);
+        expect(request.method()).toBe('PATCH');
+        expect(request.postDataJSON()).toEqual({
+          decision: 'retire',
+          reason,
+          expectedUpdatedAt: requestedAt,
+        });
+        current = {
+          ...app,
+          lifecycle: 'retired',
+          updatedAt: decidedAt,
+          retirementReview: {
+            ...pending,
+            status: 'retired',
+            decidedAt,
+            reason,
+          },
+        };
+      }
+      return route.fulfill({ json: current });
+    },
+  );
+  const details = page.getByRole('dialog', { name: app.name });
+  const review = details.getByRole('region', { name: 'Retirement review' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+
+  await page.goto('/?view=reports');
+  const candidateLink = page
+    .getByRole('region', { name: 'Retirement review' })
+    .getByRole('link', { name: app.name });
+  await expect(candidateLink.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await candidateLink.click();
+  await expect(
+    review.getByText('Last live gateway call 2025-01-01.'),
+  ).toBeVisible();
+  await review
+    .getByRole('button', { name: 'Request retirement review' })
+    .click();
+  await expect(
+    review.getByText(`Awaiting a decision from ${app.owner}.`),
+  ).toBeVisible();
+  await expect(
+    review.getByRole('combobox', { name: 'Retirement decision' }),
+  ).toHaveCount(0);
+
+  actor = app.owner;
+  await page.goto('/');
+  await expect(
+    page.getByText('Retirement decision requested').or(guest),
+  ).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(page.getByText('Retirement decision requested')).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(app.name) }).click();
+  await review
+    .getByRole('combobox', { name: 'Retirement decision' })
+    .selectOption('retire');
+  const submitDecision = review.getByRole('button', {
+    name: 'Record retirement decision',
+  });
+  const confirm = review.getByRole('checkbox', {
+    name: /retiring this app revokes its gateway key/,
+  });
+  await expect(submitDecision).toBeDisabled();
+  await review
+    .getByRole('textbox', { name: 'Reason for decision' })
+    .fill(reason);
+  await confirm.check();
+  await submitDecision.click();
+
+  await expect(
+    review.getByText('Retired by owner on 2025-05-03.'),
+  ).toBeVisible();
+  await expect(review.getByText(reason)).toBeVisible();
+  await expect(
+    details.getByRole('combobox', { name: 'Lifecycle' }),
+  ).toHaveValue('retired');
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page.getByText('Retirement decision requested')).toHaveCount(0);
+});

@@ -763,8 +763,8 @@ export function PortfolioReport({
             <h2 id="portfolio-retirement-review">Retirement review</h2>
             <p>
               Active apps whose last recorded live gateway call was at least{' '}
-              {report.retirementReview.days} days ago. Confirm usage outside the
-              gateway with the app owner before deciding whether to retire it.
+              {report.retirementReview.days} days ago. Open a record to request
+              the owner's decision to keep or retire the app.
             </p>
             {report.retirementReview.apps.length === 0 ? (
               <p>No apps match this gateway activity threshold.</p>
