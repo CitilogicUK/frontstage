@@ -187,7 +187,10 @@ const openaiResult = z.object({
   choices: z
     .array(
       z.object({
-        message: z.object({ content: z.string() }),
+        message: z.object({
+          content: z.string().nullable(),
+          refusal: z.string().nullish(),
+        }),
       }),
     )
     .min(1),
@@ -426,8 +429,13 @@ async function callOpenai(
     }
     kind = 'invalid-response';
     const result = openaiResult.parse(await response.json());
+    const { content, refusal } = result.choices[0].message;
+    const refusalText = refusal?.trim();
+    const output = refusalText || content;
+    if (output === null) throw new Error('Provider request returned no text.');
     return {
-      output: result.choices[0].message.content,
+      output,
+      refused: Boolean(refusalText),
       inputTokens: result.usage.prompt_tokens,
       outputTokens: result.usage.completion_tokens,
     };
@@ -443,6 +451,7 @@ function simulate(model: string, prompt: string) {
   const output = `Simulated response from ${model}. No prompt was sent to a provider.`;
   return {
     output,
+    refused: false,
     inputTokens: Math.ceil(Buffer.byteLength(prompt) / 4),
     outputTokens: Math.ceil(Buffer.byteLength(output) / 4),
   };
@@ -865,6 +874,14 @@ export function registerGatewayRoutes(options: {
       const current = await load(req.params.id, transaction);
       if (current.revision !== revision)
         throw new ConflictError('The app changed. Refresh and try again.');
+      if (
+        current.record.lifecycle === 'active' &&
+        current.record.tier === 3 &&
+        !meetsLaunchRequirements(current.record)
+      )
+        throw new NotAllowedError(
+          'A current Tier 3 approval is required to issue or rotate a key for an active app.',
+        );
 
       const inserted = await transaction(keysTable)
         .insert({ app_id: record.id, digest })
@@ -1031,9 +1048,12 @@ export function registerGatewayRoutes(options: {
         ),
         created_at: new Date(),
       });
-      res
-        .set('Cache-Control', 'no-store')
-        .json({ output: result.output, model, simulated });
+      res.set('Cache-Control', 'no-store').json({
+        output: result.output,
+        model,
+        simulated,
+        ...(result.refused && { refused: true }),
+      });
     },
   );
 

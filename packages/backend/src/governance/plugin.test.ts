@@ -568,6 +568,16 @@ describe('governance record access', () => {
       .expect(201);
     const path = `/api/governance/apps/${created.body.id}`;
     const exceptionPath = `${path}/renewal-exception`;
+    const issueKey = () =>
+      api.post(`${path}/gateway-key`).set('Authorization', auth(owner));
+    let key = (await issueKey().expect(201)).body.key;
+    const call = () =>
+      api
+        .post('/api/governance/gateway/chat')
+        .set('Authorization', `Bearer ${key}`)
+        .send({ model: 'test-model', prompt: 'Synthetic prompt' });
+    await call().expect(403);
+
     const review = (expectedUpdatedAt: string) =>
       api.post(`${path}/reviews`).set('Authorization', auth(reviewer)).send({
         expectedUpdatedAt,
@@ -617,19 +627,12 @@ describe('governance record access', () => {
       },
     });
     await grant(granted.body.updatedAt).expect(409);
-    const {
-      body: { key },
-    } = await api
-      .post(`${path}/gateway-key`)
-      .set('Authorization', auth(owner))
-      .expect(201);
-    const call = () =>
-      api
-        .post('/api/governance/gateway/chat')
-        .set('Authorization', `Bearer ${key}`)
-        .send({ model: 'test-model', prompt: 'Synthetic prompt' });
 
     const clock = jest.spyOn(Date, 'now').mockReturnValue(due);
+    const rejectedRotation = await issueKey().expect(403);
+    expect(rejectedRotation.body.error.message).toContain(
+      'A current Tier 3 approval is required',
+    );
     await call().expect(200);
     const scorecard = () =>
       api
@@ -652,6 +655,15 @@ describe('governance record access', () => {
       status: 'attention',
       detail: 'The app needs reassessment or a current review.',
     });
+    clock.mockReturnValue(due);
+    await api
+      .delete(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(204);
+    await issueKey().expect(403);
+    await call().expect(401);
+
+    clock.mockReturnValue(Date.parse(expiresAt));
     const revoke = (expectedUpdatedAt: string) =>
       api
         .delete(exceptionPath)
@@ -661,9 +673,9 @@ describe('governance record access', () => {
     const revoked = await revoke(granted.body.updatedAt).expect(200);
     expect(revoked.body).not.toHaveProperty('renewalException');
     await grant(revoked.body.updatedAt).expect(400);
-    await call().expect(403);
 
     const renewed = await review(revoked.body.updatedAt).expect(200);
+    key = (await issueKey().expect(201)).body.key;
     const newExpiry = new Date(
       Date.parse(renewed.body.nextReview) + day,
     ).toISOString();
@@ -2010,7 +2022,7 @@ describe('governance record access', () => {
                   },
                 },
                 appSpendThresholds: [
-                  { sourceUrl, monthlyUsd: 1, stopAtThreshold: true },
+                  { sourceUrl, monthlyUsd: 2, stopAtThreshold: true },
                 ],
               },
             },
@@ -2223,9 +2235,33 @@ describe('governance record access', () => {
       'https://api.openai.com/v1/chat/completions',
       expect.objectContaining({ redirect: 'error' }),
     );
-    await call().expect(200);
+    await call().expect(200, {
+      output: 'Synthetic completion',
+      model: 'test-model',
+      simulated: false,
+    });
+    provider.mockResolvedValueOnce(
+      Response.json({
+        choices: [
+          {
+            message: {
+              content: null,
+              refusal: 'I cannot assist with that request.',
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 3 },
+      }),
+    );
+    await call().expect(200, {
+      output: 'I cannot assist with that request.',
+      model: 'test-model',
+      simulated: false,
+      refused: true,
+    });
     await call().expect(403);
-    expect(provider).toHaveBeenCalledTimes(2);
+    expect(provider).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(provider.mock.calls[1][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
@@ -2235,11 +2271,11 @@ describe('governance record access', () => {
       .set('Authorization', auth)
       .expect(200);
     expect(usage.body).toMatchObject({
-      liveCalls: 1,
-      liveTokens: { calls: 1, input: 1, output: 2 },
+      liveCalls: 2,
+      liveTokens: { calls: 2, input: 2, output: 5 },
       monthlySpend: {
-        liveEstimatedCostUsd: 1,
-        thresholdUsd: 1,
+        liveEstimatedCostUsd: 2,
+        thresholdUsd: 2,
         stopAtThreshold: true,
       },
       blocks: [{ reason: 'spend-threshold', calls: 1 }],
