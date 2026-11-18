@@ -88,3 +88,17 @@ it('shows only current or actionable decisions without changing the recorded sig
   ).toEqual(one);
   expect(both).toHaveProperty('dataProtection.actor', privacy);
 });
+
+it('requires a new sign-off when an older approval has an invalid timestamp', () => {
+  const legacy: Signoffs = {
+    ...both,
+    security: { ...both.security!, at: 'invalid' },
+  };
+  expect(currentSignoffs(legacy, config, now)).toEqual({
+    dataProtection: both.dataProtection,
+  });
+  expect(trackedReview(legacy, config, now)).toEqual({
+    reviewStatus: 'pending',
+    nextReview: null,
+  });
+});

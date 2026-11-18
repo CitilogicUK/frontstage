@@ -235,6 +235,7 @@ export function calculateTier(app: RiskInput, policy: TierPolicy = {}): Tier {
 export function nextReview(tier: Tier, at: string) {
   if (tier === 1) return null;
   const date = new Date(at);
+  if (!Number.isFinite(date.getTime())) return null;
   const day = date.getUTCDate();
   date.setUTCDate(1);
   date.setUTCMonth(date.getUTCMonth() + (tier === 2 ? 12 : 6));
