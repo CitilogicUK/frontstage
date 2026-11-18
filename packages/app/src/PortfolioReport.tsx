@@ -763,6 +763,8 @@ export function PortfolioReport({
             <h2 id="portfolio-retirement-review">Retirement review</h2>
             <p>
               Active apps whose last recorded live gateway call was at least{' '}
+              {report.retirementReview.days} days ago. When the latest
+              activation date is known, it must also be at least{' '}
               {report.retirementReview.days} days ago. Open a record to request
               the owner's decision to keep or retire the app.
             </p>
