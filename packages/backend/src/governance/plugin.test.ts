@@ -217,7 +217,27 @@ describe('governance record access', () => {
     await nominate(engineer, before).expect(400);
     activeEngineer = true;
 
-    const proposed = await nominate(engineer, before).expect(200);
+    const cancel = (expectedUpdatedAt: string, actor = owner) =>
+      api
+        .delete(route)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt });
+    await cancel(before).expect(409);
+    const abandoned = await nominate(engineer, before).expect(200);
+    await cancel(before).expect(409);
+    await cancel(abandoned.body.updatedAt, engineer).expect(403);
+    activeEngineer = false;
+    const cancelled = await cancel(abandoned.body.updatedAt, reviewer).expect(
+      200,
+    );
+    expect(cancelled.body).not.toHaveProperty('graduation');
+    expect((await getApp(engineer)).body).not.toHaveProperty('graduation');
+    await decide('accept', cancelled.body.updatedAt).expect(403);
+    activeEngineer = true;
+
+    const proposed = await nominate(engineer, cancelled.body.updatedAt).expect(
+      200,
+    );
     expect(proposed.body).toMatchObject({
       owner,
       lifecycle: 'experimental',
@@ -277,6 +297,7 @@ describe('governance record access', () => {
       },
     });
     await nominate(outside, accepted.body.updatedAt).expect(409);
+    await cancel(accepted.body.updatedAt).expect(409);
 
     const renamed = await edit(
       { name: 'Renamed workflow', deliveryStage: 'production' },
@@ -347,6 +368,14 @@ describe('governance record access', () => {
           actor: owner,
           record: expect.objectContaining({
             graduation: proposed.body.graduation,
+          }),
+        }),
+        expect.objectContaining({
+          action: 'graduation-cancelled',
+          actor: reviewer,
+          graduationNominee: engineer,
+          record: expect.not.objectContaining({
+            graduation: expect.anything(),
           }),
         }),
         expect.objectContaining({

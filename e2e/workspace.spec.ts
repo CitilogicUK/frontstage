@@ -2215,9 +2215,15 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
         expect(actor).toBe(owner);
         expect(request.postDataJSON()).toEqual({
           nominee,
-          expectedUpdatedAt: app.updatedAt,
+          expectedUpdatedAt: current.updatedAt,
         });
         current = { ...app, updatedAt: requestedAt, graduation: pending };
+      } else if (request.method() === 'DELETE') {
+        expect(actor).toBe(owner);
+        expect(request.postDataJSON()).toEqual({
+          expectedUpdatedAt: requestedAt,
+        });
+        current = { ...app, updatedAt: '2025-05-02T00:00:00.001Z' };
       } else {
         expect(actor).toBe(nominee);
         expect(request.method()).toBe('PATCH');
@@ -2256,6 +2262,21 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     panel.getByRole('button', { name: 'Nominate engineering co-owner' }),
   ).toHaveCount(0);
 
+  await panel.getByRole('button', { name: 'Cancel nomination' }).click();
+  await expect(
+    details.getByText('Engineering nomination cancelled.'),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('button', { name: 'Cancel nomination' }),
+  ).toHaveCount(0);
+  await panel.getByRole('textbox', { name: 'Co-owner nominee' }).fill(nominee);
+  await panel
+    .getByRole('button', { name: 'Nominate engineering co-owner' })
+    .click();
+  await expect(
+    panel.getByText(`Awaiting a decision from ${nominee}.`),
+  ).toBeVisible();
+
   actor = nominee;
   await page.goto('/');
   const notice = page.getByText('Engineering co-owner decision requested');
@@ -2264,6 +2285,9 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   await expect(notice).toBeVisible();
   await page.getByRole('button', { name: new RegExp(app.name) }).click();
   await expect(details).toBeVisible();
+  await expect(
+    panel.getByRole('button', { name: 'Cancel nomination' }),
+  ).toHaveCount(0);
   await panel
     .getByRole('combobox', { name: 'Co-owner decision' })
     .selectOption('accept');

@@ -1839,6 +1839,7 @@ export function GovernancePage() {
                 key={`graduation-${selected.updatedAt}`}
                 graduation={selected.graduation}
                 canNominate={canNominateCoOwner === true}
+                canCancel={actor === selected.owner || canReview}
                 canDecide={
                   graduationEnabled &&
                   nomineeCanDecideGraduation(selected, actor)
@@ -1853,6 +1854,18 @@ export function GovernancePage() {
                       }),
                     );
                     setMessage('Engineering co-owner nominated.');
+                  })
+                }
+                onCancel={event =>
+                  submit(event, async () => {
+                    applySavedApp(
+                      await api(
+                        `/apps/${selected.id}/graduation`,
+                        { expectedUpdatedAt: selected.updatedAt },
+                        'DELETE',
+                      ),
+                    );
+                    setMessage('Engineering nomination cancelled.');
                   })
                 }
                 onDecide={event =>
