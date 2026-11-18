@@ -131,6 +131,15 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(
     page.getByRole('region', { name: 'Approved provider workspaces' }),
   ).toContainText('Example AI · Company sandbox');
+  await guide
+    .getByRole('link', { name: 'View apps declaring gpt-4.1-mini' })
+    .click();
+  await expect(
+    page.getByRole('combobox', { name: 'Declared model' }),
+  ).toHaveValue('gpt-4.1-mini');
+  await navigation
+    .getByRole('link', { name: 'Builder guide', exact: true })
+    .click();
 
   await page.getByRole('link', { name: 'Browse app templates' }).click();
   await assertWorkspace(page, 'App templates', 'Templates');

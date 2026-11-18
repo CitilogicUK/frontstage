@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   discoveryApiRef,
   fetchApiRef,
@@ -83,7 +84,12 @@ export function GatewayModelGuide() {
               {policy.models.map(model => (
                 <tr key={model.id}>
                   <td className="gov-app-cell">
-                    <strong>{model.id}</strong>
+                    <Link
+                      to={`/?model=${encodeURIComponent(model.id)}`}
+                      aria-label={`View apps declaring ${model.id}`}
+                    >
+                      {model.id}
+                    </Link>
                   </td>
                   <td data-label="Allowed data classifications">
                     {model.allowedClassifications.join(', ')}
