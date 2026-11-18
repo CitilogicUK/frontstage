@@ -796,9 +796,9 @@ test('reviewers can find required reviews without a linked ticket', async ({
     }),
   );
   await page.goto('/?view=reports');
-  const queueLink = page.locator(
-    'a[href="/?view=reviews&review=missing-ticket"]',
-  );
+  const queueLink = page.getByRole('link', {
+    name: '1 missing a review ticket',
+  });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(queueLink.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
