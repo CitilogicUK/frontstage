@@ -172,4 +172,10 @@ Give concurrent worktrees different browser-test ports so they can run alongside
 FRONTSTAGE_E2E_APP_PORT=3101 FRONTSTAGE_E2E_BACKEND_PORT=7101 yarn verify
 ```
 
-Draft pull requests skip the automated verification job. Ready PR updates, marking a PR ready, and pushes to `main` run the full check. The workflow also supports manual dispatch once it is available on the default branch. The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
+Draft pull requests skip the automated verification job. Ready PR updates, marking a PR ready, and pushes to `main` run the full check on a GitHub-hosted runner. For an on-demand checkpoint, start the repository's `frontstage-local` runner, then select the branch with the GitHub CLI.
+
+```sh
+gh workflow run verify.yml --ref feature/your-branch -f use_local_runner=true
+```
+
+The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
