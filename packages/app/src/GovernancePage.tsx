@@ -16,6 +16,10 @@ import AppsIcon from '@material-ui/icons/Apps';
 import CloseIcon from '@material-ui/icons/Close';
 import { Link, useSearchParams } from 'react-router-dom';
 import { DiscoveryQueue, type DiscoveryResult } from './DiscoveryQueue';
+import {
+  RepositoryDescriptorPreview,
+  type RepositoryDescriptor,
+} from './RepositoryDescriptorPreview';
 import { AppScorecard } from './AppScorecard';
 import { AppTemplates, findStarter, starterDefaults } from './AppTemplates';
 import {
@@ -269,6 +273,14 @@ export function GovernancePage() {
   }>();
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [appliedDescriptor, setAppliedDescriptor] = useState<{
+    repositoryId: string;
+    app: RepositoryDescriptor;
+  }>();
+  const descriptor =
+    candidate && appliedDescriptor?.repositoryId === candidate.id
+      ? appliedDescriptor?.app
+      : undefined;
   const [riskPreview, setRiskPreview] = useState<{
     answers: string;
     tier?: number;
@@ -567,6 +579,7 @@ export function GovernancePage() {
     setMessage('');
     setSelected(undefined);
     setDraft({});
+    setAppliedDescriptor(undefined);
   }
 
   function navigate(target: View) {
@@ -580,6 +593,7 @@ export function GovernancePage() {
     setQuery('');
     setSelected(undefined);
     setDraft({});
+    setAppliedDescriptor(undefined);
   }, [view, repositoryId, starter?.id]);
 
   async function submit(
@@ -616,6 +630,28 @@ export function GovernancePage() {
     }
   }
 
+  function applyRepositoryDescriptor(app: RepositoryDescriptor) {
+    if (!candidate) return;
+    setAppliedDescriptor({ repositoryId: candidate.id, app });
+    setDraft(previous => ({
+      owner: previous.owner ?? actor,
+      type: app.type,
+      audience: app.audience,
+      classification: app.classification,
+      usesAiAtRuntime: app.usesAiAtRuntime ? 'yes' : 'no',
+      models: app.models.join(', '),
+      connections: app.connections[0]?.access ?? '',
+      takesActions: app.takesActions ? 'on' : '',
+      affectsPeople: app.affectsPeople ? 'on' : '',
+      personalData: app.personalData ? 'on' : '',
+      critical: app.critical ? 'on' : '',
+      sharing: app.hosted?.sharing ?? '',
+      dataAccess: app.hosted?.dataAccess ?? '',
+      hostedClass: app.hosted?.dataClassification ?? '',
+    }));
+  }
+
+  const additionalConnections = descriptor?.connections.slice(1) ?? [];
   const runtimeDefault = starter?.runtime === false ? 'no' : 'yes';
   const hosted = draft.type === 'provider-hosted app';
   const usesAiAtRuntime =
@@ -648,7 +684,14 @@ export function GovernancePage() {
   const answers = JSON.stringify({
     audience: draft.audience || audiences[0],
     classification: registrationClass,
-    connections: draft.connections ? [{ access: draft.connections }] : [],
+    connections: [
+      draft.connections,
+      ...additionalConnections.map(
+        ({ access }, index) => draft[`connectionAccess-${index}`] ?? access,
+      ),
+    ]
+      .filter(Boolean)
+      .map(access => ({ access })),
     takesActions: !!draft.takesActions,
     affectsPeople: !!draft.affectsPeople,
     personalData: !!draft.personalData,
@@ -1888,11 +1931,11 @@ export function GovernancePage() {
             )}
           </aside>
           <form
+            className="gov-register-form"
             key={
               repositoryId ??
               (starter ? `${starter.id}:${params.get('stage')}` : 'register')
             }
-            className="gov-register-form"
             onChange={event => {
               const target = event.target as HTMLInputElement;
               if (target.name && target.name !== 'models')
@@ -1927,7 +1970,7 @@ export function GovernancePage() {
                   purpose: value('purpose'),
                   type: value('type'),
                   platform: value('platform'),
-                  sourceUrl: value('sourceUrl'),
+                  sourceUrl: candidate?.sourceUrl ?? value('sourceUrl'),
                   owner: value('owner'),
                   backupOwner: value('backupOwner') || undefined,
                   team: value('team'),
@@ -1942,14 +1985,13 @@ export function GovernancePage() {
                         .map(model => model.trim())
                         .filter(Boolean)
                     : [],
-                  connections: value('connections')
-                    ? [
-                        {
-                          name: value('system'),
-                          access: value('connections'),
-                        },
-                      ]
-                    : [],
+                  connections: [
+                    { name: value('system'), access: value('connections') },
+                    ...additionalConnections.map((_, index) => ({
+                      name: value(`connectionName-${index}`),
+                      access: value(`connectionAccess-${index}`),
+                    })),
+                  ].filter(connection => connection.access),
                   takesActions: data.has('takesActions'),
                   actionDescription: value('actionDescription') || undefined,
                   affectsPeople: data.has('affectsPeople'),
@@ -1994,7 +2036,21 @@ export function GovernancePage() {
               })
             }
           >
-            <fieldset className="gov-fieldset">
+            {candidate && (
+              <RepositoryDescriptorPreview
+                key={candidate.id}
+                load={() =>
+                  api(
+                    `/discovery/github/${encodeURIComponent(
+                      candidate.id,
+                    )}/descriptor`,
+                  )
+                }
+                apply={applyRepositoryDescriptor}
+                applied={!!descriptor}
+              />
+            )}
+            <fieldset className="gov-fieldset" key={`app-${!!descriptor}`}>
               <legend>App details</legend>
               <label>
                 App name
@@ -2002,7 +2058,11 @@ export function GovernancePage() {
                   required
                   name="name"
                   maxLength={100}
-                  defaultValue={candidate?.name.slice(0, 100) ?? starter?.name}
+                  defaultValue={
+                    descriptor?.name ??
+                    candidate?.name.slice(0, 100) ??
+                    starter?.name
+                  }
                 />
               </label>
               <label>
@@ -2011,13 +2071,16 @@ export function GovernancePage() {
                   required
                   name="purpose"
                   maxLength={1000}
-                  defaultValue={starter?.description}
+                  defaultValue={descriptor?.purpose ?? starter?.description}
                 />
               </label>
               <div className="governance-fields">
                 <label>
                   App type
-                  <select name="type" defaultValue={starter?.type}>
+                  <select
+                    name="type"
+                    defaultValue={descriptor?.type ?? starter?.type}
+                  >
                     {options([
                       'assistant',
                       'agent',
@@ -2112,9 +2175,10 @@ export function GovernancePage() {
                   <select
                     name="deliveryStage"
                     defaultValue={
-                      starter
+                      descriptor?.deliveryStage ??
+                      (starter
                         ? parseDeliveryStage(params.get('stage')) ?? 'trial'
-                        : ''
+                        : '')
                     }
                   >
                     <option value="">Select a stage</option>
@@ -2123,7 +2187,7 @@ export function GovernancePage() {
                 </label>
               </div>
             </fieldset>
-            <fieldset className="gov-fieldset">
+            <fieldset className="gov-fieldset" key={`owner-${!!descriptor}`}>
               <legend>Ownership</legend>
               <div className="governance-fields">
                 <label>
@@ -2131,7 +2195,7 @@ export function GovernancePage() {
                   <input
                     required
                     name="owner"
-                    defaultValue={actor}
+                    defaultValue={descriptor ? draft.owner : actor}
                     placeholder="user:default/name"
                   />
                 </label>
@@ -2140,6 +2204,7 @@ export function GovernancePage() {
                   <input
                     required
                     name="team"
+                    defaultValue={descriptor?.team}
                     placeholder="group:default/team"
                   />
                 </label>
@@ -2148,30 +2213,38 @@ export function GovernancePage() {
                   <input
                     required={(preview?.tier ?? 1) >= 2}
                     name="backupOwner"
+                    defaultValue={descriptor?.backupOwner}
                     placeholder="user:default/name"
                   />
                 </label>
               </div>
             </fieldset>
-            <fieldset className="gov-fieldset">
+            <fieldset className="gov-fieldset" key={`risk-${!!descriptor}`}>
               <legend>Audience and data</legend>
               <div className="governance-fields">
                 <label>
                   Who uses it?
-                  <select name="audience">{options(audiences)}</select>
+                  <select name="audience" defaultValue={descriptor?.audience}>
+                    {options(audiences)}
+                  </select>
                 </label>
                 <label>
                   Highest data classification
                   <select
                     name="classification"
-                    defaultValue={initialClassification}
+                    defaultValue={
+                      descriptor?.classification ?? initialClassification
+                    }
                   >
                     {options(classes)}
                   </select>
                 </label>
                 <label>
                   Connected system access
-                  <select name="connections">
+                  <select
+                    name="connections"
+                    defaultValue={descriptor?.connections[0]?.access}
+                  >
                     <option value="">None</option>
                     {options(['read', 'write'])}
                   </select>
@@ -2179,18 +2252,60 @@ export function GovernancePage() {
                 {draft.connections && (
                   <label>
                     Connected system
-                    <input required name="system" />
+                    <input
+                      required
+                      name="system"
+                      defaultValue={descriptor?.connections[0]?.name}
+                    />
                   </label>
                 )}
+                {additionalConnections.map((connection, index) => (
+                  <div
+                    key={index}
+                    className="governance-fields gov-claim-connection"
+                  >
+                    <label>
+                      Connected system {index + 2} access
+                      <select
+                        name={`connectionAccess-${index}`}
+                        defaultValue={connection.access}
+                      >
+                        <option value="">None</option>
+                        {options(['read', 'write'])}
+                      </select>
+                    </label>
+                    <label>
+                      Connected system {index + 2}
+                      <input
+                        name={`connectionName-${index}`}
+                        defaultValue={connection.name}
+                        required={
+                          !!(
+                            draft[`connectionAccess-${index}`] ??
+                            connection.access
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                ))}
                 {hosted && (
                   <>
                     <label>
                       Provider
-                      <input required name="provider" />
+                      <input
+                        required
+                        name="provider"
+                        defaultValue={descriptor?.hosted?.provider}
+                      />
                     </label>
                     <label>
                       Enterprise workspace
-                      <input required name="workspace" />
+                      <input
+                        required
+                        name="workspace"
+                        defaultValue={descriptor?.hosted?.workspace}
+                      />
                     </label>
                     <Link
                       to={hostedWorkspaceGuidePath}
@@ -2201,18 +2316,30 @@ export function GovernancePage() {
                     </Link>
                     <label>
                       Sharing scope
-                      <select name="sharing">{options(sharing)}</select>
+                      <select
+                        name="sharing"
+                        value={draft.sharing || sharing[0]}
+                      >
+                        {options(sharing)}
+                      </select>
                     </label>
                     <label>
                       Data access
-                      <select name="dataAccess">
+                      <select
+                        name="dataAccess"
+                        value={draft.dataAccess || hostedAccessOptions[0]}
+                      >
                         {options(hostedAccessOptions)}
                       </select>
                     </label>
                     {draft.dataAccess && draft.dataAccess !== 'none' && (
                       <label>
                         Highest hosted data classification
-                        <select required name="hostedClass">
+                        <select
+                          required
+                          name="hostedClass"
+                          defaultValue={descriptor?.hosted?.dataClassification}
+                        >
                           <option value="">Select classification</option>
                           {options(classes)}
                         </select>
@@ -2222,26 +2349,46 @@ export function GovernancePage() {
                 )}
               </div>
               <label>
-                <input type="checkbox" name="takesActions" /> Takes actions in
-                other systems
+                <input
+                  type="checkbox"
+                  name="takesActions"
+                  defaultChecked={descriptor?.takesActions}
+                />{' '}
+                Takes actions in other systems
               </label>
               {draft.takesActions && (
                 <label>
                   Describe the actions
-                  <input required name="actionDescription" />
+                  <input
+                    required
+                    name="actionDescription"
+                    defaultValue={descriptor?.actionDescription}
+                  />
                 </label>
               )}
               <label>
-                <input type="checkbox" name="affectsPeople" /> Affects decisions
-                about people
+                <input
+                  type="checkbox"
+                  name="affectsPeople"
+                  defaultChecked={descriptor?.affectsPeople}
+                />{' '}
+                Affects decisions about people
               </label>
               <label>
-                <input type="checkbox" name="personalData" /> Processes personal
-                data
+                <input
+                  type="checkbox"
+                  name="personalData"
+                  defaultChecked={descriptor?.personalData}
+                />{' '}
+                Processes personal data
               </label>
               <label>
-                <input type="checkbox" name="critical" /> The business depends
-                on it
+                <input
+                  type="checkbox"
+                  name="critical"
+                  defaultChecked={descriptor?.critical}
+                />{' '}
+                The business depends on it
               </label>
             </fieldset>
             <div className="gov-form-actions">

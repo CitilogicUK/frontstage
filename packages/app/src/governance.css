@@ -357,6 +357,9 @@
 .gov-register-form {
   grid-area: 1 / 1;
 }
+.gov-claim-connection {
+  grid-column: 1 / -1;
+}
 .gov-risk {
   grid-area: 1 / 2;
   padding: 18px;

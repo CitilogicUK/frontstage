@@ -302,6 +302,28 @@ export const governancePlugin = createBackendPlugin({
           return app;
         }
 
+        function parseRepositoryDescriptor(input: unknown) {
+          const content = z.string().min(1).max(100_000).safeParse(input);
+          if (!content.success)
+            throw new InputError('Supply a YAML repository descriptor.');
+          let descriptor: unknown;
+          try {
+            descriptor = parse(content.data, { maxAliasCount: 0 });
+          } catch {
+            throw new InputError('The repository descriptor is invalid YAML.');
+          }
+          const entity = z
+            .object({
+              apiVersion: z.literal('governance.backstage.io/v1alpha1'),
+              kind: z.literal('AIApp'),
+              spec: z.unknown(),
+            })
+            .safeParse(descriptor);
+          if (!entity.success)
+            throw new InputError('Expected an AIApp repository descriptor.');
+          return parseApp(entity.data.spec);
+        }
+
         function hostedWorkspaceApproved(app: AppInput) {
           const hosted = app.hosted;
           return approvedHostedWorkspaces?.some(
@@ -400,7 +422,12 @@ export const governancePlugin = createBackendPlugin({
               throw new ConflictError('A source URL is already registered.');
             }
             if (discoveryId) {
-              await github.markClaimed(transaction, discoveryId, records[0].id);
+              await github.markClaimed(
+                transaction,
+                discoveryId,
+                rows[0].id,
+                rows[0].source_key,
+              );
             } else {
               for (const row of rows)
                 await github.linkRegistered(
@@ -750,6 +777,36 @@ export const governancePlugin = createBackendPlugin({
           res.json({ action: decision.data.action });
         });
 
+        router.get('/discovery/github/:id/descriptor', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          res.set('Cache-Control', 'no-store');
+          const descriptor = await github.descriptor(
+            req.params.id,
+            reviewers.includes(principal.userEntityRef),
+          );
+          if (descriptor) {
+            try {
+              const app = parseRepositoryDescriptor(descriptor.content);
+              if (appSourceKey(app.sourceUrl) === descriptor.sourceUrl) {
+                res.json({
+                  status: 'ready',
+                  app: {
+                    ...app,
+                    evidence: undefined,
+                    reviewTicketUrl: undefined,
+                  },
+                });
+                return;
+              }
+            } catch (error) {
+              if (!(error instanceof InputError)) throw error;
+            }
+          }
+          res.json({ status: 'unavailable' });
+        });
+
         router.post('/discovery/github/:id/claim', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
@@ -852,29 +909,7 @@ export const governancePlugin = createBackendPlugin({
             allow: ['user', 'service'],
           });
           const dryRun = isImportPreview(req.query.dryRun);
-          const content = z
-            .string()
-            .min(1)
-            .max(100_000)
-            .safeParse(req.body?.content);
-          if (!content.success)
-            throw new InputError('Supply a YAML repository descriptor.');
-          let descriptor: unknown;
-          try {
-            descriptor = parse(content.data, { maxAliasCount: 0 });
-          } catch {
-            throw new InputError('The repository descriptor is invalid YAML.');
-          }
-          const entity = z
-            .object({
-              apiVersion: z.literal('governance.backstage.io/v1alpha1'),
-              kind: z.literal('AIApp'),
-              spec: z.unknown(),
-            })
-            .safeParse(descriptor);
-          if (!entity.success)
-            throw new InputError('Expected an AIApp repository descriptor.');
-          const app = parseApp(entity.data.spec);
+          const app = parseRepositoryDescriptor(req.body?.content);
           if (
             principal.type === 'user' &&
             principal.userEntityRef !== app.owner &&

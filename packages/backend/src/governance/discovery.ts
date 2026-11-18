@@ -30,6 +30,37 @@ const githubResult = z.object({
     .max(100),
 });
 
+const descriptorByteLimit = 100_000;
+
+async function readDescriptor(response: Response) {
+  if (!response.body) return undefined;
+  if (Number(response.headers.get('content-length')) > descriptorByteLimit) {
+    await response.body.cancel();
+    return undefined;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let bytes = 0;
+  let content = '';
+  try {
+    let chunk = await reader.read();
+    while (!chunk.done) {
+      bytes += chunk.value.byteLength;
+      if (bytes > descriptorByteLimit) return undefined;
+      content += decoder.decode(chunk.value, { stream: true });
+      chunk = await reader.read();
+    }
+    return content + decoder.decode();
+  } finally {
+    try {
+      await reader.cancel();
+    } finally {
+      reader.releaseLock();
+    }
+  }
+}
+
 export function discoveryMigration() {
   return {
     async up(db: Database) {
@@ -154,6 +185,52 @@ export function githubDiscovery(
         .where('name', 'like', scope)
         .first('source_url');
     },
+    async descriptor(id: string, useToken: boolean) {
+      if (!scope || !config) return undefined;
+      const candidate = await db(`${discoveryTable} as repository`)
+        .leftJoin(
+          `${appsTable} as app`,
+          'repository.source_url',
+          'app.source_key',
+        )
+        .where('repository.id', id)
+        .where('repository.topic', config.topic)
+        .where('repository.name', 'like', scope)
+        .whereNull('repository.app_id')
+        .whereNull('repository.dismissal_reason')
+        .whereNull('app.id')
+        .first('repository.name', 'repository.source_url as sourceUrl');
+      if (!candidate) return undefined;
+      const { name, sourceUrl } = candidate as {
+        name: string;
+        sourceUrl: string;
+      };
+      if (!/^[a-z\d-]+\/(?!\.+$)[a-z\d._-]+$/.test(name)) return undefined;
+      const url = new URL(
+        `https://api.github.com/repos/${name}/contents/catalog-info.yaml`,
+      );
+      try {
+        const response = await fetch(url, {
+          headers: {
+            Accept: 'application/vnd.github.raw+json',
+            'User-Agent': 'Frontstage',
+            ...(useToken &&
+              config.token && { Authorization: `Bearer ${config.token}` }),
+          },
+          signal: AbortSignal.timeout(10_000),
+          redirect: 'error',
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          return undefined;
+        }
+        const content = await readDescriptor(response);
+        if (content) return { content, sourceUrl };
+      } catch {
+        return undefined;
+      }
+      return undefined;
+    },
     async linkRegistered(
       transaction: Database,
       sourceKey: string,
@@ -166,15 +243,23 @@ export function githubDiscovery(
         .whereNull('app_id')
         .update({ app_id: appId });
     },
-    async markClaimed(transaction: Database, id: string, appId: string) {
+    async markClaimed(
+      transaction: Database,
+      id: string,
+      appId: string,
+      sourceKey: string,
+    ) {
+      if (!scope || !config)
+        throw new ServiceUnavailableError('GitHub discovery is disabled.');
       const updated = await transaction(discoveryTable)
-        .where({ id, topic: config?.topic })
+        .where({ id, topic: config.topic, source_url: sourceKey })
+        .where('name', 'like', scope)
         .whereNull('app_id')
         .whereNull('dismissal_reason')
         .update({ app_id: appId });
       if (!updated)
         throw new ConflictError(
-          'This repository has already been claimed or dismissed.',
+          'This repository has changed or has already been claimed or dismissed.',
         );
     },
     async decide(id: string, actor: string, reason: string | null) {

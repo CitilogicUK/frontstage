@@ -62,7 +62,12 @@ test('keeps a claim attached to the repository through a rename', async () => {
       id: 'app-1',
       source_key: 'https://github.com/exampleai/initial-name',
     });
-    await discovery.markClaimed(transaction, '101', 'app-1');
+    await discovery.markClaimed(
+      transaction,
+      '101',
+      'app-1',
+      'https://github.com/exampleai/initial-name',
+    );
   });
 
   github.mockResolvedValueOnce(results('ExampleAI/renamed'));
@@ -80,10 +85,34 @@ test('keeps a claim attached to the repository through a rename', async () => {
         id: 'app-2',
         source_key: 'https://github.com/exampleai/renamed',
       });
-      await discovery.markClaimed(transaction, '101', 'app-2');
+      await discovery.markClaimed(
+        transaction,
+        '101',
+        'app-2',
+        'https://github.com/exampleai/renamed',
+      );
     }),
   ).rejects.toThrow('already been claimed');
   await expect(db(table).select('id')).resolves.toEqual([{ id: 'app-1' }]);
+});
+
+test('rejects a claim using the URL from before a repository rename', async () => {
+  const discovery = githubDiscovery(db, table, configuration);
+  github.mockResolvedValueOnce(results('ExampleAI/original'));
+  await discovery.scan();
+  const candidate = await discovery.get('101');
+  expect(candidate?.source_url).toBe('https://github.com/exampleai/original');
+
+  github.mockResolvedValueOnce(results('ExampleAI/renamed'));
+  await discovery.scan();
+  const sourceKey = candidate?.source_url ?? '';
+  await expect(
+    db.transaction(async transaction => {
+      await transaction(table).insert({ id: 'app-1', source_key: sourceKey });
+      await discovery.markClaimed(transaction, '101', 'app-1', sourceKey);
+    }),
+  ).rejects.toThrow('repository has changed');
+  await expect(db(table).select('id')).resolves.toEqual([]);
 });
 
 test('retains an existing intake registration when its discovered repository is renamed', async () => {
@@ -166,7 +195,12 @@ test('keeps dismissal through rescans, rejects claims, and records reopening', a
         id: 'blocked',
         source_key: 'https://github.com/exampleai/tool',
       });
-      await discovery.markClaimed(transaction, '101', 'blocked');
+      await discovery.markClaimed(
+        transaction,
+        '101',
+        'blocked',
+        'https://github.com/exampleai/tool',
+      );
     }),
   ).rejects.toThrow('dismissed');
   expect(await db(table).select('id')).toEqual([]);

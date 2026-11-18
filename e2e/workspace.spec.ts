@@ -1530,6 +1530,10 @@ test('claiming a repository opens its app in the registered Discovery queue', as
     }),
   );
   await page.route(
+    '**/api/governance/discovery/github/claimable/descriptor',
+    route => route.fulfill({ json: { status: 'unavailable' } }),
+  );
+  await page.route(
     '**/api/governance/discovery/github/claimable/claim',
     route => {
       const body = route.request().postDataJSON();
@@ -1547,6 +1551,11 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   await expect(claim.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await claim.click();
+  await page.getByRole('button', { name: 'Preview descriptor' }).click();
+  await expect(
+    page.getByText('No usable descriptor is available.'),
+  ).toBeVisible();
+
   await page
     .getByLabel('Purpose', { exact: true })
     .fill(repository.description);
@@ -1563,4 +1572,136 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   await expect(
     page.getByRole('link', { name: 'Open app record' }),
   ).toBeVisible();
+});
+
+test('repository descriptor preview requires an explicit apply and keeps claim identity', async ({
+  page,
+}) => {
+  const repository = {
+    id: 'descriptor-ready',
+    name: 'Example workbook',
+    sourceUrl: 'https://github.com/example/workbook',
+    dismissed: 0,
+    appId: null,
+  };
+  const actor = 'user:default/demo-owner';
+  const app = {
+    name: 'Stock count assistant',
+    purpose: 'Reconcile sandbox stock counts.',
+    type: 'assistant',
+    platform: 'Declared platform',
+    sourceUrl: 'https://example.com/other-repository',
+    owner: 'user:default/declared-owner',
+    backupOwner: 'user:default/backup',
+    team: 'group:default/platform',
+    lifecycle: 'active',
+    audience: 'team',
+    classification: 'confidential',
+    usesAiAtRuntime: true,
+    deliveryStage: 'pilot',
+    models: ['gpt-4.1-mini'],
+    connections: [
+      { name: 'Warehouse inventory', access: 'read' },
+      { name: 'Purchase orders sandbox', access: 'write' },
+    ],
+    takesActions: false,
+    affectsPeople: false,
+    critical: false,
+    personalData: false,
+  };
+  let previews = 0;
+  let opened = false;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [] } }),
+  );
+  await page.route('**/api/governance/discovery/github', route =>
+    route.fulfill({
+      json: {
+        source: { organization: 'example', topic: 'governance' },
+        repositories: [{ ...repository, appId: opened ? 'registered' : null }],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/discovery/github/descriptor-ready/descriptor',
+    route => {
+      expect(route.request().method()).toBe('GET');
+      previews++;
+      return route.fulfill({ json: { status: 'ready', app } });
+    },
+  );
+  await page.route('**/api/governance/tier-preview', route =>
+    route.fulfill({
+      json: {
+        tier: route
+          .request()
+          .postDataJSON()
+          .connections.some(
+            (connection: { access: string }) => connection.access === 'write',
+          )
+          ? 3
+          : 1,
+        effectiveClassification: 'confidential',
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/discovery/github/descriptor-ready/claim',
+    route => {
+      const payload = route.request().postDataJSON();
+      expect(payload).toMatchObject({
+        ...app,
+        owner: actor,
+        lifecycle: 'experimental',
+        sourceUrl: repository.sourceUrl,
+        platform: 'GitHub',
+        purpose: 'Reconcile stock counts in the pilot.',
+        connections: [
+          { name: 'Reconciled warehouse inventory', access: 'read' },
+          app.connections[1],
+        ],
+      });
+      opened = true;
+      return route.fulfill({
+        status: 201,
+        json: {
+          ...payload,
+          id: 'registered',
+          tier: 3,
+          reviewStatus: 'pending',
+        },
+      });
+    },
+  );
+
+  await page.goto('/?view=discovery');
+  const claim = page.getByRole('link', { name: 'Claim repository' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(claim.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await claim.click();
+
+  const purpose = page.getByRole('textbox', { name: 'Purpose', exact: true });
+  await purpose.fill('Manual draft');
+  expect(previews).toBe(0);
+  await page.getByRole('button', { name: 'Preview descriptor' }).click();
+  const preview = page.getByRole('region', { name: 'Repository descriptor' });
+  await expect(preview.getByText(app.name)).toBeVisible();
+  await expect(purpose).toHaveValue('Manual draft');
+  expect(previews).toBe(1);
+
+  await preview.getByRole('button', { name: 'Apply descriptor' }).click();
+  await expect(purpose).toHaveValue(app.purpose);
+  await expect(page.getByLabel('Source URL')).toHaveValue(repository.sourceUrl);
+  await expect(page.getByLabel('Owner', { exact: true })).toHaveValue(actor);
+  await expect(
+    page.getByLabel('Connected system 2', { exact: true }),
+  ).toHaveValue(app.connections[1].name);
+  await expect(page.getByText('Estimated risk tier 3')).toBeVisible();
+  await purpose.fill('Reconcile stock counts in the pilot.');
+  await page
+    .getByLabel('Connected system', { exact: true })
+    .fill('Reconciled warehouse inventory');
+  await page.getByRole('button', { name: 'Register app' }).click();
+  await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
 });
