@@ -46,6 +46,8 @@ export type OwnershipReport = {
 export type ReviewTurnaroundReport = {
   decisions: number;
   medianWorkingDays: number | null;
+  pending: number;
+  oldestPending: { appId: string; workingDays: number } | null;
 };
 
 export type HostedWorkspaceReport = {
@@ -402,6 +404,22 @@ export function PortfolioReport({
                   reviewTurnaround.decisions === 1 ? 'decision' : 'decisions'
                 } · UTC weekdays`}
             </small>
+            {reviewTurnaround?.oldestPending && (
+              <div>
+                <Link to={reportAppLink(reviewTurnaround.oldestPending.appId)}>
+                  Oldest pending first decision
+                </Link>
+                <small>
+                  {reviewTurnaround.oldestPending.workingDays.toLocaleString(
+                    'en-US',
+                    { maximumFractionDigits: 1 },
+                  )}{' '}
+                  weekdays waiting
+                  {' · '}
+                  {reviewTurnaround.pending} awaiting a first decision
+                </small>
+              </div>
+            )}
           </div>
         )}
         {liveCost !== undefined && (

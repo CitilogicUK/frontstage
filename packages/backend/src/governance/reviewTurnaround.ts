@@ -19,6 +19,7 @@ function weekdayDays(start: number, end: number) {
 
 export function reviewTurnaround(
   events: Array<{ app_id: string; event: string }>,
+  now = Date.now(),
 ) {
   const submitted = new Map<string, number>();
   const decided = new Set<string>();
@@ -56,6 +57,7 @@ export function reviewTurnaround(
     ) {
       durations.push(weekdayDays(start, at));
       decided.add(row.app_id);
+      submitted.delete(row.app_id);
     }
   }
   durations.sort((a, b) => a - b);
@@ -64,5 +66,23 @@ export function reviewTurnaround(
     ? (durations[middle] + durations[Math.floor((durations.length - 1) / 2)]) /
       2
     : null;
-  return { decisions: durations.length, medianWorkingDays };
+  let oldestPending: { appId: string; submittedAt: number } | undefined;
+  for (const [appId, submittedAt] of submitted) {
+    if (!oldestPending || submittedAt < oldestPending.submittedAt)
+      oldestPending = { appId, submittedAt };
+  }
+  return {
+    decisions: durations.length,
+    medianWorkingDays,
+    pending: submitted.size,
+    oldestPending: oldestPending
+      ? {
+          appId: oldestPending.appId,
+          workingDays: weekdayDays(
+            oldestPending.submittedAt,
+            Math.max(now, oldestPending.submittedAt),
+          ),
+        }
+      : null,
+  };
 }

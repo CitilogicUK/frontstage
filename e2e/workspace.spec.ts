@@ -744,7 +744,14 @@ test('audit history shows production review and ownership handoff', async ({
     nextReview: new Date(Date.now() + 10 * 86_400_000).toISOString(),
   };
   await page.route('**/api/governance/reports/review-turnaround', route =>
-    route.fulfill({ json: { decisions: 2, medianWorkingDays: 1.5 } }),
+    route.fulfill({
+      json: {
+        decisions: 2,
+        medianWorkingDays: 1.5,
+        pending: 1,
+        oldestPending: { appId: handoff.id, workingDays: 3.5 },
+      },
+    }),
   );
   let currentHandoff = handoff;
   let currentRenewal = renewal;
@@ -919,6 +926,17 @@ test('audit history shows production review and ownership handoff', async ({
       .locator('dl > div')
       .filter({ hasText: 'Median time to first Tier 3 decision' }),
   ).toContainText('1.5 weekdays');
+  const oldestPending = page.getByRole('link', {
+    name: 'Oldest pending first decision',
+  });
+  await expect(oldestPending).toHaveAttribute(
+    'href',
+    '/?view=reports&app=purchase-order',
+  );
+  await expect(
+    page.getByText('3.5 weekdays waiting · 1 awaiting a first decision'),
+  ).toBeVisible();
+
   const windowSelect = page.getByRole('combobox', { name: 'Reporting window' });
   await expect(windowSelect).toHaveValue('30');
   await windowSelect.selectOption('7');
