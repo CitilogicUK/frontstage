@@ -97,7 +97,7 @@ The app still needs fresh approval for first launch, reactivation after its appr
 
 Set `governance.graduationGroups` to the Backstage groups that can accept co-ownership of Tier 3 production apps. An owner or reviewer can nominate an active direct member of one of those groups. The nominee finds the request in Inventory and records their decision. The handoff and decision appear in Audit history. The existing accountable owner and gateway access stay in place.
 
-For a local walkthrough, start the reviewer profile, open a Tier 3 app, and set its delivery stage to **Production**. Open **Engineering co-ownership** and nominate `user:default/engineer`. Stop the server and restart it against the same database with the engineering identity, then sign in in a new private browser session.
+For a local walkthrough, start the reviewer profile, open a Tier 3 app, and set its delivery stage to **Production**. In **Engineering co-owner**, nominate `user:default/engineer`. Stop the server and restart it against the same database with the engineering identity, then sign in in a new private browser session.
 
 ```sh
 APP_CONFIG_auth_providers_guest_userEntityRef=user:default/engineer \
