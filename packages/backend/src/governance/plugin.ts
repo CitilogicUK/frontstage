@@ -38,6 +38,7 @@ import {
   discoveryMigration,
   discoveryScanMigration,
   discoveryDecisionsMigration,
+  discoveryVisibilityMigration,
   githubDiscovery,
 } from './discovery';
 import {
@@ -304,6 +305,7 @@ export const governancePlugin = createBackendPlugin({
             '011_gateway_usage_tokens',
             '012_gateway_key_audit',
             '013_repository_source_keys',
+            '014_discovery_visibility',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -311,6 +313,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '014_discovery_visibility')
+              return discoveryVisibilityMigration();
             if (name === '003_gateway') return gatewayMigration(table);
             if (name === '004_github_discovery') return discoveryMigration();
             if (name === '005_discovery_claims')
@@ -549,7 +553,7 @@ export const governancePlugin = createBackendPlugin({
         async function insert(
           records: GovernanceRecord[],
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
-          discoveryId?: string,
+          discoveryClaim?: { id: string; includePrivate: boolean },
         ) {
           await db.transaction(async transaction => {
             const rows = records.map(record => ({
@@ -566,12 +570,13 @@ export const governancePlugin = createBackendPlugin({
             if (inserted.length !== rows.length) {
               throw new ConflictError('A source URL is already registered.');
             }
-            if (discoveryId) {
+            if (discoveryClaim) {
               await github.markClaimed(
                 transaction,
-                discoveryId,
+                discoveryClaim.id,
                 rows[0].id,
                 rows[0].source_key,
+                discoveryClaim.includePrivate,
               );
             } else {
               for (const row of rows)
@@ -967,13 +972,12 @@ export const governancePlugin = createBackendPlugin({
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
           });
-          res.json({
+          const includePrivate = reviewers.includes(principal.userEntityRef);
+          res.set('Cache-Control', 'no-store').json({
             source: github.source ?? null,
-            lastScan: await github.lastScan(),
+            lastScan: await github.lastScan(includePrivate),
             intervalMinutes: github.intervalMinutes ?? null,
-            repositories: await github.list(
-              reviewers.includes(principal.userEntityRef),
-            ),
+            repositories: await github.list(includePrivate),
           });
         });
 
@@ -1048,7 +1052,8 @@ export const governancePlugin = createBackendPlugin({
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
           });
-          const candidate = await github.get(req.params.id);
+          const includePrivate = reviewers.includes(principal.userEntityRef);
+          const candidate = await github.get(req.params.id, includePrivate);
           if (!candidate)
             throw new NotFoundError('Discovered repository not found.');
           const app = parseApp({
@@ -1067,7 +1072,10 @@ export const governancePlugin = createBackendPlugin({
           }
           await validateOwners(app);
           const record = buildRecord(app, 'git');
-          await insert([record], principal, req.params.id);
+          await insert([record], principal, {
+            id: req.params.id,
+            includePrivate,
+          });
           res.status(201).json(record);
         });
 

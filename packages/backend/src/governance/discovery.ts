@@ -25,10 +25,25 @@ const githubResult = z.object({
         id: z.number().int().positive(),
         full_name: z.string().regex(/^[a-z\d-]+\/[a-z\d._-]+$/i),
         description: z.string().nullable(),
+        private: z.boolean().optional(),
+        visibility: z.enum(['public', 'internal', 'private']).optional(),
       }),
     )
     .max(100),
 });
+
+function repositoryPublicFlag(
+  repo: z.infer<typeof githubResult>['items'][number],
+) {
+  if (
+    repo.private === true ||
+    repo.visibility === 'private' ||
+    repo.visibility === 'internal'
+  )
+    return false;
+  if (repo.private === false || repo.visibility === 'public') return true;
+  return null;
+}
 
 const descriptorByteLimit = 100_000;
 
@@ -138,6 +153,42 @@ export function discoveryScanMigration() {
   };
 }
 
+export function discoveryVisibilityMigration() {
+  return {
+    async up(db: Database) {
+      await db.schema.alterTable(discoveryTable, table => {
+        table.boolean('is_public');
+        table.boolean('is_stale').notNullable().defaultTo(false);
+      });
+      await db.schema.alterTable(scanStateTable, table => {
+        table.bigInteger('started_scan').notNullable().defaultTo(0);
+        table.bigInteger('applied_scan').notNullable().defaultTo(0);
+      });
+    },
+    async down(db: Database) {
+      await db.schema.alterTable(scanStateTable, table => {
+        table.dropColumn('started_scan');
+        table.dropColumn('applied_scan');
+      });
+      await db.schema.alterTable(discoveryTable, table => {
+        table.dropColumn('is_public');
+        table.dropColumn('is_stale');
+      });
+    },
+  };
+}
+
+type ScanTrigger = 'manual' | 'scheduled';
+type ScanResult = { found: number; partial: boolean };
+type ScanGeneration = number | string;
+
+function scanOutcome(
+  outcome: ({ status: 'completed' } & ScanResult) | { status: 'failed' },
+  trigger: ScanTrigger,
+) {
+  return JSON.stringify({ ...outcome, trigger, at: new Date().toISOString() });
+}
+
 export function githubDiscovery(
   db: Database,
   appsTable: string,
@@ -145,13 +196,16 @@ export function githubDiscovery(
 ) {
   const config = githubConfig.optional().parse(configuration);
   const scope = config && `${config.organization.toLowerCase()}/%`;
+  const scanSource =
+    config && `${config.organization.toLowerCase()}:${config.topic}`;
+  let activeScan: Promise<ScanResult> | undefined;
 
   const source = {
     source: config && {
       organization: config.organization,
       topic: config.topic,
     },
-    async list(includeReasons = false) {
+    async list(includePrivate = false) {
       if (!scope || !config) return [];
       return db(`${discoveryTable} as repository`)
         .leftJoin(
@@ -161,6 +215,10 @@ export function githubDiscovery(
         )
         .where('repository.name', 'like', scope)
         .where('repository.topic', config.topic)
+        .where('repository.is_stale', false)
+        .modify(query => {
+          if (!includePrivate) query.where('repository.is_public', true);
+        })
         .select(
           'repository.id',
           'repository.source_url as sourceUrl',
@@ -171,21 +229,29 @@ export function githubDiscovery(
             'case when repository.dismissal_reason is null then 0 else 1 end as ??',
             ['dismissed'],
           ),
-          ...(includeReasons
+          ...(includePrivate
             ? ['repository.dismissal_reason as dismissalReason']
             : []),
           db.raw('coalesce(repository.app_id, app.id) as ??', ['appId']),
         )
         .orderBy('repository.name');
     },
-    async get(id: string): Promise<{ source_url: string } | undefined> {
+    async get(
+      id: string,
+      includePrivate = false,
+    ): Promise<{ source_url: string } | undefined> {
       if (!scope || !config) return undefined;
       return db(discoveryTable)
-        .where({ id, topic: config.topic })
+        .where({ id, topic: config.topic, is_stale: false })
         .where('name', 'like', scope)
+        .modify(query => {
+          if (!includePrivate) query.where('is_public', true);
+        })
+        .whereNull('app_id')
+        .whereNull('dismissal_reason')
         .first('source_url');
     },
-    async descriptor(id: string, useToken: boolean) {
+    async descriptor(id: string, includePrivate: boolean) {
       if (!scope || !config) return undefined;
       const candidate = await db(`${discoveryTable} as repository`)
         .leftJoin(
@@ -196,6 +262,10 @@ export function githubDiscovery(
         .where('repository.id', id)
         .where('repository.topic', config.topic)
         .where('repository.name', 'like', scope)
+        .where('repository.is_stale', false)
+        .modify(query => {
+          if (!includePrivate) query.where('repository.is_public', true);
+        })
         .whereNull('repository.app_id')
         .whereNull('repository.dismissal_reason')
         .whereNull('app.id')
@@ -214,7 +284,7 @@ export function githubDiscovery(
           headers: {
             Accept: 'application/vnd.github.raw+json',
             'User-Agent': 'Frontstage',
-            ...(useToken &&
+            ...(includePrivate &&
               config.token && { Authorization: `Bearer ${config.token}` }),
           },
           signal: AbortSignal.timeout(10_000),
@@ -241,19 +311,28 @@ export function githubDiscovery(
         .where({ source_url: sourceKey, topic: config.topic })
         .where('name', 'like', scope)
         .whereNull('app_id')
-        .update({ app_id: appId });
+        .update({ app_id: appId, is_stale: false });
     },
     async markClaimed(
       transaction: Database,
       id: string,
       appId: string,
       sourceKey: string,
+      includePrivate = false,
     ) {
       if (!scope || !config)
         throw new ServiceUnavailableError('GitHub discovery is disabled.');
       const updated = await transaction(discoveryTable)
-        .where({ id, topic: config.topic, source_url: sourceKey })
+        .where({
+          id,
+          topic: config.topic,
+          source_url: sourceKey,
+          is_stale: false,
+        })
         .where('name', 'like', scope)
+        .modify(query => {
+          if (!includePrivate) query.where('is_public', true);
+        })
         .whereNull('app_id')
         .whereNull('dismissal_reason')
         .update({ app_id: appId });
@@ -267,7 +346,7 @@ export function githubDiscovery(
         throw new ServiceUnavailableError('GitHub discovery is disabled.');
       await db.transaction(async transaction => {
         const candidate = transaction(discoveryTable)
-          .where({ id, topic: config.topic })
+          .where({ id, topic: config.topic, is_stale: false })
           .where('name', 'like', scope)
           .whereNull('app_id')
           .whereNotExists(
@@ -295,8 +374,8 @@ export function githubDiscovery(
         });
       });
     },
-    async scan() {
-      if (!config)
+    async scan(generation: ScanGeneration, trigger: ScanTrigger) {
+      if (!config || !scope || !scanSource)
         throw new ServiceUnavailableError('GitHub discovery is disabled.');
       const url = new URL('https://api.github.com/search/repositories');
       url.searchParams.set(
@@ -325,6 +404,8 @@ export function githubDiscovery(
         });
 
       const now = new Date().toISOString();
+      const partial =
+        result.incomplete_results || result.total_count > result.items.length;
       const repos = new Map(
         result.items.flatMap(repo => {
           const name = repo.full_name.toLowerCase();
@@ -341,19 +422,28 @@ export function githubDiscovery(
                 description: repo.description ?? '',
                 first_seen: now,
                 last_seen: now,
+                is_public: repositoryPublicFlag(repo),
+                is_stale: false,
               },
             ] as const,
           ];
         }),
       );
-      if (repos.size) {
-        await db.transaction(async transaction => {
-          const matchingApp = transaction(appsTable)
-            .select('id')
-            .whereRaw('?? = ??', [
-              'source_key',
-              `${discoveryTable}.source_url`,
-            ]);
+      const summary = { found: repos.size, partial };
+      await db.transaction(async transaction => {
+        // Skip an older response that arrived after a newer scan was applied.
+        const applied = await transaction(scanStateTable)
+          .where({ source: scanSource })
+          .where('applied_scan', '<', generation)
+          .update({
+            applied_scan: generation,
+            result: scanOutcome({ status: 'completed', ...summary }, trigger),
+          });
+        if (!applied) return;
+        const matchingApp = transaction(appsTable)
+          .select('id')
+          .whereRaw('?? = ??', ['source_key', `${discoveryTable}.source_url`]);
+        if (repos.size) {
           const linkExistingApps = () =>
             transaction(discoveryTable)
               .whereIn('id', [...repos.keys()])
@@ -365,69 +455,79 @@ export function githubDiscovery(
           await transaction(discoveryTable)
             .insert([...repos.values()])
             .onConflict('id')
-            .merge(['name', 'source_url', 'description', 'last_seen', 'topic']);
+            .merge([
+              'name',
+              'source_url',
+              'description',
+              'last_seen',
+              'topic',
+              'is_public',
+              'is_stale',
+            ]);
           await linkExistingApps();
-        });
-      }
-      return {
-        found: repos.size,
-        partial:
-          result.incomplete_results || result.total_count > result.items.length,
-      };
+        }
+        if (!partial) {
+          const missing = transaction(discoveryTable)
+            .where({ topic: config.topic })
+            .where('name', 'like', scope)
+            .whereNotIn('id', [...repos.keys()]);
+          await missing.clone().update({ is_public: null });
+          await missing
+            .whereNull('app_id')
+            .whereNotExists(matchingApp)
+            .update({ is_stale: true });
+        }
+      });
+      return summary;
     },
   };
-  const sourceKey =
-    config && `${config.organization.toLowerCase()}:${config.topic}`;
-  type ScanResult = { found: number; partial: boolean };
-  let activeScan: Promise<ScanResult> | undefined;
 
   return {
     ...source,
     intervalMinutes: config?.scanIntervalMinutes,
-    async lastScan() {
-      if (!sourceKey) return null;
+    async lastScan(includeCounts = true) {
+      if (!scanSource) return null;
       const row = await db(scanStateTable)
-        .where({ source: sourceKey })
+        .where({ source: scanSource })
         .first('result');
-      return row ? JSON.parse(row.result) : null;
+      if (!row) return null;
+      const result = JSON.parse(row.result);
+      if (!result || includeCounts) return result;
+      const { at, status, trigger } = result;
+      return { at, status, trigger };
     },
-    scan(trigger: 'manual' | 'scheduled' = 'manual') {
-      if (!sourceKey)
+    scan(trigger: ScanTrigger = 'manual') {
+      if (!scanSource)
         return Promise.reject(
           new ServiceUnavailableError('GitHub discovery is disabled.'),
         );
       if (activeScan) return activeScan;
-      const recordOutcome = (outcome: {
-        status: 'completed' | 'failed';
-        found?: number;
-        partial?: boolean;
-      }) =>
-        db(scanStateTable)
-          .insert({
-            source: sourceKey,
-            result: JSON.stringify({
-              ...outcome,
-              trigger,
-              at: new Date().toISOString(),
-            }),
-          })
-          .onConflict('source')
-          .merge();
-      activeScan = source
-        .scan()
-        .then(
-          async result => {
-            await recordOutcome({ status: 'completed', ...result });
-            return result;
-          },
-          async error => {
-            await recordOutcome({ status: 'failed' });
-            throw error;
-          },
-        )
-        .finally(() => {
-          activeScan = undefined;
+      const run = async () => {
+        // Reserve a generation without holding a database lock during GitHub I/O.
+        const generation = await db.transaction(async transaction => {
+          await transaction(scanStateTable)
+            .insert({ source: scanSource, result: 'null' })
+            .onConflict('source')
+            .ignore();
+          const [row] = await transaction(scanStateTable)
+            .where({ source: scanSource })
+            .increment('started_scan', 1)
+            .returning('started_scan');
+          return row.started_scan as ScanGeneration;
         });
+        try {
+          return await source.scan(generation, trigger);
+        } catch (error) {
+          await db(scanStateTable)
+            .where({ source: scanSource, started_scan: generation })
+            .where('applied_scan', '<', generation)
+            .update({ result: scanOutcome({ status: 'failed' }, trigger) });
+          throw error;
+        }
+      };
+      activeScan = run().finally(() => {
+        activeScan = undefined;
+      });
       return activeScan;
     },
   };

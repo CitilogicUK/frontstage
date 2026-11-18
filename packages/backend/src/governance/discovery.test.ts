@@ -5,6 +5,7 @@ import {
   discoveryDecisionsMigration,
   discoveryMigration,
   discoveryScanMigration,
+  discoveryVisibilityMigration,
   githubDiscovery,
 } from './discovery';
 
@@ -18,7 +19,12 @@ function results(fullName: string) {
     total_count: 2,
     incomplete_results: false,
     items: [
-      { id: 101, full_name: fullName, description: 'AI prototype' },
+      {
+        id: 101,
+        full_name: fullName,
+        description: 'AI prototype',
+        private: false,
+      },
       { id: 102, full_name: 'unrelated/private-tool', description: null },
     ],
   });
@@ -38,12 +44,39 @@ beforeEach(async () => {
   await discoveryClaimsMigration(table).up(db);
   await discoveryDecisionsMigration().up(db);
   await discoveryScanMigration().up(db);
-  github = jest.spyOn(globalThis, 'fetch');
+  await discoveryVisibilityMigration().up(db);
+  github = jest
+    .spyOn(globalThis, 'fetch')
+    .mockRejectedValue(new Error('Mocked GitHub network failure'));
 });
 
 afterEach(async () => {
   github.mockRestore();
   await db.destroy();
+});
+
+test('keeps previously linked rows private to reviewers until visibility is verified', async () => {
+  await discoveryVisibilityMigration().down(db);
+  const sourceUrl = 'https://github.com/exampleai/legacy';
+  await db(table).insert({ id: 'legacy-app', source_key: sourceUrl });
+  const before = new Date().toISOString();
+  await db('governance_discovered_repositories').insert({
+    id: '101',
+    source_url: sourceUrl,
+    name: 'exampleai/legacy',
+    description: 'Unverified visibility',
+    topic: 'llm',
+    app_id: 'legacy-app',
+    first_seen: before,
+    last_seen: before,
+  });
+  await discoveryVisibilityMigration().up(db);
+
+  const discovery = githubDiscovery(db, table, configuration);
+  await expect(discovery.list()).resolves.toEqual([]);
+  await expect(discovery.list(true)).resolves.toEqual([
+    expect.objectContaining({ id: '101', appId: 'legacy-app' }),
+  ]);
 });
 
 test('keeps a claim attached to the repository through a rename', async () => {
@@ -235,5 +268,141 @@ test('records scheduled results and merges overlapping attempts in the same proc
   expect(await discovery.lastScan()).toMatchObject({
     trigger: 'manual',
     status: 'failed',
+  });
+});
+
+test('keeps previous unclaimed rows during a partial scan and retires them on a complete scan', async () => {
+  const discovery = githubDiscovery(db, table, configuration);
+  const project = {
+    id: 101,
+    full_name: 'ExampleAI/tool',
+    description: null,
+    private: false,
+  };
+  const linked = { ...project, id: 102, full_name: 'ExampleAI/linked' };
+  const dismissed = { ...project, id: 103, full_name: 'ExampleAI/dismissed' };
+  const reply = (items: object[], total = items.length) =>
+    Response.json({ total_count: total, incomplete_results: false, items });
+
+  github.mockResolvedValueOnce(reply([project, linked, dismissed]));
+  await discovery.scan();
+  await db.transaction(async transaction => {
+    const sourceKey = 'https://github.com/exampleai/linked';
+    await transaction(table).insert({
+      id: 'linked-app',
+      source_key: sourceKey,
+    });
+    await discovery.markClaimed(transaction, '102', 'linked-app', sourceKey);
+  });
+  await discovery.decide('103', 'user:default/reviewer', 'Out of scope');
+
+  github.mockResolvedValueOnce(reply([], 100));
+  await expect(discovery.scan()).resolves.toMatchObject({ partial: true });
+  await expect(discovery.list()).resolves.toHaveLength(3);
+  await expect(discovery.get('101')).resolves.toMatchObject({
+    source_url: 'https://github.com/exampleai/tool',
+  });
+
+  github.mockResolvedValueOnce(reply([]));
+  await expect(discovery.scan()).resolves.toMatchObject({ partial: false });
+  await expect(discovery.list()).resolves.toEqual([]);
+  await expect(discovery.list(true)).resolves.toEqual([
+    expect.objectContaining({ id: '102', appId: 'linked-app' }),
+  ]);
+  await expect(discovery.get('101', true)).resolves.toBeUndefined();
+  await expect(discovery.descriptor('101', true)).resolves.toBeUndefined();
+  expect(github).toHaveBeenCalledTimes(3);
+  expect(await db('governance_discovery_decisions')).toHaveLength(1);
+
+  github.mockResolvedValueOnce(reply([project, dismissed]));
+  await discovery.scan();
+  await expect(discovery.list(true)).resolves.toEqual([
+    expect.objectContaining({ id: '103', dismissed: 1 }),
+    expect.objectContaining({ id: '102', appId: 'linked-app' }),
+    expect.objectContaining({ id: '101' }),
+  ]);
+  await expect(discovery.get('101')).resolves.toBeDefined();
+  expect(await db('governance_discovery_decisions')).toHaveLength(1);
+});
+
+test('rechecks public visibility in the transaction after a visibility change', async () => {
+  const discovery = githubDiscovery(db, table, configuration);
+  const repo = { id: 101, full_name: 'ExampleAI/tool', description: null };
+  const reply = (visibility: string, isPrivate: boolean) =>
+    Response.json({
+      total_count: 1,
+      incomplete_results: false,
+      items: [{ ...repo, visibility, private: isPrivate }],
+    });
+  github.mockResolvedValueOnce(reply('public', false));
+  await discovery.scan();
+  const sourceUrl = (await discovery.get('101'))?.source_url ?? '';
+  expect(sourceUrl).toBe('https://github.com/exampleai/tool');
+
+  github.mockResolvedValueOnce(reply('internal', false));
+  await discovery.scan();
+  await expect(discovery.list()).resolves.toEqual([]);
+  await expect(discovery.get('101')).resolves.toBeUndefined();
+  await expect(discovery.get('101', true)).resolves.toBeDefined();
+  await expect(
+    db.transaction(async transaction => {
+      await transaction(table).insert({
+        id: 'blocked-app',
+        source_key: sourceUrl,
+      });
+      await discovery.markClaimed(transaction, '101', 'blocked-app', sourceUrl);
+    }),
+  ).rejects.toThrow('repository has changed');
+  expect(await db(table)).toEqual([]);
+});
+
+test('applies the newest completed scan across independent workers', async () => {
+  const first = githubDiscovery(db, table, configuration);
+  const second = githubDiscovery(db, table, configuration);
+  let releaseOld!: (response: Response) => void;
+  let started!: () => void;
+  const oldResponse = new Promise<Response>(resolve => {
+    releaseOld = resolve;
+  });
+  const startedOld = new Promise<void>(resolve => {
+    started = resolve;
+  });
+  github.mockImplementationOnce(async () => {
+    started();
+    return oldResponse;
+  });
+  const oldScan = first.scan();
+  await startedOld;
+  github.mockResolvedValueOnce(
+    Response.json({
+      total_count: 2,
+      incomplete_results: false,
+      items: [
+        {
+          id: 101,
+          full_name: 'ExampleAI/tool',
+          description: 'Now restricted',
+          private: true,
+        },
+        {
+          id: 103,
+          full_name: 'ExampleAI/new',
+          description: null,
+          private: false,
+        },
+      ],
+    }),
+  );
+  await second.scan('scheduled');
+  releaseOld(results('ExampleAI/tool'));
+  await oldScan;
+
+  await expect(first.list()).resolves.toEqual([
+    expect.objectContaining({ id: '103' }),
+  ]);
+  await expect(first.get('101')).resolves.toBeUndefined();
+  await expect(first.lastScan()).resolves.toMatchObject({
+    trigger: 'scheduled',
+    found: 2,
   });
 });
