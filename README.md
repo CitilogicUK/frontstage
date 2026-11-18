@@ -23,7 +23,7 @@ yarn start --config ../../app-config.reviewer.yaml
 ## Register apps
 
 - **Intake form.** Use Register to enter app details and preview the tier. The backend recalculates the tier before saving.
-- **Repository.** Commit a descriptor using [examples/ai-app.yaml](examples/ai-app.yaml), then upload it under Import or submit it from CI. Repository discovery is a later phase.
+- **Repository.** Commit a descriptor using [examples/ai-app.yaml](examples/ai-app.yaml), then upload it under Import, submit it from CI, or use it when claiming a repository in Discovery.
 - **Bulk import.** A reviewer or authorized Backstage service can submit a spreadsheet exported as UTF-8 CSV using the [sample columns](packages/app/public/examples/ai-apps.csv), or JSON in the form `{"apps":[...]}`. Each entry uses the descriptor's `spec` fields. In CSV, set `usesAiAtRuntime` to No and leave `models` blank for software that runs without AI. Use `trial`, `poc`, `pilot`, or `production` in `deliveryStage`. Separate model names with `|`, use Yes or No for booleans, and put multiple connections in a JSON array inside the connections cell. Include `hosted.provider`, `hosted.workspace`, `hosted.sharing`, `hosted.dataAccess`, and, when applicable, `hosted.dataClassification` for provider-hosted apps. Batches of up to 100 records are atomic. In Import, select **Validate file** to preview calculated tiers and detect duplicate source URLs before saving. API consumers can send `?dryRun=true` to the repository or bulk import endpoint for the same preview.
 
 The API accepts Backstage credentials. Use a Backstage service credential for automation and the shortest applicable access scope in its configuration.
@@ -116,10 +116,12 @@ Open **Reports** for the non-retired inventory count, critical apps needing revi
 The development profile scans public repositories in the Hugging Face organization tagged `llm`. HTTPS GitHub repository URLs match across case, trailing slashes, and the `.git` clone suffix. The topic is a discovery signal. Check that the repository represents an app your team actually operates before claiming it in a real workspace.
 
 1. Start with the reviewer profile and open **Discovery**. Select **Scan GitHub** to read repository metadata.
-2. Select **Claim repository** on an unowned entry. Complete the prefilled registration with the app’s purpose, model, owner, team, and risk inputs.
+2. Select **Claim repository** on an unowned entry. You can prefill the form from a valid root `catalog-info.yaml` with an `AIApp` descriptor whose `spec.sourceUrl` matches the repository. Review the prefilled values before submitting. If the file is unavailable or invalid, complete the form manually.
 3. Submit the form. The app appears in Inventory and the Discovery entry becomes **Registered**.
 
 Reviewers can dismiss false positives with a reason and reopen them from the **Dismissed** filter. Dismissals survive rescans. Frontstage records who made each decision and when.
+
+Signed-in builders can load descriptors from public repositories. Reviewers can also load descriptors from private repositories that the configured discovery token can read.
 
 Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. Reviewers can run a scan and authenticated builders can claim a repository as its owner. The scan looks at up to 100 matches and indicates when GitHub returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
 
