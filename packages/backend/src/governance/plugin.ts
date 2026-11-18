@@ -117,6 +117,15 @@ export const governancePlugin = createBackendPlugin({
           ...(trackConfig?.security ?? []),
           ...(trackConfig?.dataProtection ?? []),
         ];
+        const approvedHostedWorkspaces = z
+          .array(
+            z.object({
+              provider: z.string().trim().min(1),
+              workspace: z.string().trim().min(1),
+            }),
+          )
+          .optional()
+          .parse(config.getOptional('governance.approvedHostedWorkspaces'));
         const tierPolicy = tierPolicyInput.parse(
           config.getOptional('governance.tierPolicy') ?? {},
         );
@@ -1126,6 +1135,7 @@ export const governancePlugin = createBackendPlugin({
           db,
           appsTable: table,
           configuration: config.getOptional('governance.gateway'),
+          approvedHostedWorkspaces,
           listenHost: config.getOptionalString('backend.listen.host'),
           load,
           assertCanEdit,

@@ -53,6 +53,9 @@ describe('governance record access', () => {
             backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Company' },
+              ],
               gateway: {
                 enabled: true,
                 mode: 'simulation',
@@ -590,6 +593,44 @@ describe('governance record access', () => {
         expectedUpdatedAt: retired.body.updatedAt,
       })
       .expect(400);
+    jest.spyOn(CatalogClient.prototype, 'getEntitiesByRefs').mockResolvedValue({
+      items: activeCatalog.items.slice(0, 2),
+    });
+    for (const workspace of ['Company', 'Personal']) {
+      const hosted = await api
+        .post(apps)
+        .set('Authorization', auth(owner))
+        .send({
+          name: `Hosted ${workspace} app`,
+          purpose: 'Check the declared workspace.',
+          type: 'provider-hosted app',
+          platform: 'Hosted workspace & tools',
+          sourceUrl: `https://example.com/hosted-${workspace}`,
+          owner,
+          team: 'group:default/platform',
+          lifecycle: 'experimental',
+          audience: 'personal',
+          classification: 'internal',
+          models: ['test-model'],
+          hosted: {
+            provider: 'Example AI',
+            workspace,
+            sharing: 'private',
+            dataAccess: 'none',
+          },
+        })
+        .expect(201);
+      const scorecard = await api
+        .get(`${apps}/${hosted.body.id}/scorecard`)
+        .set('Authorization', auth(owner))
+        .expect(200);
+      expect(scorecard.body.checks).toContainEqual(
+        expect.objectContaining({
+          name: 'Declared provider workspace',
+          status: workspace === 'Company' ? 'pass' : 'attention',
+        }),
+      );
+    }
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {
     const owner = 'user:default/owner';

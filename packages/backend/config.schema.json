@@ -12,6 +12,18 @@
           },
           "description": "Backstage user entity references authorized to review critical apps and import inventories."
         },
+        "approvedHostedWorkspaces": {
+          "type": "array",
+          "description": "Approved provider and workspace pairs for declared-workspace scorecard checks.",
+          "items": {
+            "type": "object",
+            "required": ["provider", "workspace"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1 },
+              "workspace": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
         "tierPolicy": {
           "type": "object",
           "additionalProperties": false,

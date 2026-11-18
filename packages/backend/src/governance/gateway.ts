@@ -319,6 +319,7 @@ export function registerGatewayRoutes(options: {
   db: Database;
   appsTable: string;
   configuration: unknown;
+  approvedHostedWorkspaces?: Array<{ provider: string; workspace: string }>;
   listenHost?: string;
   load: (
     id: string,
@@ -588,6 +589,26 @@ export function registerGatewayRoutes(options: {
             : 'Ask the app owner or a reviewer to issue a gateway key.',
         });
       }
+    } else if (record.type === 'provider-hosted app') {
+      const hosted = record.hosted;
+      const approved = options.approvedHostedWorkspaces?.some(
+        entry =>
+          entry.provider === hosted?.provider &&
+          entry.workspace === hosted?.workspace,
+      );
+      let detail = 'No approved workspace list is configured.';
+      if (approved === true) {
+        detail =
+          'The declared provider and workspace are on the approved list.';
+      } else if (approved === false) {
+        detail =
+          'The declared provider and workspace are missing from the approved list.';
+      }
+      checks.push({
+        name: 'Declared provider workspace',
+        status: approved,
+        detail,
+      });
     } else {
       const modelFree = record.usesAiAtRuntime === false;
       checks.push({
