@@ -147,6 +147,14 @@ function appOwner(ref: string) {
   return ref.replace(/^user:default\//, '');
 }
 
+function isIndependentReviewer(app: App, actor: string) {
+  return (
+    actor !== app.owner &&
+    actor !== app.backupOwner &&
+    (app.graduation?.status !== 'accepted' || actor !== app.graduation.nominee)
+  );
+}
+
 function isGraduationEligible(app: App) {
   return (
     app.tier === 3 &&
@@ -362,7 +370,7 @@ export function GovernancePage() {
         )
       : undefined;
   const canManageRenewalException =
-    canReview && actor !== selected?.owner && actor !== selected?.backupOwner;
+    canReview && !!selected && isIndependentReviewer(selected, actor);
   const canDownloadReminder =
     selected &&
     reviewDate &&
@@ -916,8 +924,7 @@ export function GovernancePage() {
     }
     if (reviewFilter === 'mine') {
       return (
-        actor !== app.owner &&
-        actor !== app.backupOwner &&
+        isIndependentReviewer(app, actor) &&
         requiresCriticalReview(app, now) &&
         reviewerTracks.some(track => !app.signoffs?.[track])
       );
@@ -1966,8 +1973,7 @@ export function GovernancePage() {
                 </section>
               )}
             {canReview &&
-              actor !== selected.owner &&
-              actor !== selected.backupOwner &&
+              isIndependentReviewer(selected, actor) &&
               (!reviewTracks.length || reviewerTracks.length > 0) &&
               selected.tier === 3 &&
               selected.lifecycle !== 'retired' && (

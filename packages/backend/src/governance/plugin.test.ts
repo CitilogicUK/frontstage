@@ -114,7 +114,7 @@ describe('governance record access', () => {
             },
           },
           relations: [
-            ...(ref === engineer
+            ...(ref === engineer || ref === reviewer
               ? [{ type: 'memberOf', targetRef: membership }]
               : []),
             ...(ref === outside
@@ -365,6 +365,48 @@ describe('governance record access', () => {
         }),
       ]),
     );
+
+    const second = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        sourceUrl: 'https://example.com/reviewer-handoff',
+        deliveryStage: 'production',
+      })
+      .expect(201);
+    const secondPath = `${collection}/${second.body.id}`;
+    const nomination = await api
+      .post(`${secondPath}/graduation`)
+      .set('Authorization', auth(owner))
+      .send({ nominee: reviewer, expectedUpdatedAt: second.body.updatedAt })
+      .expect(200);
+    const handoff = await api
+      .patch(`${secondPath}/graduation`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        decision: 'accept',
+        expectedUpdatedAt: nomination.body.updatedAt,
+      })
+      .expect(200);
+    await api
+      .post(`${secondPath}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        notes: 'Review by the accepted co-owner.',
+        expectedUpdatedAt: handoff.body.updatedAt,
+      })
+      .expect(403);
+    await api
+      .post(`${secondPath}/renewal-exception`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        reason: 'Exception by the accepted co-owner.',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        expectedUpdatedAt: handoff.body.updatedAt,
+      })
+      .expect(403);
   });
 
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {

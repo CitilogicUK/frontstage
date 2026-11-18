@@ -97,6 +97,15 @@ type Graduation = {
   | { status: 'accepted' | 'declined'; decidedAt: string; reason?: string }
 );
 
+function isIndependentReviewer(record: GovernanceRecord, reviewer: string) {
+  return (
+    reviewer !== record.owner &&
+    reviewer !== record.backupOwner &&
+    (record.graduation?.status !== 'accepted' ||
+      reviewer !== record.graduation.nominee)
+  );
+}
+
 const graduationGroupsInput = z
   .array(z.string().regex(/^group:[a-z0-9_.-]+\/[a-z0-9_.-]+$/))
   .refine(
@@ -883,8 +892,7 @@ export const governancePlugin = createBackendPlugin({
               exception &&
                 exception.owner === record.owner &&
                 reviewers.includes(exception.actor) &&
-                exception.actor !== record.owner &&
-                exception.actor !== record.backupOwner &&
+                isIndependentReviewer(record, exception.actor) &&
                 Date.parse(exception.grantedAt) < due &&
                 isRenewalExpiryWithinWindow(due, expiry) &&
                 expiry > now,
@@ -1622,6 +1630,10 @@ export const governancePlugin = createBackendPlugin({
           const updated: GovernanceRecord = {
             ...record,
             updatedAt,
+            renewalException:
+              accepted && record.renewalException?.actor === graduation.nominee
+                ? undefined
+                : record.renewalException,
             graduation: {
               ...graduation,
               status: accepted ? 'accepted' : 'declined',
@@ -1693,10 +1705,7 @@ export const governancePlugin = createBackendPlugin({
             throw new NotAllowedError('Reviewer access is required.');
           const current = await load(id);
           const { record } = current;
-          if (
-            principal.userEntityRef === record.owner ||
-            principal.userEntityRef === record.backupOwner
-          )
+          if (!isIndependentReviewer(record, principal.userEntityRef))
             throw new NotAllowedError(
               'Only an independent reviewer can change a renewal exception.',
             );
@@ -1829,10 +1838,7 @@ export const governancePlugin = createBackendPlugin({
               'The app changed since you opened this review. Refresh and review the current record.',
             );
           }
-          if (
-            record.owner === principal.userEntityRef ||
-            record.backupOwner === principal.userEntityRef
-          ) {
+          if (!isIndependentReviewer(record, principal.userEntityRef)) {
             throw new NotAllowedError('Owners cannot review their own apps.');
           }
           if (record.tier !== 3 || record.lifecycle === 'retired')
