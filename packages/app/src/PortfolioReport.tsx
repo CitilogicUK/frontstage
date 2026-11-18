@@ -48,6 +48,7 @@ export type ReviewTurnaroundReport = {
   medianWorkingDays: number | null;
   pending: number;
   pendingAppIds: string[];
+  pendingApps?: Array<{ appId: string; workingDays: number }>;
   oldestPending: { appId: string; workingDays: number } | null;
 };
 

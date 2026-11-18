@@ -66,21 +66,18 @@ export function reviewTurnaround(
     ? (durations[middle] + durations[Math.floor((durations.length - 1) / 2)]) /
       2
     : null;
-  const pendingApps = [...submitted].sort((a, b) => a[1] - b[1]);
-  const oldestPending = pendingApps[0];
+  const pendingApps = [...submitted]
+    .sort((a, b) => a[1] - b[1])
+    .map(([appId, submittedAt]) => ({
+      appId,
+      workingDays: weekdayDays(submittedAt, Math.max(now, submittedAt)),
+    }));
   return {
     decisions: durations.length,
     medianWorkingDays,
     pending: pendingApps.length,
-    pendingAppIds: pendingApps.map(([appId]) => appId),
-    oldestPending: oldestPending
-      ? {
-          appId: oldestPending[0],
-          workingDays: weekdayDays(
-            oldestPending[1],
-            Math.max(now, oldestPending[1]),
-          ),
-        }
-      : null,
+    pendingAppIds: pendingApps.map(app => app.appId),
+    pendingApps,
+    oldestPending: pendingApps[0] ?? null,
   };
 }

@@ -36,6 +36,10 @@ it('measures the first complete decision per app and excludes weekends', () => {
     medianWorkingDays: 0.75,
     pending: 2,
     pendingAppIds: ['d', 'c'],
+    pendingApps: [
+      { appId: 'd', workingDays: 2 },
+      { appId: 'c', workingDays: 1 },
+    ],
     oldestPending: { appId: 'd', workingDays: 2 },
   });
 });
@@ -46,6 +50,7 @@ it('omits unfinished submissions and starts again after a tier downgrade', () =>
     medianWorkingDays: null,
     pending: 0,
     pendingAppIds: [],
+    pendingApps: [],
     oldestPending: null,
   });
   expect(
@@ -60,6 +65,7 @@ it('omits unfinished submissions and starts again after a tier downgrade', () =>
     medianWorkingDays: 1,
     pending: 0,
     pendingAppIds: [],
+    pendingApps: [],
     oldestPending: null,
   });
 });

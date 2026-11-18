@@ -715,6 +715,9 @@ export function GovernancePage() {
   const pendingFirstDecisions = new Map(
     reviewTurnaround?.pendingAppIds?.map((appId, index) => [appId, index]),
   );
+  const firstDecisionWait = new Map(
+    reviewTurnaround?.pendingApps?.map(app => [app.appId, app.workingDays]),
+  );
   function matchesReviewFilter(app: App) {
     if (app.tier !== 3 || app.lifecycle === 'retired') return false;
     if (reviewFilter === 'attention') return appReview(app, now).priority <= 1;
@@ -1106,6 +1109,9 @@ export function GovernancePage() {
                         app.deliveryStage ?? null,
                       );
                       const review = appReview(app, now);
+                      const waitingDays = firstDecisionQueue
+                        ? firstDecisionWait.get(app.id)
+                        : undefined;
                       return (
                         <tr key={app.id}>
                           <td className="gov-app-cell">
@@ -1150,6 +1156,14 @@ export function GovernancePage() {
                             >
                               {review.label}
                             </span>
+                            {waitingDays !== undefined && (
+                              <small>
+                                {waitingDays.toLocaleString('en-US', {
+                                  maximumFractionDigits: 1,
+                                })}{' '}
+                                weekdays waiting
+                              </small>
+                            )}
                             {app.tier >= 2 &&
                               app.lifecycle !== 'retired' &&
                               app.nextReview && (

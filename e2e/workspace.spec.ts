@@ -750,6 +750,7 @@ test('audit history shows production review and ownership handoff', async ({
         medianWorkingDays: 1.5,
         pending: 1,
         pendingAppIds: [handoff.id],
+        pendingApps: [{ appId: handoff.id, workingDays: 3.5 }],
         oldestPending: { appId: handoff.id, workingDays: 3.5 },
       },
     }),
@@ -1031,6 +1032,7 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(page).toHaveURL(/view=reviews&review=first$/);
   await expect(reviewRows).toHaveCount(1);
   await expect(reviewRows.first()).toContainText(handoff.name);
+  await expect(reviewRows.first()).toContainText('3.5 weekdays waiting');
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
   await expect(page).toHaveURL(/view=reviews&review=required$/);
