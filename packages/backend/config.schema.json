@@ -29,6 +29,42 @@
             }
           }
         },
+        "approvedConnectors": {
+          "type": "array",
+          "description": "Read-only guidance for approved MCP servers and data connectors. Does not configure runtime connections.",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "kind",
+              "description",
+              "access",
+              "maxClassification"
+            ],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+              "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+              "kind": { "type": "string", "enum": ["mcp", "data"] },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "access": { "type": "string", "enum": ["read", "write"] },
+              "maxClassification": {
+                "type": "string",
+                "enum": ["public", "internal", "confidential", "restricted"]
+              },
+              "docsUrl": {
+                "type": "string",
+                "pattern": "^[Hh][Tt][Tt][Pp][Ss]://[^/?#@\\s\\\\]+(?:[/?#][^\\s\\\\]*)?$"
+              }
+            }
+          }
+        },
         "tierPolicy": {
           "type": "object",
           "additionalProperties": false,

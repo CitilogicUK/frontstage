@@ -13,6 +13,58 @@ describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3'] });
   afterEach(() => jest.restoreAllMocks());
 
+  const approvedConnector = {
+    id: 'catalog-lookup',
+    name: 'Catalog lookup',
+    kind: 'mcp',
+    description: 'Read service ownership from the catalog.',
+    access: 'read',
+    maxClassification: 'internal',
+    docsUrl: 'https://docs.example.com/catalog-lookup',
+  };
+
+  it.each([
+    { state: 'unconfigured', config: {}, connectors: [], configured: false },
+    {
+      state: 'configured but empty',
+      config: { approvedConnectors: [] },
+      connectors: [],
+      configured: true,
+    },
+    {
+      state: 'configured with approved connectors',
+      config: { approvedConnectors: [approvedConnector] },
+      connectors: [approvedConnector],
+      configured: true,
+    },
+  ])(
+    'serves the $state connector registry to signed-in users',
+    async ({ config, configured, connectors }) => {
+      const db = await databases.init('SQLITE_3');
+      const { server } = await startTestBackend({
+        features: [
+          governancePlugin,
+          mockServices.database.factory({ knex: db }),
+          mockServices.rootConfig.factory({ data: { governance: config } }),
+        ],
+      });
+      const path = '/api/governance/approved-connectors';
+      await request(server)
+        .get(path)
+        .set('Authorization', mockCredentials.none.header())
+        .expect(401);
+      await request(server)
+        .get(path)
+        .set('Authorization', mockCredentials.service.header())
+        .expect(403);
+      await request(server)
+        .get(path)
+        .set('Authorization', mockCredentials.user.header())
+        .expect('Cache-Control', 'no-store')
+        .expect(200, { configured, connectors });
+    },
+  );
+
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
     const reviewer = 'user:default/reviewer';
     const owner = 'user:default/owner';

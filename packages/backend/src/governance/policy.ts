@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const person = z.string().regex(/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/);
-const classification = z.enum([
+export const classification = z.enum([
   'public',
   'internal',
   'confidential',
