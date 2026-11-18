@@ -301,7 +301,8 @@ function estimateCost(
   );
 }
 
-function getCheckStatus(status: boolean | undefined) {
+function getCheckStatus(status: boolean | null | undefined) {
+  if (status === null) return 'not-applicable';
   if (status === undefined) return 'unknown';
   return status ? 'pass' : 'attention';
 }
@@ -498,7 +499,11 @@ export function registerGatewayRoutes(options: {
           !!record.nextReview &&
           Date.parse(record.nextReview) > Date.now()) ||
         (tier === 3 && meetsLaunchRequirements(record)));
-    const checks = [
+    const checks: Array<{
+      name: string;
+      status: boolean | null | undefined;
+      detail: string;
+    }> = [
       {
         name: 'Catalog ownership',
         status: ownership,
@@ -584,10 +589,13 @@ export function registerGatewayRoutes(options: {
         });
       }
     } else {
+      const modelFree = record.usesAiAtRuntime === false;
       checks.push({
         name: 'Gateway model policy and activity',
-        status: undefined,
-        detail: 'Gateway evidence is unavailable for this app.',
+        status: modelFree ? null : undefined,
+        detail: modelFree
+          ? 'This app has no runtime model calls.'
+          : 'Gateway evidence is unavailable for this app.',
       });
     }
     res.set('Cache-Control', 'no-store').json({

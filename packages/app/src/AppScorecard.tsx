@@ -7,13 +7,14 @@ import {
 
 type Check = {
   name: string;
-  status: 'pass' | 'attention' | 'unknown';
+  status: 'pass' | 'attention' | 'unknown' | 'not-applicable';
   detail: string;
 };
 const labels = {
   pass: 'Pass',
   attention: 'Needs attention',
   unknown: 'No evidence',
+  'not-applicable': 'Not applicable',
 };
 
 export function AppScorecard({ appId }: { appId: string }) {

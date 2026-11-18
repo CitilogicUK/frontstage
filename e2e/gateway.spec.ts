@@ -898,6 +898,21 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       'Keep gateway keys unavailable for the imported software-only starter',
     );
 
+    const softwareScorecard = await request.get(
+      `${api}/apps/${importedStarter.id}/scorecard`,
+      { headers },
+    );
+    await expectStatus(
+      softwareScorecard,
+      200,
+      'Read the software-only scorecard',
+    );
+    expect((await softwareScorecard.json()).checks).toContainEqual({
+      name: 'Gateway model policy and activity',
+      status: 'not-applicable',
+      detail: 'This app has no runtime model calls.',
+    });
+
     const seed = () =>
       spawnSync(
         process.execPath,
