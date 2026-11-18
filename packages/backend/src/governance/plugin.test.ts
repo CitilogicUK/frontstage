@@ -647,6 +647,14 @@ describe('governance record access', () => {
         .send({ lifecycle: 'active', expectedUpdatedAt: hosted.body.updatedAt })
         .expect(workspace === 'Company' ? 200 : 400);
     }
+    const reviewReport = '/api/governance/reports/review-turnaround';
+    await api.get(reviewReport).set('Authorization', auth(owner)).expect(403);
+    const turnaround = await api
+      .get(reviewReport)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(turnaround.body.decisions).toBeGreaterThan(0);
+    expect(turnaround.body.medianWorkingDays).toBeGreaterThanOrEqual(0);
     const personal = hostedRecords[1];
     const activeUnlisted = {
       ...personal,

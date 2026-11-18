@@ -1,3 +1,4 @@
+import { reviewTurnaround } from './reviewTurnaround';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type BackstageUserPrincipal,
@@ -486,6 +487,18 @@ export const governancePlugin = createBackendPlugin({
             ];
           });
           res.set('Cache-Control', 'no-store').json({ issues });
+        });
+
+        router.get('/reports/review-turnaround', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          const events = await db(history)
+            .select('app_id', 'event')
+            .orderBy(['app_id', 'revision']);
+          res.set('Cache-Control', 'no-store').json(reviewTurnaround(events));
         });
 
         router.get('/reports/hosted-workspaces', async (req, res) => {

@@ -743,6 +743,9 @@ test('audit history shows production review and ownership handoff', async ({
     deliveryStage: 'production',
     nextReview: new Date(Date.now() + 10 * 86_400_000).toISOString(),
   };
+  await page.route('**/api/governance/reports/review-turnaround', route =>
+    route.fulfill({ json: { decisions: 2, medianWorkingDays: 1.5 } }),
+  );
   let currentHandoff = handoff;
   let currentRenewal = renewal;
   await page.route('**/api/governance/apps/renewal/lifecycle', async route => {
@@ -911,6 +914,11 @@ test('audit history shows production review and ownership handoff', async ({
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Close app details' }).click();
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await expect(
+    page
+      .locator('dl > div')
+      .filter({ hasText: 'Median time to first Tier 3 decision' }),
+  ).toContainText('1.5 weekdays');
   const windowSelect = page.getByRole('combobox', { name: 'Reporting window' });
   await expect(windowSelect).toHaveValue('30');
   await windowSelect.selectOption('7');

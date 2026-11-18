@@ -43,6 +43,11 @@ export type OwnershipReport = {
   }>;
 };
 
+export type ReviewTurnaroundReport = {
+  decisions: number;
+  medianWorkingDays: number | null;
+};
+
 export type HostedWorkspaceReport = {
   configured: boolean;
   issues: Array<{
@@ -103,6 +108,7 @@ export function PortfolioReport({
   ownership,
   ownershipError,
   hostedWorkspaces,
+  reviewTurnaround,
   canReview,
   loading,
   error,
@@ -113,10 +119,12 @@ export function PortfolioReport({
   ownership?: OwnershipReport;
   ownershipError: boolean;
   hostedWorkspaces?: HostedWorkspaceReport | null;
+  reviewTurnaround?: ReviewTurnaroundReport | null;
   canReview: boolean;
   loading: boolean;
   error: string;
 }) {
+  const medianWorkingDays = reviewTurnaround?.medianWorkingDays;
   const windowLabel = usageDays === 1 ? '24 hours' : `${usageDays} days`;
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
@@ -375,6 +383,27 @@ export function PortfolioReport({
             </div>
           )}
         </div>
+        {canReview && (
+          <div className="gov-panel">
+            <dt>Median time to first Tier 3 decision</dt>
+            <dd>
+              {typeof medianWorkingDays === 'number'
+                ? `${medianWorkingDays.toLocaleString('en-US', {
+                    maximumFractionDigits: 1,
+                  })} weekdays`
+                : '—'}
+            </dd>
+            <small>
+              {reviewTurnaround === undefined &&
+                'Calculating review turnaround…'}
+              {reviewTurnaround === null && 'Review turnaround could not load.'}
+              {reviewTurnaround &&
+                `${reviewTurnaround.decisions} first ${
+                  reviewTurnaround.decisions === 1 ? 'decision' : 'decisions'
+                } · UTC weekdays`}
+            </small>
+          </div>
+        )}
         {liveCost !== undefined && (
           <div className="gov-panel">
             <dt>Live estimated cost · {windowLabel}</dt>

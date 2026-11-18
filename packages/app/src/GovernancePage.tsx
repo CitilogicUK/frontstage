@@ -40,6 +40,7 @@ import {
   PortfolioReport,
   type OwnershipReport,
   type HostedWorkspaceReport,
+  type ReviewTurnaroundReport,
   type UsageReport,
 } from './PortfolioReport';
 import {
@@ -216,6 +217,8 @@ export function GovernancePage() {
   const daysParam = params.get('days');
   const usageDays =
     daysParam === '1' || daysParam === '7' ? Number(daysParam) : 30;
+  const [reviewTurnaround, setReviewTurnaround] =
+    useState<ReviewTurnaroundReport | null>();
   const [ownershipReport, setOwnershipReport] = useState<OwnershipReport>();
   const [hostedWorkspaceReport, setHostedWorkspaceReport] =
     useState<HostedWorkspaceReport | null>();
@@ -403,6 +406,15 @@ export function GovernancePage() {
       },
       () => {
         if (active) setHostedWorkspaceReport(null);
+      },
+    );
+    setReviewTurnaround(undefined);
+    api('/reports/review-turnaround').then(
+      result => {
+        if (active) setReviewTurnaround(result);
+      },
+      () => {
+        if (active) setReviewTurnaround(null);
       },
     );
     api('/reports/ownership')
@@ -1622,6 +1634,7 @@ export function GovernancePage() {
           ownership={ownershipReport}
           ownershipError={ownershipError}
           hostedWorkspaces={hostedWorkspaceReport}
+          reviewTurnaround={reviewTurnaround}
           canReview={canReview}
           loading={loading}
           error={reportError}

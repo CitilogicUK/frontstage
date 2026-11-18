@@ -112,6 +112,8 @@ Open **Reports** for the non-retired inventory count, critical apps needing revi
 
 **Retirement review** lists active apps whose most recent recorded live gateway call was at least 90 days ago, regardless of the usage reporting window. The simulation-only demo leaves this panel empty. Open an app from the list and check with its owner for usage outside the gateway before updating its lifecycle. Retiring an app revokes its gateway key. You can record an optional lifecycle reason. It appears in Audit history and is covered by the record event’s digest.
 
+**Median time to first Tier 3 decision** measures from the first pending submission to the first recorded overall approval or request for changes. It uses the available audit history across all reporting windows. The calculation includes elapsed time on UTC weekdays and excludes weekends. A partial sign-off or an app still waiting for a decision does not contribute to the median.
+
 ## Discover and claim a GitHub repository
 
 The development profile scans public repositories in the Hugging Face organization tagged `llm`. The topic is a discovery signal. Check that the repository represents an app your team actually operates before claiming it in a real workspace.
