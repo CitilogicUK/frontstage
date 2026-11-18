@@ -616,31 +616,48 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     );
     const optOutKey = await issueSharedKey();
     const startersRoot = resolve(backendRoot, '../app/public/starters');
-    const assistant = join(dataDirectory, 'assistant.mjs');
+    const notes = join(dataDirectory, 'notes.txt');
     await Promise.all([
-      copyFile(
-        join(startersRoot, 'gateway-assistant/assistant.mjs'),
-        assistant,
-      ),
+      writeFile(notes, 'Synthetic meeting notes. Sam will review the draft.'),
       copyFile(
         join(startersRoot, 'shared/gateway.mjs'),
         join(dataDirectory, 'gateway.mjs'),
       ),
     ]);
-    const starterRun = spawnSync(process.execPath, [assistant], {
-      encoding: 'utf8',
-      input: 'Summarize a synthetic meeting.',
-      env: {
-        ...process.env,
-        FRONTSTAGE_BACKEND_URL: backendUrl,
-        FRONTSTAGE_GATEWAY_KEY: optOutKey,
-        FRONTSTAGE_MODEL: approvedModel,
-      },
-      timeout: 10_000,
-    });
-    expect(starterRun.status, starterRun.stderr).toBe(0);
-    expect(starterRun.stderr).toContain('Simulated gateway response.');
-    expect(starterRun.stdout.trim()).not.toBe('');
+    for (const starter of [
+      { name: 'assistant', args: [], calls: 1 },
+      { name: 'agent', args: [], calls: 2 },
+      { name: 'automation', args: [notes], calls: 1 },
+    ]) {
+      const script = join(dataDirectory, `${starter.name}.mjs`);
+      await copyFile(
+        join(startersRoot, `gateway-${starter.name}/${starter.name}.mjs`),
+        script,
+      );
+      const starterRun = spawnSync(
+        process.execPath,
+        [script, ...starter.args],
+        {
+          encoding: 'utf8',
+          input: 'Summarize a synthetic meeting.',
+          env: {
+            ...process.env,
+            FRONTSTAGE_BACKEND_URL: backendUrl,
+            FRONTSTAGE_GATEWAY_KEY: optOutKey,
+            FRONTSTAGE_MODEL: approvedModel,
+          },
+          timeout: 10_000,
+        },
+      );
+      expect(starterRun.status, starterRun.stderr).toBe(0);
+      expect(
+        starterRun.stderr.match(/Simulated gateway response\./g),
+      ).toHaveLength(starter.calls);
+      expect(starterRun.stdout.trim()).not.toBe('');
+      if (starter.name === 'agent') {
+        expect(starterRun.stdout).toContain('Draft answer');
+      }
+    }
 
     const noAi = await request.put(sharedPath, {
       headers,
