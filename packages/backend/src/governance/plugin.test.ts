@@ -630,6 +630,11 @@ describe('governance record access', () => {
           status: workspace === 'Company' ? 'pass' : 'attention',
         }),
       );
+      await api
+        .patch(`${apps}/${hosted.body.id}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle: 'active', expectedUpdatedAt: hosted.body.updatedAt })
+        .expect(workspace === 'Company' ? 200 : 400);
     }
   });
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {

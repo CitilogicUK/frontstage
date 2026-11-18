@@ -285,6 +285,27 @@ export const governancePlugin = createBackendPlugin({
           return app;
         }
 
+        function hostedWorkspaceApproved(app: AppInput) {
+          const hosted = app.hosted;
+          return approvedHostedWorkspaces?.some(
+            entry =>
+              entry.provider === hosted?.provider &&
+              entry.workspace === hosted?.workspace,
+          );
+        }
+
+        function assertHostedWorkspaceForLaunch(app: AppInput) {
+          if (
+            app.lifecycle === 'active' &&
+            app.type === 'provider-hosted app' &&
+            hostedWorkspaceApproved(app) === false
+          ) {
+            throw new InputError(
+              'Choose an approved provider workspace before activating this app.',
+            );
+          }
+        }
+
         function buildRecord(
           app: AppInput,
           source: GovernanceRecord['discoverySource'],
@@ -296,6 +317,7 @@ export const governancePlugin = createBackendPlugin({
               'Register tier 3 apps as experimental until reviewers approve them.',
             );
           }
+          assertHostedWorkspaceForLaunch(app);
           const updatedAt = new Date().toISOString();
           return {
             ...app,
@@ -541,6 +563,7 @@ export const governancePlugin = createBackendPlugin({
         }
 
         function assertCanLaunch(record: GovernanceRecord) {
+          assertHostedWorkspaceForLaunch(record);
           if (
             record.lifecycle === 'active' &&
             !meetsLaunchRequirements(record)
@@ -1135,7 +1158,7 @@ export const governancePlugin = createBackendPlugin({
           db,
           appsTable: table,
           configuration: config.getOptional('governance.gateway'),
-          approvedHostedWorkspaces,
+          hostedWorkspaceApproved,
           listenHost: config.getOptionalString('backend.listen.host'),
           load,
           assertCanEdit,

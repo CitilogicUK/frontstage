@@ -319,7 +319,7 @@ export function registerGatewayRoutes(options: {
   db: Database;
   appsTable: string;
   configuration: unknown;
-  approvedHostedWorkspaces?: Array<{ provider: string; workspace: string }>;
+  hostedWorkspaceApproved: (app: GovernanceRecord) => boolean | undefined;
   listenHost?: string;
   load: (
     id: string,
@@ -590,12 +590,7 @@ export function registerGatewayRoutes(options: {
         });
       }
     } else if (record.type === 'provider-hosted app') {
-      const hosted = record.hosted;
-      const approved = options.approvedHostedWorkspaces?.some(
-        entry =>
-          entry.provider === hosted?.provider &&
-          entry.workspace === hosted?.workspace,
-      );
+      const approved = options.hostedWorkspaceApproved(record);
       let detail = 'No approved workspace list is configured.';
       if (approved === true) {
         detail =
