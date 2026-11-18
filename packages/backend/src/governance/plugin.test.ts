@@ -53,6 +53,7 @@ describe('governance record access', () => {
             backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
+              firstDecisionTargetWeekdays: 15,
               approvedHostedWorkspaces: [
                 { provider: 'Example AI', workspace: 'Company' },
               ],
@@ -653,6 +654,10 @@ describe('governance record access', () => {
       .get(reviewReport)
       .set('Authorization', auth(reviewer))
       .expect(200);
+    expect(turnaround.body.target).toEqual({
+      workingDays: 15,
+      pendingAtOrOver: 0,
+    });
     expect(turnaround.body.decisions).toBeGreaterThan(0);
     expect(turnaround.body.medianWorkingDays).toBeGreaterThanOrEqual(0);
     const personal = hostedRecords[1];

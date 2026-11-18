@@ -50,6 +50,7 @@ export type ReviewTurnaroundReport = {
   pendingAppIds: string[];
   pendingApps?: Array<{ appId: string; workingDays: number }>;
   oldestPending: { appId: string; workingDays: number } | null;
+  target?: { workingDays: number; pendingAtOrOver: number };
 };
 
 export type HostedWorkspaceReport = {
@@ -406,6 +407,12 @@ export function PortfolioReport({
                   reviewTurnaround.decisions === 1 ? 'decision' : 'decisions'
                 } · UTC weekdays`}
             </small>
+            {reviewTurnaround?.target && (
+              <small>
+                {reviewTurnaround.target.pendingAtOrOver} at or over the{' '}
+                {reviewTurnaround.target.workingDays}-weekday target
+              </small>
+            )}
             {reviewTurnaround?.oldestPending && (
               <div>
                 <Link to={reportAppLink(reviewTurnaround.oldestPending.appId)}>

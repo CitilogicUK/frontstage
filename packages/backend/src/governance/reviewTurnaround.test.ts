@@ -30,6 +30,7 @@ it('measures the first complete decision per app and excludes weekends', () => {
         event('d', '2026-11-20T12:00:00Z', 'registered'),
       ],
       Date.parse('2026-11-24T12:00:00Z'),
+      2,
     ),
   ).toEqual({
     decisions: 2,
@@ -41,6 +42,7 @@ it('measures the first complete decision per app and excludes weekends', () => {
       { appId: 'c', workingDays: 1 },
     ],
     oldestPending: { appId: 'd', workingDays: 2 },
+    target: { workingDays: 2, pendingAtOrOver: 1 },
   });
 });
 

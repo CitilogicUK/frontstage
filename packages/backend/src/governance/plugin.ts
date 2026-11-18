@@ -127,6 +127,12 @@ export const governancePlugin = createBackendPlugin({
           )
           .optional()
           .parse(config.getOptional('governance.approvedHostedWorkspaces'));
+        const firstDecisionTargetWeekdays = z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .parse(config.getOptional('governance.firstDecisionTargetWeekdays'));
         const tierPolicy = tierPolicyInput.parse(
           config.getOptional('governance.tierPolicy') ?? {},
         );
@@ -498,7 +504,11 @@ export const governancePlugin = createBackendPlugin({
           const events = await db(history)
             .select('app_id', 'event')
             .orderBy(['app_id', 'revision']);
-          res.set('Cache-Control', 'no-store').json(reviewTurnaround(events));
+          res
+            .set('Cache-Control', 'no-store')
+            .json(
+              reviewTurnaround(events, Date.now(), firstDecisionTargetWeekdays),
+            );
         });
 
         router.get('/reports/hosted-workspaces', async (req, res) => {

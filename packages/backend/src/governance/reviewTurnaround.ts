@@ -20,6 +20,7 @@ function weekdayDays(start: number, end: number) {
 export function reviewTurnaround(
   events: Array<{ app_id: string; event: string }>,
   now = Date.now(),
+  targetWorkingDays?: number,
 ) {
   const submitted = new Map<string, number>();
   const decided = new Set<string>();
@@ -79,5 +80,13 @@ export function reviewTurnaround(
     pendingAppIds: pendingApps.map(app => app.appId),
     pendingApps,
     oldestPending: pendingApps[0] ?? null,
+    ...(targetWorkingDays !== undefined && {
+      target: {
+        workingDays: targetWorkingDays,
+        pendingAtOrOver: pendingApps.filter(
+          app => app.workingDays >= targetWorkingDays,
+        ).length,
+      },
+    }),
   };
 }

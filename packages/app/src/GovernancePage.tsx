@@ -1164,6 +1164,12 @@ export function GovernancePage() {
                                 weekdays waiting
                               </small>
                             )}
+                            {waitingDays !== undefined &&
+                              reviewTurnaround?.target &&
+                              waitingDays >=
+                                reviewTurnaround.target.workingDays && (
+                                <small>At or over review target</small>
+                              )}
                             {app.tier >= 2 &&
                               app.lifecycle !== 'retired' &&
                               app.nextReview && (

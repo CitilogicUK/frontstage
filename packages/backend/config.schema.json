@@ -12,6 +12,11 @@
           },
           "description": "Backstage user entity references authorized to review critical apps and import inventories."
         },
+        "firstDecisionTargetWeekdays": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional target in UTC weekdays for the first overall Tier 3 review decision."
+        },
         "approvedHostedWorkspaces": {
           "type": "array",
           "description": "Approved provider and workspace pairs for declared-workspace scorecard checks.",
