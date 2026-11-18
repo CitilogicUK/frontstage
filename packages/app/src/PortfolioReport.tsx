@@ -11,6 +11,7 @@ import AssessmentOutlinedIcon from '@material-ui/icons/AssessmentOutlined';
 import { isReviewOverdue, requiresCriticalReview } from './reviewDue';
 import {
   downloadCsv,
+  ownershipIssuesCsv,
   portfolioCsv,
   type PortfolioExportRow,
 } from './portfolioExport';
@@ -166,6 +167,18 @@ export function PortfolioReport({
     });
   }
   const byId = new Map(apps.map(app => [app.id, app]));
+  const ownershipIssues =
+    ownership?.issues.map(issue => {
+      const app = byId.get(issue.appId);
+      const unavailable = issue.unavailable.map(ref => {
+        let role = '';
+        if (ref === app?.owner) role = 'Accountable owner';
+        else if (ref === app?.backupOwner) role = 'Backup owner';
+        else if (ref === app?.team) role = 'Team';
+        return { role, ref };
+      });
+      return { ...issue, unavailable };
+    }) ?? [];
   const inventory = apps.filter(app => app.lifecycle !== 'retired');
   const stages = new Map(
     [...Object.entries(deliveryStages), ['unset', 'Unspecified']].map(
@@ -482,29 +495,40 @@ export function PortfolioReport({
             {ownership?.issues.length === 0 && (
               <p>No ownership issues found.</p>
             )}
-            {!!ownership?.issues.length && (
-              <ul>
-                {ownership.issues.map(issue => {
-                  const app = byId.get(issue.appId);
-                  const unavailable = issue.unavailable.map(ref => {
-                    if (ref === app?.owner) return `Accountable owner: ${ref}`;
-                    if (ref === app?.backupOwner) return `Backup owner: ${ref}`;
-                    if (ref === app?.team) return `Team: ${ref}`;
-                    return ref;
-                  });
-                  return (
+            {ownershipIssues.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="gov-button"
+                  onClick={() =>
+                    downloadCsv(
+                      ownershipIssuesCsv(ownershipIssues),
+                      'frontstage-ownership-issues.csv',
+                    )
+                  }
+                >
+                  Download ownership issues CSV
+                </button>
+                <ul>
+                  {ownershipIssues.map(issue => (
                     <li key={issue.appId}>
                       <Link to={reportAppLink(issue.appId, true)}>
                         {issue.name}
                       </Link>
-                      <p>{unavailable.join(' · ')}</p>
+                      <p>
+                        {issue.unavailable
+                          .map(({ role, ref }) =>
+                            role ? `${role}: ${ref}` : ref,
+                          )
+                          .join(' · ')}
+                      </p>
                       {issue.availableBackupOwner && (
                         <p>Active backup owner: {issue.availableBackupOwner}</p>
                       )}
                     </li>
-                  );
-                })}
-              </ul>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
         </section>

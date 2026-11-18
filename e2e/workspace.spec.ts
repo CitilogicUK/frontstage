@@ -978,6 +978,19 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     ownership.getByText(`Active backup owner: ${pilot.owner}`),
   ).toBeVisible();
+  const ownershipDownloadPending = page.waitForEvent('download');
+  await ownership
+    .getByRole('button', { name: 'Download ownership issues CSV' })
+    .click();
+  const ownershipDownload = await ownershipDownloadPending;
+  expect(ownershipDownload.suggestedFilename()).toBe(
+    'frontstage-ownership-issues.csv',
+  );
+  const ownershipCsv = await readFile(await ownershipDownload.path(), 'utf8');
+  expect(ownershipCsv).toContain(
+    `"Accountable owner","${handoff.owner}","${pilot.owner}"`,
+  );
+  expect(ownershipCsv).toContain(`"Team","${handoff.team}","${pilot.owner}"`);
   await ownership.getByRole('link', { name: handoff.name }).click();
   await expect(dialog).toBeVisible();
   await dialog

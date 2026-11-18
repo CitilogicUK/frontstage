@@ -65,6 +65,34 @@ export function portfolioCsv(rows: PortfolioExportRow[]) {
   );
 }
 
+export function ownershipIssuesCsv(
+  issues: Array<{
+    appId: string;
+    name: string;
+    unavailable: Array<{ role: string; ref: string }>;
+    availableBackupOwner?: string;
+  }>,
+) {
+  return encodeCsv(
+    [
+      'app_id',
+      'app_name',
+      'unavailable_role',
+      'unavailable_entity',
+      'active_backup_owner',
+    ],
+    issues.flatMap(issue =>
+      issue.unavailable.map(({ role, ref }) => [
+        issue.appId,
+        issue.name,
+        role,
+        ref,
+        issue.availableBackupOwner ?? '',
+      ]),
+    ),
+  );
+}
+
 const inventoryColumns = [
   'app_id',
   'app_name',
