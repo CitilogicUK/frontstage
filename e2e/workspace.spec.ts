@@ -749,6 +749,7 @@ test('audit history shows production review and ownership handoff', async ({
         decisions: 2,
         medianWorkingDays: 1.5,
         pending: 1,
+        pendingAppIds: [handoff.id],
         oldestPending: { appId: handoff.id, workingDays: 3.5 },
       },
     }),
@@ -1026,6 +1027,11 @@ test('audit history shows production review and ownership handoff', async ({
 
   await page.getByRole('combobox', { name: 'Usage team' }).selectOption('');
   await expect(blockReport.getByText('missing-app')).toBeVisible();
+  await page.getByRole('link', { name: '1 awaiting a first decision' }).click();
+  await expect(page).toHaveURL(/view=reviews&review=first$/);
+  await expect(reviewRows).toHaveCount(1);
+  await expect(reviewRows.first()).toContainText(handoff.name);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
   await expect(page).toHaveURL(/view=reviews&review=required$/);
   await expect(reviewRows).toHaveCount(1);

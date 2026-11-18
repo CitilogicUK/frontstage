@@ -239,6 +239,7 @@ export function GovernancePage() {
   const reviewFilter =
     reviewParam === 'all' ||
     reviewParam === 'required' ||
+    (reviewParam === 'first' && canReview) ||
     (reviewParam === 'mine' && reviewerTracks.length > 0)
       ? reviewParam
       : 'attention';
@@ -408,15 +409,6 @@ export function GovernancePage() {
         if (active) setHostedWorkspaceReport(null);
       },
     );
-    setReviewTurnaround(undefined);
-    api('/reports/review-turnaround').then(
-      result => {
-        if (active) setReviewTurnaround(result);
-      },
-      () => {
-        if (active) setReviewTurnaround(null);
-      },
-    );
     api('/reports/ownership')
       .then(result => {
         if (active) setOwnershipReport(result);
@@ -428,6 +420,25 @@ export function GovernancePage() {
       active = false;
     };
   }, [api, apps, canReview, view]);
+
+  const firstDecisionQueue = view === 'Reviews' && reviewFilter === 'first';
+  useEffect(() => {
+    if (!canReview || (view !== 'Reports' && !firstDecisionQueue))
+      return undefined;
+    let active = true;
+    setReviewTurnaround(undefined);
+    api('/reports/review-turnaround').then(
+      result => {
+        if (active) setReviewTurnaround(result);
+      },
+      () => {
+        if (active) setReviewTurnaround(null);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, apps, canReview, firstDecisionQueue, view]);
 
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
@@ -701,10 +712,14 @@ export function GovernancePage() {
     });
   }
 
+  const pendingFirstDecisions = new Map(
+    reviewTurnaround?.pendingAppIds?.map((appId, index) => [appId, index]),
+  );
   function matchesReviewFilter(app: App) {
     if (app.tier !== 3 || app.lifecycle === 'retired') return false;
     if (reviewFilter === 'attention') return appReview(app, now).priority <= 1;
     if (reviewFilter === 'required') return requiresCriticalReview(app, now);
+    if (reviewFilter === 'first') return pendingFirstDecisions.has(app.id);
     if (reviewFilter === 'mine') {
       return (
         actor !== app.owner &&
@@ -732,7 +747,13 @@ export function GovernancePage() {
       ].some(value => value.toLowerCase().includes(query.trim().toLowerCase())),
   );
 
-  if (view === 'Reviews' || ownershipScope !== 'all') {
+  if (firstDecisionQueue) {
+    matching.sort(
+      (a, b) =>
+        (pendingFirstDecisions.get(a.id) ?? 0) -
+        (pendingFirstDecisions.get(b.id) ?? 0),
+    );
+  } else if (view === 'Reviews' || ownershipScope !== 'all') {
     matching.sort((a, b) => {
       const priority = appReview(a, now).priority - appReview(b, now).priority;
       const aDue =
@@ -935,6 +956,9 @@ export function GovernancePage() {
                   >
                     <option value="attention">Needs attention</option>
                     <option value="required">Review required now</option>
+                    {canReview && (
+                      <option value="first">Awaiting first decision</option>
+                    )}
                     {reviewerTracks.length > 0 && (
                       <option value="mine">My pending sign-offs</option>
                     )}
@@ -1006,47 +1030,61 @@ export function GovernancePage() {
                 Loading apps…
               </div>
             )}
-            {!loading && matching.length === 0 && (
-              <WorkspaceEmptyState
-                icon={<AppsIcon aria-hidden="true" />}
-                title={emptyTitle}
-                description={emptyMessage}
-              >
-                {hasListFilters && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuery('');
-                      if (
-                        filterByStage ||
-                        filterByRuntime ||
-                        inventoryReviewFilter ||
-                        lifecycleFilter ||
-                        classificationFilter ||
-                        platformFilter ||
-                        teamFilter ||
-                        tier
-                      ) {
-                        setParams(previous => {
-                          const next = new URLSearchParams(previous);
-                          next.delete('stage');
-                          next.delete('runtime');
-                          next.delete('lifecycle');
-                          next.delete('classification');
-                          next.delete('platform');
-                          next.delete('team');
-                          next.delete('tier');
-                          if (inventoryReviewFilter) next.delete('review');
-                          return next;
-                        });
-                      }
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </WorkspaceEmptyState>
+            {firstDecisionQueue &&
+              reviewTurnaround === undefined &&
+              !loading && (
+                <p className="gov-empty" role="status">
+                  Loading first decisions…
+                </p>
+              )}
+            {firstDecisionQueue && reviewTurnaround === null && (
+              <p className="gov-empty" role="alert">
+                First decisions could not be loaded.
+              </p>
             )}
+            {!loading &&
+              (!firstDecisionQueue || reviewTurnaround) &&
+              matching.length === 0 && (
+                <WorkspaceEmptyState
+                  icon={<AppsIcon aria-hidden="true" />}
+                  title={emptyTitle}
+                  description={emptyMessage}
+                >
+                  {hasListFilters && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuery('');
+                        if (
+                          filterByStage ||
+                          filterByRuntime ||
+                          inventoryReviewFilter ||
+                          lifecycleFilter ||
+                          classificationFilter ||
+                          platformFilter ||
+                          teamFilter ||
+                          tier
+                        ) {
+                          setParams(previous => {
+                            const next = new URLSearchParams(previous);
+                            next.delete('stage');
+                            next.delete('runtime');
+                            next.delete('lifecycle');
+                            next.delete('classification');
+                            next.delete('platform');
+                            next.delete('team');
+                            next.delete('tier');
+                            if (inventoryReviewFilter) next.delete('review');
+                            return next;
+                          });
+                        }
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </WorkspaceEmptyState>
+              )}
             {!loading && matching.length > 0 && (
               <div className="governance-table">
                 <table>

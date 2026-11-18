@@ -47,6 +47,7 @@ export type ReviewTurnaroundReport = {
   decisions: number;
   medianWorkingDays: number | null;
   pending: number;
+  pendingAppIds: string[];
   oldestPending: { appId: string; workingDays: number } | null;
 };
 
@@ -416,7 +417,9 @@ export function PortfolioReport({
                   )}{' '}
                   weekdays waiting
                   {' · '}
-                  {reviewTurnaround.pending} awaiting a first decision
+                  <Link to="/?view=reviews&review=first">
+                    {reviewTurnaround.pending} awaiting a first decision
+                  </Link>
                 </small>
               </div>
             )}
