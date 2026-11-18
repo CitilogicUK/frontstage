@@ -1984,7 +1984,11 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
 
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
-      json: { actor, canReview: actor === reviewer, apps: [current] },
+      json: {
+        actor,
+        canReview: actor === reviewer,
+        apps: [current, { ...app, id: 'other-app', name: 'Another workflow' }],
+      },
     }),
   );
   await page.route('**/api/governance/reports/usage', route =>
@@ -2067,6 +2071,16 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
   ).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await expect(page.getByText('Retirement decision requested')).toBeVisible();
+  await page
+    .getByRole('link', { name: '1 app needs your retirement decision' })
+    .click();
+  await expect(page).toHaveURL(/owner=me&review=retirement$/);
+  await expect(
+    page.getByRole('combobox', { name: 'Review status' }),
+  ).toHaveValue('retirement');
+  await expect(
+    page.getByRole('button', { name: /Another workflow/ }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: new RegExp(app.name) }).click();
   await review
     .getByRole('combobox', { name: 'Retirement decision' })

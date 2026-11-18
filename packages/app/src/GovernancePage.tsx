@@ -768,6 +768,10 @@ export function GovernancePage() {
           app => app.owner === actor && appReview(app, now).priority <= 1,
         ).length
       : 0;
+  const myRetirementDecisionCount =
+    view === 'Inventory' && actor
+      ? apps.filter(app => ownerCanDecideRetirement(app, actor)).length
+      : 0;
   const scopedApps =
     ownershipScope === 'all'
       ? apps
@@ -791,7 +795,9 @@ export function GovernancePage() {
   const inventoryReview = params.get('review');
   const inventoryReviewFilter =
     view === 'Inventory' &&
-    (inventoryReview === 'overdue' || inventoryReview === 'attention')
+    (inventoryReview === 'overdue' ||
+      inventoryReview === 'attention' ||
+      inventoryReview === 'retirement')
       ? inventoryReview
       : '';
 
@@ -833,6 +839,8 @@ export function GovernancePage() {
       (inventoryReviewFilter !== 'overdue' || isReviewOverdue(app, now)) &&
       (inventoryReviewFilter !== 'attention' ||
         appReview(app, now).priority <= 1) &&
+      (inventoryReviewFilter !== 'retirement' ||
+        ownerCanDecideRetirement(app, actor)) &&
       (!lifecycleFilter || app.lifecycle === lifecycleFilter) &&
       (!classificationFilter ||
         (app.effectiveClassification ?? app.classification) ===
@@ -1009,6 +1017,15 @@ export function GovernancePage() {
               </Link>
             </p>
           )}
+          {!loading && !error && myRetirementDecisionCount > 0 && (
+            <p className="gov-notice">
+              <Link to="/?owner=me&review=retirement">
+                {myRetirementDecisionCount === 1
+                  ? '1 app needs your retirement decision'
+                  : `${myRetirementDecisionCount} apps need your retirement decision`}
+              </Link>
+            </p>
+          )}
           <div className="gov-panel">
             <WorkspaceSearch
               label="Search apps"
@@ -1127,6 +1144,9 @@ export function GovernancePage() {
                       <option value="attention">Needs review attention</option>
                       <option value="overdue">
                         Overdue reviews and attestations
+                      </option>
+                      <option value="retirement">
+                        My retirement decisions
                       </option>
                     </select>
                   </label>
