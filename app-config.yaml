@@ -19,6 +19,8 @@ auth:
   providers: {}
 governance:
   reviewers: []
+  gateway:
+    enabled: false
 catalog:
   rules:
     - allow: [AIApp, User, Group]

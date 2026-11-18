@@ -11,3 +11,20 @@ catalog:
         - allow: [User, Group]
 governance:
   reviewers: ['user:default/reviewer']
+  gateway:
+    enabled: true
+    mode: simulation
+    requestsPerMinute: 30
+    models:
+      gpt-4.1-mini:
+        allowedClassifications: [public, internal, confidential, restricted]
+        inputUsdPerMillionTokens: 0.4
+        outputUsdPerMillionTokens: 1.6
+      gpt-4.1-nano:
+        allowedClassifications: [public, internal]
+        inputUsdPerMillionTokens: 0.1
+        outputUsdPerMillionTokens: 0.4
+  discovery:
+    github:
+      organization: huggingface
+      topic: llm

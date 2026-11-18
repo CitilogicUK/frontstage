@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseAppCsv } from './csv';
 
 describe('parseAppCsv', () => {
@@ -19,6 +21,46 @@ describe('parseAppCsv', () => {
           connections: [{ name: 'CRM', access: 'read' }],
         },
       },
+    ]);
+  });
+
+  it.each(['', '\uFEFFsep=;\r\n'])(
+    'reads semicolon-separated exports with separator declaration %j',
+    declaration => {
+      const content = `${declaration}"name";"purpose";"models";"critical"\r\nInventory;"Summarizes A, B; and C.";one | two;Yes`;
+
+      expect(parseAppCsv(content)).toEqual([
+        {
+          source: 'CSV app 1',
+          app: {
+            name: 'Inventory',
+            purpose: 'Summarizes A, B; and C.',
+            models: ['one', 'two'],
+            critical: true,
+          },
+        },
+      ]);
+    },
+  );
+
+  it('applies strict column validation to semicolon-separated exports', () => {
+    expect(() => parseAppCsv('name;critcal\nApp;Yes')).toThrow('critcal');
+  });
+
+  it('reads both runtime modes and delivery stages from the downloadable sample', () => {
+    const sample = readFileSync(
+      resolve(__dirname, '../../../app/public/examples/ai-apps.csv'),
+      'utf8',
+    );
+    expect(parseAppCsv(sample)).toMatchObject([
+      {
+        app: {
+          usesAiAtRuntime: true,
+          deliveryStage: 'trial',
+          models: ['example-model'],
+        },
+      },
+      { app: { usesAiAtRuntime: false, deliveryStage: 'poc', models: [] } },
     ]);
   });
 

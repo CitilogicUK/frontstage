@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const person = z.string().regex(/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/);
-const classification = z.enum([
+export const classification = z.enum([
   'public',
   'internal',
   'confidential',
@@ -16,6 +16,21 @@ const sourceUrl = z
 const appFields = z.object({
   name: requiredText.max(100),
   purpose: requiredText.max(1000),
+  reviewTicketUrl: sourceUrl
+    .nullable()
+    .transform(value => value ?? undefined)
+    .optional(),
+  evidence: z
+    .object({
+      tests: sourceUrl.optional(),
+      dataFlow: sourceUrl.optional(),
+      incidentPlan: sourceUrl.optional(),
+    })
+    .strict()
+    .optional()
+    .transform(evidence =>
+      evidence && Object.values(evidence).some(Boolean) ? evidence : undefined,
+    ),
   type: z.enum([
     'assistant',
     'agent',
@@ -32,7 +47,9 @@ const appFields = z.object({
   lifecycle: z.enum(['experimental', 'active', 'deprecated', 'retired']),
   audience: z.enum(['personal', 'team', 'company', 'external']),
   classification,
-  models: z.array(requiredText).min(1),
+  usesAiAtRuntime: z.boolean().default(true),
+  deliveryStage: z.enum(['trial', 'poc', 'pilot', 'production']).optional(),
+  models: z.array(requiredText).default([]),
   connections: z
     .array(z.object({ name: requiredText, access: z.enum(['read', 'write']) }))
     .default([]),
@@ -60,6 +77,15 @@ const appFields = z.object({
 export const appInput = appFields.superRefine((app, ctx) => {
   const issue = (field: string, message: string) =>
     ctx.addIssue({ code: 'custom', path: [field], message });
+  if (app.usesAiAtRuntime && !app.models.length)
+    issue('models', 'Declare the models the app uses at runtime.');
+  if (!app.usesAiAtRuntime && app.models.length)
+    issue(
+      'models',
+      'Remove runtime models for an app that does not use AI at runtime.',
+    );
+  if (!app.usesAiAtRuntime && app.type === 'provider-hosted app')
+    issue('usesAiAtRuntime', 'Provider-hosted apps use AI at runtime.');
   if ((app.type === 'provider-hosted app') !== Boolean(app.hosted)) {
     issue('hosted', 'Provide workspace details for provider-hosted apps only.');
   }
@@ -209,6 +235,7 @@ export function calculateTier(app: RiskInput, policy: TierPolicy = {}): Tier {
 export function nextReview(tier: Tier, at: string) {
   if (tier === 1) return null;
   const date = new Date(at);
+  if (!Number.isFinite(date.getTime())) return null;
   const day = date.getUTCDate();
   date.setUTCDate(1);
   date.setUTCMonth(date.getUTCMonth() + (tier === 2 ? 12 : 6));

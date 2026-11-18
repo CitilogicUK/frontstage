@@ -112,7 +112,16 @@ export const governanceCatalog = createBackendModule({
                         },
                         links: [{ url: data.sourceUrl, title: 'Source' }],
                       },
-                      spec: { ...app, reviewNotes: undefined },
+                      spec: {
+                        ...app,
+                        reviewNotes: undefined,
+                        renewalException: undefined,
+                        retirementReview: undefined,
+                        graduation: undefined,
+                        reviewTicketUrl: undefined,
+                        evidence: undefined,
+                        signoffs: undefined,
+                      },
                     };
                     return { entity, locationKey: provider };
                   }),

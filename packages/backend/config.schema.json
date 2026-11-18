@@ -12,6 +12,74 @@
           },
           "description": "Backstage user entity references authorized to review critical apps and import inventories."
         },
+        "firstDecisionTargetWeekdays": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional target in UTC weekdays for the first overall Tier 3 review decision."
+        },
+        "retirementReviewIntervalMinutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 10080,
+          "description": "Interval for opening owner retirement reviews based on recorded live gateway activity. Unset disables scheduling."
+        },
+        "graduationGroups": {
+          "type": "array",
+          "description": "Active catalog Group entity references allowed to receive Tier 3 ownership transfers. An empty or unset list disables graduation.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^group:[a-z0-9_.-]+/[a-z0-9_.-]+$"
+          }
+        },
+        "approvedHostedWorkspaces": {
+          "type": "array",
+          "description": "Approved provider and workspace pairs for declared-workspace scorecard checks.",
+          "items": {
+            "type": "object",
+            "required": ["provider", "workspace"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1 },
+              "workspace": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "approvedConnectors": {
+          "type": "array",
+          "description": "Read-only guidance for approved MCP servers and data connectors. Does not configure runtime connections.",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "kind",
+              "description",
+              "access",
+              "maxClassification"
+            ],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+              "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+              "kind": { "type": "string", "enum": ["mcp", "data"] },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "access": { "type": "string", "enum": ["read", "write"] },
+              "maxClassification": {
+                "type": "string",
+                "enum": ["public", "internal", "confidential", "restricted"]
+              },
+              "docsUrl": {
+                "type": "string",
+                "pattern": "^[Hh][Tt][Tt][Pp][Ss]://[^/?#@\\s\\\\]+(?:[/?#][^\\s\\\\]*)?$"
+              }
+            }
+          }
+        },
         "tierPolicy": {
           "type": "object",
           "additionalProperties": false,
@@ -95,6 +163,146 @@
                   "type": "integer",
                   "enum": [1, 2, 3]
                 }
+              }
+            }
+          }
+        },
+        "gateway": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Prototype gateway policy and provider configuration.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["simulation", "openai"]
+            },
+            "openaiApiKey": {
+              "type": "string",
+              "visibility": "secret",
+              "minLength": 1
+            },
+            "models": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["allowedClassifications"],
+                "properties": {
+                  "allowedClassifications": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "internal",
+                        "confidential",
+                        "restricted"
+                      ]
+                    }
+                  },
+                  "maxCompletionTokens": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16384
+                  },
+                  "inputUsdPerMillionTokens": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "outputUsdPerMillionTokens": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "appSpendThresholds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["sourceUrl", "monthlyUsd"],
+                "additionalProperties": false,
+                "properties": {
+                  "sourceUrl": { "type": "string" },
+                  "stopAtThreshold": { "type": "boolean" },
+                  "monthlyUsd": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000
+                  }
+                }
+              }
+            },
+            "appRateLimits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["sourceUrl", "requestsPerMinute"],
+                "additionalProperties": false,
+                "properties": {
+                  "sourceUrl": { "type": "string" },
+                  "requestsPerMinute": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  }
+                }
+              }
+            },
+            "requestsPerMinute": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            }
+          }
+        },
+        "discovery": {
+          "type": "object",
+          "properties": {
+            "github": {
+              "type": "object",
+              "required": ["organization", "topic"],
+              "properties": {
+                "organization": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "token": {
+                  "type": "string",
+                  "visibility": "secret"
+                },
+                "scanIntervalMinutes": {
+                  "type": "integer",
+                  "minimum": 15,
+                  "maximum": 10080
+                }
+              }
+            }
+          }
+        },
+        "reviewTracks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["security", "dataProtection"],
+          "properties": {
+            "security": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "dataProtection": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
               }
             }
           }

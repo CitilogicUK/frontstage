@@ -1,0 +1,8 @@
+governance:
+  gateway:
+    mode: openai
+    models:
+      gpt-4.1-mini:
+        allowedClassifications: [public, internal]
+      gpt-4.1-nano:
+        allowedClassifications: [public, internal]

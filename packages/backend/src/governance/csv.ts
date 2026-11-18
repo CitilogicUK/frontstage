@@ -11,12 +11,14 @@ const textFields = [
   'backupOwner',
   'team',
   'lifecycle',
+  'deliveryStage',
   'audience',
   'classification',
   'actionDescription',
 ];
 const booleanFields = [
   'takesActions',
+  'usesAiAtRuntime',
   'affectsPeople',
   'critical',
   'personalData',
@@ -37,10 +39,19 @@ const allowedFields = new Set([
 ]);
 
 export function parseAppCsv(content: string) {
+  // Excel may add a separator declaration before the actual column headers.
+  const declaration = /^\uFEFF?sep=([,;])(?:\r\n|\n|\r)/i.exec(content);
+  const csv = declaration ? content.slice(declaration[0].length) : content;
+  const headerLine = csv.split(/\r\n|\n|\r/).find(line => line.trim());
+  // Column names never contain separators. Only inspect the header so commas
+  // and semicolons in spreadsheet cells remain ordinary data.
+  const delimiter = declaration?.[1] ?? headerLine?.match(/[,;]/)?.[0] ?? ',';
+
   let rows: Array<Record<string, string>>;
   try {
-    rows = parse(content, {
+    rows = parse(csv, {
       bom: true,
+      delimiter,
       trim: true,
       skip_empty_lines: true,
       max_record_size: 16_384,
@@ -59,7 +70,11 @@ export function parseAppCsv(content: string) {
     });
   } catch (error) {
     if (error instanceof InputError) throw error;
-    const line = (error as { lines?: number }).lines;
+    const dataLine = (error as { lines?: number }).lines;
+    const line =
+      dataLine === undefined
+        ? undefined
+        : dataLine + Number(Boolean(declaration));
     throw new InputError(
       line ? `Invalid CSV ending at line ${line}.` : 'Invalid CSV.',
     );
@@ -89,7 +104,8 @@ export function parseAppCsv(content: string) {
       if (value !== undefined) hosted[field] = value;
     }
     if (Object.keys(hosted).length) app.hosted = hosted;
-    app.models = (read('models') ?? '').split('|').map(model => model.trim());
+    const models = read('models');
+    app.models = models ? models.split('|').map(model => model.trim()) : [];
     const connections = read('connections');
     if (connections !== undefined) {
       try {

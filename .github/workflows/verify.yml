@@ -1,0 +1,35 @@
+name: Verify Frontstage
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # Route the prototype PR to the repository runner while hosted minutes are unavailable.
+    runs-on: ${{ ((github.event_name == 'pull_request' && github.head_ref == 'frontstage-prototype-baseline' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref_name == 'frontstage-prototype-baseline')) && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn verify:code
+      - run: yarn build:all
+      - run: yarn playwright install --with-deps chromium
+      - run: yarn test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          if-no-files-found: ignore
