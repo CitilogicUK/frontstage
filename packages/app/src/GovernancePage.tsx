@@ -364,8 +364,12 @@ export function GovernancePage() {
             },
       );
       const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.error?.message ?? 'The request failed.');
+      if (!response.ok) {
+        throw Object.assign(
+          new Error(result.error?.message ?? 'The request failed.'),
+          { status: response.status },
+        );
+      }
       return result;
     },
     [discovery, fetch],
@@ -588,7 +592,24 @@ export function GovernancePage() {
     try {
       await action(new FormData(event.currentTarget));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      let description =
+        reason instanceof Error ? reason.message : String(reason);
+      if (
+        detailId &&
+        reason instanceof Error &&
+        'status' in reason &&
+        reason.status === 409
+      ) {
+        const current = await api(
+          `/apps/${encodeURIComponent(detailId)}`,
+        ).catch(() => undefined);
+        if (current) {
+          applySavedApp(current);
+          description =
+            'The app changed. Review the refreshed record before trying again.';
+        }
+      }
+      setError(description);
     } finally {
       setBusy(false);
     }

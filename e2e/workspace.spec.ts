@@ -1219,8 +1219,11 @@ test('a hosted app owner can correct the declared workspace', async ({
       },
     }),
   );
+  let saveAttempts = 0;
   await page.route('**/api/governance/apps/hosted-app', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: app });
     const update = route.request().postDataJSON();
+    expect(update.expectedUpdatedAt).toBe(app.updatedAt);
     expect(update.hosted).toEqual({
       ...app.hosted,
       workspace: 'Company',
@@ -1228,6 +1231,18 @@ test('a hosted app owner can correct the declared workspace', async ({
       dataAccess: 'stores input',
       dataClassification: 'internal',
     });
+    saveAttempts += 1;
+    if (saveAttempts === 1) {
+      app = {
+        ...app,
+        purpose: 'Updated by another reviewer',
+        updatedAt: '2025-01-01T12:00:00.000Z',
+      };
+      return route.fulfill({
+        status: 409,
+        json: { error: { message: 'The app changed.' } },
+      });
+    }
     app = {
       ...app,
       hosted: update.hosted,
@@ -1266,17 +1281,27 @@ test('a hosted app owner can correct the declared workspace', async ({
     details.getByRole('link', { name: 'View approved workspaces (new tab)' }),
   ).toHaveAttribute('href', '/?view=guide#hosted-workspaces-title');
 
-  await details
-    .getByRole('textbox', { name: 'Workspace', exact: true })
-    .fill('Company');
-  await details.getByLabel('Sharing scope').selectOption('named people');
-  await details
-    .getByRole('combobox', { name: 'Data access', exact: true })
-    .selectOption('stores input');
-  await details
-    .getByLabel('Highest hosted data classification')
-    .selectOption('internal');
-  await details.getByRole('button', { name: 'Save app details' }).click();
+  async function saveWorkspaceCorrection() {
+    await details
+      .getByRole('textbox', { name: 'Workspace', exact: true })
+      .fill('Company');
+    await details.getByLabel('Sharing scope').selectOption('named people');
+    await details
+      .getByRole('combobox', { name: 'Data access', exact: true })
+      .selectOption('stores input');
+    await details
+      .getByLabel('Highest hosted data classification')
+      .selectOption('internal');
+    await details.getByRole('button', { name: 'Save app details' }).click();
+  }
+  await saveWorkspaceCorrection();
+  await expect(details.getByRole('alert')).toContainText(
+    'Review the refreshed record before trying again.',
+  );
+  await expect(details.getByRole('textbox', { name: 'Purpose' })).toHaveValue(
+    'Updated by another reviewer',
+  );
+  await saveWorkspaceCorrection();
   await expect(
     details.getByText('App updated.', { exact: true }),
   ).toBeVisible();
