@@ -85,15 +85,13 @@ The gateway stores app key hashes and usage metadata. The app panel shows input 
 
 To require two independent sign-offs, configure `governance.reviewTracks.security` and `governance.reviewTracks.dataProtection` as disjoint lists of Backstage user references. Reviewers can record a decision only for their assigned track. Both approvals must be current before launch. The default local demo uses a combined reviewer decision.
 
-With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision.
+With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision. The filtered queue can be downloaded as CSV, with the app, owner, team, pending sign-offs assigned to you, and the scheduled review date when available.
 
 ## Tier 3 renewal exceptions
 
 An independent reviewer can grant an already-active Tier 3 app a renewal exception before its current approval expires. Record the reason and choose an expiry no more than 30 days after the scheduled review date. The original due date stays visible. Calls using an existing gateway key can continue until the exception expires or is revoked, subject to the usual ownership, data and model checks.
 
 The app still needs fresh approval for first launch, reactivation after its approval has expired, or a material change. A new review decision or leaving the active lifecycle clears the exception. Grant and revoke actions appear in audit history. Separate critical sign-off tracks require their normal renewals.
-
-In **Reviews**, select **My pending sign-offs** to download your filtered queue as CSV. The export lists each matching app, its owner and team, the sign-offs assigned to you that are still pending, and the scheduled review date when available.
 
 ## Engineering co-ownership
 
