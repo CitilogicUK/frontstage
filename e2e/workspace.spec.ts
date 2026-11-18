@@ -1705,3 +1705,136 @@ test('repository descriptor preview requires an explicit apply and keeps claim i
   await page.getByRole('button', { name: 'Register app' }).click();
   await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
 });
+
+test('an independent reviewer can grant and revoke a renewal exception', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/reviewer';
+  const start = new Date(Math.floor(Date.now() / 1000) * 1000);
+  const dateAfterDays = (days: number) =>
+    new Date(+start + days * 86_400_000).toISOString();
+  const app = {
+    id: 'renewal-demo',
+    name: 'Renewal exception app',
+    owner: 'user:default/demo-owner',
+    backupOwner: 'user:default/backup',
+    team: 'group:default/platform',
+    purpose: 'Demonstrate a bounded review extension.',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/renewal-demo',
+    classification: 'internal',
+    deliveryStage: 'pilot',
+    lifecycle: 'active',
+    tier: 3,
+    models: [],
+    usesAiAtRuntime: false,
+    reviewStatus: 'approved',
+    nextReview: dateAfterDays(5),
+    updatedAt: start.toISOString(),
+  };
+  const expiry = dateAfterDays(25);
+  const reason = 'Complete the final sandbox acceptance test.';
+  const exception = {
+    owner: app.owner,
+    actor: reviewer,
+    grantedAt: start.toISOString(),
+    expiresAt: expiry,
+    reason,
+  };
+  const grantedApp = {
+    ...app,
+    updatedAt: new Date(+start + 1).toISOString(),
+    renewalException: exception,
+  };
+  let current: typeof app | typeof grantedApp = app;
+  let actor = reviewer;
+  let split = false;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor,
+        canReview: true,
+        reviewTracks: split ? ['security', 'dataProtection'] : [],
+        reviewerTracks: split ? ['security'] : [],
+        apps: [current],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/renewal-demo/renewal-exception',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(request.postDataJSON()).toEqual({
+          reason,
+          expiresAt: expiry,
+          expectedUpdatedAt: app.updatedAt,
+        });
+        current = grantedApp;
+      } else {
+        expect(request.method()).toBe('DELETE');
+        expect(request.postDataJSON()).toEqual({
+          expectedUpdatedAt: grantedApp.updatedAt,
+        });
+        current = { ...app, updatedAt: new Date(+start + 2).toISOString() };
+      }
+      return route.fulfill({ json: current });
+    },
+  );
+  const details = page.getByRole('dialog', { name: app.name });
+  const section = details.getByRole('region', { name: 'Renewal exception' });
+  const open = async () => {
+    await page.goto('/?app=renewal-demo');
+    const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+    await expect(details.or(guest)).toBeVisible();
+    if (await guest.isVisible()) await guest.click();
+    await expect(details).toBeVisible();
+  };
+  const grant = section.getByRole('button', {
+    name: 'Grant renewal exception',
+  });
+  const revoke = section.getByRole('button', {
+    name: 'Revoke renewal exception',
+  });
+
+  await open();
+  const dateInput = section.getByLabel('Exception expiry (UTC)');
+  await expect(dateInput).toHaveAttribute(
+    'max',
+    dateAfterDays(35).slice(0, 19),
+  );
+  await dateInput.fill(expiry.slice(0, 19));
+  await section.getByLabel('Exception reason').fill(reason);
+  await grant.click();
+  await expect(section.getByText(reason)).toBeVisible();
+  await expect(
+    section.getByText(`Accountable owner ${app.owner}`),
+  ).toBeVisible();
+  await expect(section.locator('time')).toHaveAttribute('datetime', expiry);
+  await expect(
+    details.getByText(`Next review due ${app.nextReview.slice(0, 10)}.`),
+  ).toBeVisible();
+  await revoke.click();
+  await expect(details.getByText('Renewal exception revoked.')).toBeVisible();
+  await expect(grant).toBeVisible();
+
+  actor = app.owner;
+  current = {
+    ...grantedApp,
+    nextReview: dateAfterDays(-3),
+    renewalException: { ...exception, expiresAt: dateAfterDays(-1) },
+  };
+  await open();
+  await expect(section.getByText('Expired', { exact: false })).toBeVisible();
+  await expect(revoke).toHaveCount(0);
+  await expect(grant).toHaveCount(0);
+
+  actor = reviewer;
+  current = app;
+  split = true;
+  await open();
+  await expect(
+    details.getByText('Required sign-offs', { exact: true }),
+  ).toBeVisible();
+  await expect(grant).toHaveCount(0);
+});
