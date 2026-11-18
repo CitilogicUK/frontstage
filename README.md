@@ -116,6 +116,12 @@ Use **Edit app details** in the app details to save links to test evidence, a da
 
 In Inventory, switch **Ownership** to **My apps** to see your apps, with upcoming and overdue governance work shown first. The accountable owner of a Tier 2 app can confirm its current purpose, ownership, and declared risk inputs in the app details. Frontstage records the attestation in the audit history and sets the next review date one year later. After an ownership transfer, the new Tier 2 owner’s first attestation is due immediately. Owners, backup owners, and reviewers can download an individual review or attestation date as a calendar file with a seven-day reminder. Use **Apps I back up** to find records where you’re listed as backup owner. Both ownership views let you download the scheduled dates for the current filtered list in one calendar file.
 
+## Backup owner handover
+
+When Backstage marks an accountable owner inactive or no longer has their user record, the registered backup owner can open the app from **Inventory → Apps I back up** and confirm the handover. Tier 2 and Tier 3 apps need a different active backup owner. Frontstage checks the catalog and the current app revision before transferring ownership.
+
+A handover revokes the old gateway key and appears in Audit history. Tier 2 apps need an attestation from the new owner. Tier 3 apps return to review before they can go live again.
+
 ## App scorecards
 
 Owners, backup owners, and reviewers can open **App scorecard** in an app’s details. It checks catalog ownership, review status, and, for gateway apps, activation and model policy. The activity check uses live calls recorded in the last 90 days and identifies simulation-only activity separately. For provider-hosted apps, set `governance.approvedHostedWorkspaces` to a list of `provider` and `workspace` pairs. The scorecard checks the app’s declared pair against that list. When configured, the list also prevents activation of apps whose declared workspace is unlisted. Actual provider settings still require separate verification.
