@@ -38,6 +38,7 @@ import {
   downloadCsv,
   firstDecisionsCsv,
   inventoryCsv,
+  pendingSignoffsCsv,
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
@@ -296,7 +297,7 @@ export function GovernancePage() {
     reviewParam === 'required' ||
     ((reviewParam === 'first' || reviewParam === 'first-target') &&
       canReview) ||
-    (reviewParam === 'mine' && reviewerTracks.length > 0)
+    (reviewParam === 'mine' && canReview && reviewerTracks.length > 0)
       ? reviewParam
       : 'attention';
   const [error, setError] = useState('');
@@ -911,6 +912,12 @@ export function GovernancePage() {
   const firstDecisionWait = new Map(
     reviewTurnaround?.pendingApps?.map(app => [app.appId, app.workingDays]),
   );
+  function missingSignoffs(app: App) {
+    return isIndependentReviewer(app, actor) && requiresCriticalReview(app, now)
+      ? reviewerTracks.filter(track => !app.signoffs?.[track])
+      : [];
+  }
+
   function matchesReviewFilter(app: App) {
     if (app.tier !== 3 || app.lifecycle === 'retired') return false;
     if (reviewFilter === 'attention') return appReview(app, now).priority <= 1;
@@ -922,13 +929,7 @@ export function GovernancePage() {
       const target = reviewTurnaround?.target?.workingDays;
       return wait !== undefined && target !== undefined && wait >= target;
     }
-    if (reviewFilter === 'mine') {
-      return (
-        isIndependentReviewer(app, actor) &&
-        requiresCriticalReview(app, now) &&
-        reviewerTracks.some(track => !app.signoffs?.[track])
-      );
-    }
+    if (reviewFilter === 'mine') return missingSignoffs(app).length > 0;
     return true;
   }
 
@@ -1211,7 +1212,7 @@ export function GovernancePage() {
                           At or over first-decision target
                         </option>
                       )}
-                    {reviewerTracks.length > 0 && (
+                    {canReview && reviewerTracks.length > 0 && (
                       <option value="mine">My pending sign-offs</option>
                     )}
                     <option value="all">All critical apps</option>
@@ -1267,6 +1268,28 @@ export function GovernancePage() {
                     }
                   >
                     Download first decisions CSV
+                  </button>
+                )}
+              {view === 'Reviews' &&
+                reviewFilter === 'mine' &&
+                !loading &&
+                !error &&
+                matching.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadCsv(
+                        pendingSignoffsCsv(
+                          matching.map(app => ({
+                            ...app,
+                            missingTracks: missingSignoffs(app),
+                          })),
+                        ),
+                        'frontstage-pending-signoffs.csv',
+                      )
+                    }
+                  >
+                    Download pending sign-offs CSV
                   </button>
                 )}
               {!loading && !error && reminderEntries.length > 0 && (
