@@ -51,9 +51,13 @@ function useApprovedConnectors() {
 export function RegistrationConnectorGuidance({
   accesses,
   classification,
+  primaryAccess,
+  onUseConnector,
 }: {
   accesses: string[];
   classification: string;
+  primaryAccess?: string;
+  onUseConnector: (name: string) => void;
 }) {
   const { registry, failed } = useApprovedConnectors();
   const classificationIndex = appClassifications.indexOf(classification);
@@ -88,6 +92,17 @@ export function RegistrationConnectorGuidance({
             <li key={connector.id}>
               <strong>{connector.name}</strong> ·{' '}
               {connector.access === 'read' ? 'Read' : 'Write'}
+              {connector.access === primaryAccess && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={() => onUseConnector(connector.name)}
+                  >
+                    Use {connector.name}
+                  </button>
+                </>
+              )}
             </li>
           ))}
         </ul>
