@@ -133,8 +133,8 @@ export function DiscoveryQueue({
   onDecision: (id: string, reason: string | null) => void;
   onCheckSdkEvidence: (id: string) => Promise<SdkEvidenceResult>;
 }) {
-  const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
+  const query = params.get('discoveryQuery') ?? '';
   const requestedFilter = params.get('discoveryStatus');
   const filter =
     requestedFilter === 'registered' ||
@@ -175,11 +175,16 @@ export function DiscoveryQueue({
   const { eligible } = counts;
 
   function searchRepositories(value: string) {
-    setQuery(value);
-    if (!params.has('discoveryPage')) return;
-    const next = new URLSearchParams(params);
-    next.delete('discoveryPage');
-    setParams(next, { replace: true });
+    setParams(
+      previous => {
+        const next = new URLSearchParams(previous);
+        if (value) next.set('discoveryQuery', value);
+        else next.delete('discoveryQuery');
+        next.delete('discoveryPage');
+        return next;
+      },
+      { replace: true, preventScrollReset: true },
+    );
   }
 
   function setPage(value: number) {
