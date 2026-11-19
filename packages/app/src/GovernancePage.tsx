@@ -148,6 +148,7 @@ type App = {
   directoryLaunchEligible?: boolean;
   reviewTicketUrl?: string;
   humanApprovalEvidenceRequired?: boolean;
+  missingCriticalReviewEvidence?: Array<'tests' | 'dataFlow' | 'incidentPlan'>;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
 };
@@ -617,9 +618,15 @@ export function GovernancePage() {
   }>();
   const reviewStatus =
     reviewDecision?.appId === selected?.id ? reviewDecision?.status : undefined;
+  const missingReviewEvidence = selected?.missingCriticalReviewEvidence ?? [];
+  const approvalBlocked = missingReviewEvidence.length > 0;
+  const decisionStatus = approvalBlocked
+    ? reviewStatus === 'changes needed'
+      ? reviewStatus
+      : ''
+    : reviewStatus ?? 'approved';
   const requiresHumanApproval =
-    selected?.humanApprovalEvidenceRequired &&
-    (reviewStatus ?? 'approved') === 'approved';
+    selected?.humanApprovalEvidenceRequired && decisionStatus === 'approved';
   const canRecordReview =
     selected &&
     canReview &&
@@ -2603,26 +2610,36 @@ export function GovernancePage() {
                   )}
               </section>
             )}
-            {selected.evidence &&
-              evidenceFields.some(([field]) => selected.evidence?.[field]) && (
-                <section aria-label="Review evidence">
-                  <h3>Review evidence</h3>
-                  <ul>
-                    {evidenceFields.map(([field, label]) => {
-                      const url = selected.evidence?.[field];
+            {(approvalBlocked ||
+              evidenceFields.some(([field]) => selected.evidence?.[field])) && (
+              <section aria-label="Review evidence">
+                <h3>Review evidence</h3>
+                {approvalBlocked && (
+                  <p id="critical-review-evidence-requirements">
+                    Add the missing links under Review evidence in Edit app
+                    details before approving this app.
+                  </p>
+                )}
+                <ul>
+                  {evidenceFields.map(([field, label]) => {
+                    if (missingReviewEvidence.includes(field))
                       return (
-                        url && (
-                          <li key={field}>
-                            <a href={url} target="_blank" rel="noreferrer">
-                              {label}
-                            </a>
-                          </li>
-                        )
+                        <li key={field}>
+                          <span>{label}</span> · Required before approval
+                        </li>
                       );
-                    })}
-                  </ul>
-                </section>
-              )}
+                    const url = selected.evidence?.[field];
+                    return url ? (
+                      <li key={field}>
+                        <a href={url} target="_blank" rel="noreferrer">
+                          {label}
+                        </a>
+                      </li>
+                    ) : null;
+                  })}
+                </ul>
+              </section>
+            )}
             {selected.reviewTicketUrl && (
               <p>
                 <a
@@ -3228,6 +3245,11 @@ export function GovernancePage() {
                 onSubmit={event =>
                   submit(event, async data => {
                     const status = data.get('status');
+                    if (approvalBlocked && status !== 'changes needed') {
+                      throw new Error(
+                        'Add the required review evidence before approving.',
+                      );
+                    }
                     applySavedApp(
                       await api(`/apps/${selected.id}/reviews`, {
                         status,
@@ -3265,7 +3287,13 @@ export function GovernancePage() {
                   <select
                     name="status"
                     ref={decisionField}
-                    value={reviewStatus ?? 'approved'}
+                    value={decisionStatus}
+                    aria-describedby={
+                      approvalBlocked
+                        ? 'critical-review-evidence-requirements'
+                        : undefined
+                    }
+                    required
                     onChange={event =>
                       setReviewDecision({
                         appId: selected.id,
@@ -3273,7 +3301,13 @@ export function GovernancePage() {
                       })
                     }
                   >
-                    {options(['approved', 'changes needed'])}
+                    {approvalBlocked && (
+                      <option value="">Choose a decision</option>
+                    )}
+                    <option value="approved" disabled={approvalBlocked}>
+                      approved
+                    </option>
+                    <option value="changes needed">changes needed</option>
                   </select>
                 </label>
                 <label>

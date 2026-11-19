@@ -4594,6 +4594,144 @@ describe('governance record access', () => {
     );
   });
 
+  it.each([false, true])(
+    'requires configured critical review links before approval (separate tracks: %s)',
+    async separateTracks => {
+      const owner = 'user:default/owner';
+      const backup = 'user:default/backup';
+      const reviewer = 'user:default/security';
+      const protection = 'user:default/data-protection';
+      jest
+        .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+        .mockImplementation(async ({ entityRefs }) => ({
+          items: entityRefs.map(ref => ({
+            apiVersion: 'backstage.io/v1alpha1',
+            kind: ref.startsWith('group:') ? 'Group' : 'User',
+            metadata: { name: ref.split('/')[1] },
+          })),
+        }));
+      const db = await databases.init('SQLITE_3');
+      const { server } = await startTestBackend({
+        features: [
+          governancePlugin,
+          mockServices.database.factory({ knex: db }),
+          mockServices.rootConfig.factory({
+            data: {
+              governance: {
+                reviewers: [reviewer],
+                requiredCriticalReviewEvidence: ['tests', 'dataFlow'],
+                ...(separateTracks && {
+                  reviewTracks: {
+                    security: [reviewer],
+                    dataProtection: [protection],
+                  },
+                }),
+              },
+            },
+          }),
+        ],
+      });
+      const api = request(server);
+      const auth = (user: string) => mockCredentials.user.header(user);
+      const collection = '/api/governance/apps';
+      const tests = 'https://example.com/evidence/tests';
+      const { body: app } = await api
+        .post(collection)
+        .set('Authorization', auth(owner))
+        .send({
+          name: 'Synthetic external assistant',
+          purpose: 'Demonstrate evidence collection.',
+          type: 'assistant',
+          platform: 'GitHub',
+          sourceUrl: 'https://example.com/critical-evidence',
+          owner,
+          backupOwner: backup,
+          team: 'group:default/platform',
+          lifecycle: 'experimental',
+          audience: 'external',
+          classification: 'internal',
+          models: ['test-model'],
+          evidence: { tests },
+        })
+        .expect(201);
+      expect(app.missingCriticalReviewEvidence).toEqual(['dataFlow']);
+      const path = `${collection}/${app.id}`;
+      for (const user of [owner, backup, reviewer]) {
+        await api
+          .get(path)
+          .set('Authorization', auth(user))
+          .expect(200)
+          .expect(({ body }) => {
+            expect(body.missingCriticalReviewEvidence).toEqual(['dataFlow']);
+          });
+      }
+      await api
+        .get(collection)
+        .set('Authorization', auth('user:default/other'))
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.apps).toHaveLength(1);
+          expect(body.apps[0]).not.toHaveProperty(
+            'missingCriticalReviewEvidence',
+          );
+          expect(body.apps[0]).not.toHaveProperty('evidence');
+        });
+      const review = (
+        expectedUpdatedAt: string,
+        status = 'approved',
+        actor = reviewer,
+      ) =>
+        api
+          .post(`${path}/reviews`)
+          .set('Authorization', auth(actor))
+          .send({
+            expectedUpdatedAt,
+            status,
+            notes: 'Checked the evidence on the synthetic app.',
+            ...(separateTracks && {
+              track: actor === reviewer ? 'security' : 'dataProtection',
+            }),
+          });
+      const blocked = await review(app.updatedAt).expect(400);
+      expect(blocked.body.error.message).toBe(
+        'Add the required review evidence to the app record before approving.',
+      );
+      if (separateTracks)
+        await review(app.updatedAt, 'approved', protection).expect(400);
+      const { body: requested } = await review(
+        app.updatedAt,
+        'changes needed',
+      ).expect(200);
+      expect(requested.reviewStatus).toBe('changes needed');
+
+      const { body: completed } = await api
+        .put(path)
+        .set('Authorization', auth(owner))
+        .send({
+          ...requested,
+          evidence: {
+            tests,
+            dataFlow: 'https://example.com/evidence/data-flow',
+          },
+          expectedUpdatedAt: requested.updatedAt,
+        })
+        .expect(200);
+      expect(completed).not.toHaveProperty('missingCriticalReviewEvidence');
+      const { body: decision } = await review(completed.updatedAt).expect(200);
+      if (separateTracks) {
+        expect(decision.reviewStatus).toBe('pending');
+        const { body: approved } = await review(
+          decision.updatedAt,
+          'approved',
+          protection,
+        ).expect(200);
+        expect(approved.reviewStatus).toBe('approved');
+      } else {
+        expect(decision.reviewStatus).toBe('approved');
+      }
+    },
+  );
+
   it('requires and audits human approval evidence for consequential-action approvals when enabled', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';

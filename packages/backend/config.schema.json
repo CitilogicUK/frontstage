@@ -17,6 +17,14 @@
           "default": false,
           "description": "Require reviewer verification and an HTTPS evidence link when approving a Tier 3 app that takes actions."
         },
+        "requiredCriticalReviewEvidence": {
+          "type": "array",
+          "items": {
+            "enum": ["tests", "dataFlow", "incidentPlan"]
+          },
+          "uniqueItems": true,
+          "description": "Evidence fields required on the app record before approving a non-retired Tier 3 app."
+        },
         "firstDecisionTargetWeekdays": {
           "type": "integer",
           "minimum": 1,
