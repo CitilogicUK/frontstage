@@ -1373,18 +1373,19 @@ test('audit history shows production review and ownership handoff', async ({
             digest: 'a'.repeat(64),
           },
         ],
-        events: [pilot, production, handoff, securityReview].map(
-          (record, revision) => ({
-            digest: String(revision).padStart(64, '0'),
-            event: JSON.stringify({
-              action: ['registered', 'updated', 'updated', 'reviewed'][
-                revision
-              ],
-              actor: pilot.owner,
-              record,
-            }),
+        events: [
+          { ...pilot, tier: 2 },
+          production,
+          handoff,
+          securityReview,
+        ].map((record, revision) => ({
+          digest: String(revision).padStart(64, '0'),
+          event: JSON.stringify({
+            action: ['registered', 'updated', 'updated', 'reviewed'][revision],
+            actor: pilot.owner,
+            record,
           }),
-        ),
+        })),
       },
     }),
   );
@@ -1519,6 +1520,11 @@ test('audit history shows production review and ownership handoff', async ({
     dialog.getByText('Lifecycle changed to experimental', { exact: false }),
   ).toBeVisible();
   await expect(dialog.getByText('Overall review: pending')).toBeVisible();
+  await expect(
+    dialog.getByText('Risk tier changed from Tier 2 to Tier 3', {
+      exact: false,
+    }),
+  ).toBeVisible();
   await dialog.getByText('Current risk assessment', { exact: true }).click();
   await expect(
     dialog.getByText('Tier 2 · Shared', { exact: true }),
