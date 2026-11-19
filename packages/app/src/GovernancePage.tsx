@@ -826,10 +826,12 @@ export function GovernancePage() {
     (view === 'Reviews' && reviewFilter === 'first') ||
     firstDecisionTargetQueue;
   const pendingSignoffsQueue = view === 'Reviews' && reviewFilter === 'mine';
-  const needsReviewTurnaround =
-    view === 'Reports' || firstDecisionQueue || pendingSignoffsQueue;
   useEffect(() => {
-    if (!canReview || !needsReviewTurnaround) return undefined;
+    if (
+      !canReview ||
+      (view !== 'Reports' && !firstDecisionQueue && !pendingSignoffsQueue)
+    )
+      return undefined;
     let active = true;
     setReviewTurnaround(undefined);
     api('/reports/review-turnaround').then(
@@ -843,7 +845,15 @@ export function GovernancePage() {
     return () => {
       active = false;
     };
-  }, [api, apps, canReview, needsReviewTurnaround, reviewTurnaroundAttempt]);
+  }, [
+    api,
+    apps,
+    canReview,
+    firstDecisionQueue,
+    pendingSignoffsQueue,
+    reviewTurnaroundAttempt,
+    view,
+  ]);
 
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
