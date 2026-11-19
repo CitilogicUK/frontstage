@@ -134,6 +134,7 @@ export function AppAuditHistory({
         renewalException?: RenewalException;
         graduationNominee?: string;
         graduationReason?: string;
+        humanApprovalEvidenceUrl?: string;
       } = JSON.parse(event);
       const { record } = entry;
       const details = [];
@@ -146,6 +147,11 @@ export function AppAuditHistory({
           `Registered from starter ${
             findStarter(record.starterId)?.name ?? record.starterId
           }`,
+        );
+      }
+      if (entry.action === 'reviewed' && entry.humanApprovalEvidenceUrl) {
+        details.push(
+          `Human approval verified · ${entry.humanApprovalEvidenceUrl}`,
         );
       }
       if (previous && previous.owner !== record.owner) {

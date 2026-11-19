@@ -3893,6 +3893,149 @@ describe('governance record access', () => {
     );
   });
 
+  it('requires and audits human approval evidence for consequential-action approvals when enabled', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [owner, reviewer],
+              requireHumanApprovalEvidence: true,
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const registration = {
+      name: 'Synthetic procurement assistant',
+      purpose: 'Prepare sandbox purchase orders for manual confirmation.',
+      type: 'app',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/procurement',
+      owner,
+      backupOwner: 'user:default/backup',
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'personal',
+      classification: 'internal',
+      usesAiAtRuntime: false,
+      takesActions: true,
+      actionDescription: 'Submit synthetic purchase orders.',
+    };
+    const { body: app } = await api
+      .post(apps)
+      .set('Authorization', auth(owner))
+      .send(registration)
+      .expect(201);
+    expect(app).toMatchObject({ tier: 3, reviewStatus: 'pending' });
+    const path = `${apps}/${app.id}`;
+    const review = (
+      expectedUpdatedAt: string,
+      details: Record<string, unknown> = {},
+      actor = reviewer,
+    ) =>
+      api
+        .post(`${path}/reviews`)
+        .set('Authorization', auth(actor))
+        .send({
+          status: 'approved',
+          notes: 'Checked the synthetic approval workflow.',
+          expectedUpdatedAt,
+          ...details,
+        });
+    const humanApprovalEvidenceUrl =
+      'https://example.com/evidence/procurement-approval';
+    const proof = { humanApprovalVerified: true, humanApprovalEvidenceUrl };
+    await review(app.updatedAt).expect(400);
+    await review(app.updatedAt, {
+      ...proof,
+      humanApprovalEvidenceUrl: 'https://user:secret@example.com/evidence',
+    }).expect(400);
+    await review(app.updatedAt, {
+      ...proof,
+      humanApprovalEvidenceUrl: 'http://example.com/evidence',
+    }).expect(400);
+    await review(app.updatedAt, {
+      ...proof,
+      humanApprovalVerified: false,
+    }).expect(400);
+    await review(app.updatedAt, proof, owner).expect(403);
+
+    const { body: changesNeeded } = await review(app.updatedAt, {
+      status: 'changes needed',
+    }).expect(200);
+    expect(changesNeeded.reviewStatus).toBe('changes needed');
+    const { body: approved } = await review(
+      changesNeeded.updatedAt,
+      proof,
+    ).expect(200);
+    expect(approved.reviewStatus).toBe('approved');
+    await api
+      .get(path)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.humanApprovalEvidenceRequired).toBe(true);
+        expect(body).not.toHaveProperty('humanApprovalEvidenceUrl');
+      });
+
+    const { body: active } = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: approved.updatedAt })
+      .expect(200);
+    const { body: edited } = await api
+      .put(path)
+      .set('Authorization', auth(owner))
+      .send({
+        ...registration,
+        lifecycle: active.lifecycle,
+        actionDescription: 'Cancel synthetic purchase orders.',
+        expectedUpdatedAt: active.updatedAt,
+      })
+      .expect(200);
+    expect(edited).toMatchObject({
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+    });
+    await review(edited.updatedAt).expect(400);
+
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const reviews = (history.events as Array<{ event: string; digest: string }>)
+      .map(entry => ({ ...entry, parsed: JSON.parse(entry.event) }))
+      .filter(({ parsed }) => parsed.action === 'reviewed');
+    expect(reviews).toHaveLength(2);
+    expect(reviews[0].parsed).not.toHaveProperty('humanApprovalEvidenceUrl');
+    expect(reviews[1].parsed).toMatchObject({
+      actor: reviewer,
+      humanApprovalEvidenceUrl,
+      record: { reviewStatus: 'approved' },
+    });
+    expect(reviews[1].digest).toBe(
+      createHash('sha256').update(reviews[1].event).digest('hex'),
+    );
+  });
+
   it('updates review ticket metadata without changing approval or gateway access', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';

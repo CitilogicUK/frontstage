@@ -1,5 +1,6 @@
 import { useAnalytics } from '@backstage/frontend-plugin-api';
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -133,6 +134,7 @@ type App = {
   directoryListing?: DirectoryListing;
   directoryLaunchEligible?: boolean;
   reviewTicketUrl?: string;
+  humanApprovalEvidenceRequired?: boolean;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
 };
@@ -563,6 +565,15 @@ export function GovernancePage() {
       ? appEditorToggle.open
       : params.get('edit') === '1';
   const decisionField = useRef<HTMLSelectElement>(null);
+  const [reviewDecision, setReviewDecision] = useState<{
+    appId: string;
+    status: string;
+  }>();
+  const reviewStatus =
+    reviewDecision?.appId === selected?.id ? reviewDecision?.status : undefined;
+  const requiresHumanApproval =
+    selected?.humanApprovalEvidenceRequired &&
+    (reviewStatus ?? 'approved') === 'approved';
   const canRecordReview =
     selected &&
     canReview &&
@@ -635,6 +646,7 @@ export function GovernancePage() {
   }
 
   function closeApp() {
+    setReviewDecision(undefined);
     setRegistrationFeedback(undefined);
     setAppEditorToggle(undefined);
     setSelected(undefined);
@@ -970,6 +982,7 @@ export function GovernancePage() {
   }
 
   function resetView() {
+    setReviewDecision(undefined);
     setRegistrationFeedback(undefined);
     setImportPreview(undefined);
     setQuery('');
@@ -3059,9 +3072,18 @@ export function GovernancePage() {
                 key={selected.id}
                 onSubmit={event =>
                   submit(event, async data => {
+                    const status = data.get('status');
                     applySavedApp(
                       await api(`/apps/${selected.id}/reviews`, {
-                        status: data.get('status'),
+                        status,
+                        ...(status === 'approved' &&
+                          selected.humanApprovalEvidenceRequired && {
+                            humanApprovalVerified:
+                              data.get('humanApprovalVerified') === 'on',
+                            humanApprovalEvidenceUrl: String(
+                              data.get('humanApprovalEvidenceUrl') ?? '',
+                            ).trim(),
+                          }),
                         track: data.get('track') ?? undefined,
                         notes: data.get('notes'),
                         expectedUpdatedAt: selected.updatedAt,
@@ -3085,7 +3107,17 @@ export function GovernancePage() {
                 )}
                 <label>
                   Decision
-                  <select name="status" ref={decisionField}>
+                  <select
+                    name="status"
+                    ref={decisionField}
+                    value={reviewStatus ?? 'approved'}
+                    onChange={event =>
+                      setReviewDecision({
+                        appId: selected.id,
+                        status: event.target.value,
+                      })
+                    }
+                  >
                     {options(['approved', 'changes needed'])}
                   </select>
                 </label>
@@ -3093,6 +3125,29 @@ export function GovernancePage() {
                   Review notes
                   <textarea name="notes" required />
                 </label>
+                {requiresHumanApproval && (
+                  <Fragment key={selected.updatedAt}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        name="humanApprovalVerified"
+                        required
+                      />
+                      I verified human approval for consequential actions
+                    </label>
+                    <label>
+                      Human approval evidence URL
+                      <input
+                        type="url"
+                        name="humanApprovalEvidenceUrl"
+                        maxLength={2048}
+                        pattern="[hH][tT][tT][pP][sS]://.+"
+                        title="Enter an HTTPS URL"
+                        required
+                      />
+                    </label>
+                  </Fragment>
+                )}
                 <button disabled={busy}>Record decision</button>
               </form>
             )}
