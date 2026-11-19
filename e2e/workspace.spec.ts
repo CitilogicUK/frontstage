@@ -1209,8 +1209,24 @@ test('owners can filter Inventory to active requests for review changes', async 
       json: {
         actor: owner,
         canReview: false,
+        reviewTracks: ['security', 'dataProtection'],
         apps: [
-          { ...base, id: 'needs-changes', name: 'Needs changes app' },
+          {
+            ...base,
+            id: 'needs-changes',
+            name: 'Needs changes app',
+            reviewNotes: 'Data Protection approved.',
+            signoffs: {
+              security: {
+                status: 'changes needed',
+                notes: 'Document access checks.',
+              },
+              dataProtection: {
+                status: 'approved',
+                notes: 'Data Protection approved.',
+              },
+            },
+          },
           {
             ...base,
             id: 'pending',
@@ -1244,6 +1260,16 @@ test('owners can filter Inventory to active requests for review changes', async 
       0,
     );
   }
+  await page.getByRole('button', { name: 'Needs changes app' }).click();
+  const details = page.getByRole('dialog', { name: 'Needs changes app' });
+  const changes = details.getByRole('region', {
+    name: 'Requested review changes',
+  });
+  await expect(changes).toContainText('Security');
+  await expect(changes).toContainText('Document access checks.');
+  await expect(
+    details.getByText('Data Protection approved.', { exact: true }),
+  ).toHaveCount(0);
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
