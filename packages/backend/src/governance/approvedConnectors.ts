@@ -1,17 +1,14 @@
 import { z } from 'zod';
 import { classification } from './policy';
+import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 
 const text = z.string().trim().min(1);
-const docsUrl = z.string().refine(value => {
-  if (
-    !/^https:\/\/[^/?#@]+(?:[/?#].*)?$/i.test(value) ||
-    /[\s\\]/.test(value) ||
-    !URL.canParse(value)
-  )
-    return false;
-  const { hostname, username, password } = new URL(value);
-  return !!hostname && !username && !password;
-}, 'Use an HTTPS documentation URL without credentials.');
+const docsUrl = z
+  .string()
+  .refine(
+    isHttpsUrlWithoutCredentials,
+    'Use an HTTPS documentation URL without credentials.',
+  );
 
 export const approvedConnectorsInput = z
   .array(
