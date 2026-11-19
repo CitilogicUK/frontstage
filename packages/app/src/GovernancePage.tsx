@@ -3406,6 +3406,8 @@ export function GovernancePage() {
                   )}/claim`;
                 } else if (hostedRegistration) {
                   endpoint = '/apps?source=hosted-snapshot';
+                } else if (usageRegistrationSource) {
+                  endpoint = '/apps?source=outside-gateway';
                 }
                 const deliveryStage = parseDeliveryStage(
                   value('deliveryStage'),

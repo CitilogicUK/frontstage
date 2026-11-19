@@ -19,6 +19,7 @@ export const appRegistrationSources = {
   git: 'Git repository',
   'bulk import': 'Bulk import',
   'hosted snapshot': 'Hosted snapshot',
+  'outside-gateway usage': 'Outside-gateway usage',
   unrecorded: 'Unrecorded',
 };
 

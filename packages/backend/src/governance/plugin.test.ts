@@ -2729,6 +2729,89 @@ describe('governance record access', () => {
     expect(await db('governance_gateway_blocks').select('*')).toEqual([]);
   });
 
+  it('records outside-gateway provenance only for authorized registrations', async () => {
+    const reviewer = 'user:default/reviewer';
+    const owner = 'user:default/owner';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const path = '/api/governance/apps';
+    const reviewerAuth = mockCredentials.user.header(reviewer);
+    const ownerAuth = mockCredentials.user.header(owner);
+    const input = {
+      name: 'Form assistant',
+      purpose: 'Draft internal form replies.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/form-assistant',
+      owner,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'personal',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const fromOutsideGateway = (credentials: string, sourceUrl: string) =>
+      api
+        .post(`${path}?source=outside-gateway`)
+        .set('Authorization', credentials)
+        .send({ ...input, sourceUrl });
+    await fromOutsideGateway(ownerAuth, input.sourceUrl).expect(403);
+    await fromOutsideGateway(
+      mockCredentials.service.header(),
+      input.sourceUrl,
+    ).expect(403);
+    for (const sourceUrl of [
+      'http://example.com/form-assistant',
+      'https://user:secret@example.com/form-assistant',
+    ]) {
+      await fromOutsideGateway(reviewerAuth, sourceUrl).expect(400);
+    }
+
+    const { body: created } = await fromOutsideGateway(
+      reviewerAuth,
+      input.sourceUrl,
+    ).expect(201);
+    expect(created.discoverySource).toBe('outside-gateway usage');
+    const { body: saved } = await api
+      .get(`${path}/${created.id}`)
+      .set('Authorization', ownerAuth)
+      .expect(200);
+    expect(saved.discoverySource).toBe('outside-gateway usage');
+    const { body: history } = await api
+      .get(`${path}/${created.id}/history`)
+      .set('Authorization', reviewerAuth)
+      .expect(200);
+    expect(JSON.parse(history.events[0].event)).toMatchObject({
+      action: 'registered',
+      record: { discoverySource: 'outside-gateway usage' },
+    });
+
+    const { body: ordinary } = await api
+      .post(path)
+      .set('Authorization', ownerAuth)
+      .send({ ...input, sourceUrl: 'http://example.com/ordinary-assistant' })
+      .expect(201);
+    expect(ordinary.discoverySource).toBe('registered');
+  });
+
   it('previews hosted inventory for reviewers without creating app records', async () => {
     const reviewer = 'user:default/reviewer';
     const db = await databases.init('SQLITE_3');
