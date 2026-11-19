@@ -896,6 +896,26 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     sharedApp.getByRole('button', { name: 'Record attestation' }),
   ).toHaveCount(0);
 
+  await sharedApp.getByRole('button', { name: 'Close app details' }).click();
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page.getByRole('link', { name: 'View upcoming reviews' }).click();
+  await expect(page).toHaveURL(/review=upcoming$/);
+  const upcomingDownloadPending = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download upcoming review calendar' })
+    .click();
+  const upcomingDownload = await upcomingDownloadPending;
+  expect(upcomingDownload.suggestedFilename()).toBe(
+    'frontstage-upcoming-reviews.ics',
+  );
+  const upcomingCalendar = await readFile(
+    await upcomingDownload.path(),
+    'utf8',
+  );
+  expect(upcomingCalendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(upcomingCalendar).toContain('SUMMARY:App attestation: Due soon app');
+  expect(upcomingCalendar).not.toContain('Overdue app');
+
   viewer = actor;
   includeRetirementDecision = true;
   await page.goto('/?owner=me&review=overdue');

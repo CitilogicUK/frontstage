@@ -1317,14 +1317,18 @@ export function GovernancePage() {
     });
   }
 
+  const portfolioReviewCalendar =
+    canReview &&
+    ownershipScope === 'all' &&
+    inventoryReviewFilter === 'upcoming';
   const reminderEntries =
-    ownershipScope !== 'all'
+    ownershipScope !== 'all' || portfolioReviewCalendar
       ? matching.flatMap((app): Parameters<typeof reviewCalendar>[0] => {
           const entries: Parameters<typeof reviewCalendar>[0] = [];
           const reviewDue = scheduledReviewDate(app);
           const workspaceDue = scheduledWorkspaceAttestationDate(app);
           if (reviewDue) entries.push({ app, due: reviewDue });
-          if (workspaceDue)
+          if (workspaceDue && !portfolioReviewCalendar)
             entries.push({
               app,
               due: workspaceDue,
@@ -1837,11 +1841,15 @@ export function GovernancePage() {
                   onClick={() =>
                     downloadReviewReminders(
                       reminderEntries,
-                      'frontstage-my-reviews.ics',
+                      portfolioReviewCalendar
+                        ? 'frontstage-upcoming-reviews.ics'
+                        : 'frontstage-my-reviews.ics',
                     )
                   }
                 >
-                  Download my review calendar
+                  {portfolioReviewCalendar
+                    ? 'Download upcoming review calendar'
+                    : 'Download my review calendar'}
                 </button>
               )}
             </WorkspaceSearch>
