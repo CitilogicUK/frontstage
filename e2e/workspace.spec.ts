@@ -1240,6 +1240,15 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   let app: typeof initialApp & {
     hostedAttestation?: { at: string; nextDue: string };
   } = initialApp;
+  const overdueApp = {
+    ...app,
+    id: 'overdue-hosted-app',
+    name: 'Overdue hosted app',
+    hostedAttestation: {
+      at: '2025-01-01T00:00:00.000Z',
+      nextDue: '2025-04-01T00:00:00.000Z',
+    },
+  };
   const history = [{ action: 'registered', record: app }];
   await page.route('**/api/governance/apps/hosted-app/history', route =>
     route.fulfill({
@@ -1262,7 +1271,7 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
         actor: app.owner,
         gatewayEnabled: true,
         canReview: true,
-        apps: [app],
+        apps: [app, overdueApp],
       },
     }),
   );
@@ -1346,6 +1355,16 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   });
   await expect(hostedIssues.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  const attestationQueue = page.getByRole('region', {
+    name: 'Hosted workspace attestations',
+  });
+  const missing = attestationQueue.getByRole('link', { name: app.name });
+  await expect(missing).toHaveAttribute('href', /app=hosted-app/);
+  await expect(attestationQueue).toContainText('Confirmation missing');
+  await expect(attestationQueue).toContainText('Overdue since 2025-04-01 UTC');
+  await missing.click();
+  await expect(details).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
   await hostedIssues.getByRole('link', { name: app.name }).click();
   await expect(
     details.getByRole('link', { name: 'View approved workspaces (new tab)' }),
@@ -1412,6 +1431,10 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(
     hostedIssues.getByText('No provider workspace issues found.'),
+  ).toBeVisible();
+  await expect(missing).toHaveCount(0);
+  await expect(
+    attestationQueue.getByRole('link', { name: overdueApp.name }),
   ).toBeVisible();
   await page.goto('/?view=register');
   await page.getByLabel('App type').selectOption('provider-hosted app');

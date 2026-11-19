@@ -24,6 +24,8 @@ type AppSummary = {
   team: string;
   owner: string;
   backupOwner?: string;
+  type?: string;
+  hostedAttestation?: { nextDue: string };
   tier: number;
   lifecycle: string;
   platform: string;
@@ -256,6 +258,14 @@ export function PortfolioReport({
     }
   }
   const now = Date.now();
+  const hostedAttestationsNeedingAttention = canReview
+    ? apps.filter(app => {
+        if (app.type !== 'provider-hosted app' || app.lifecycle === 'retired')
+          return false;
+        const nextDue = app.hostedAttestation?.nextDue;
+        return !nextDue || Date.parse(nextDue) <= now;
+      })
+    : [];
   const reviewable = inventory.filter(app => app.tier === 2 || app.tier === 3);
   const overdue = reviewable.filter(app => isReviewOverdue(app, now)).length;
   const critical = inventory.filter(app => requiresCriticalReview(app, now));
@@ -712,6 +722,38 @@ export function PortfolioReport({
                       {issue.provider ?? 'Provider unspecified'} ·{' '}
                       {issue.workspace ?? 'Workspace unspecified'} ·{' '}
                       {issue.lifecycle}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+      {canReview && (
+        <section
+          className="gov-panel gov-stage-report"
+          aria-labelledby="portfolio-hosted-attestations"
+        >
+          <div className="gov-report-heading">
+            <h2 id="portfolio-hosted-attestations">
+              Hosted workspace attestations
+            </h2>
+            {hostedAttestationsNeedingAttention.length === 0 ? (
+              <p>No missing or overdue workspace attestations.</p>
+            ) : (
+              <ul>
+                {hostedAttestationsNeedingAttention.map(app => (
+                  <li key={app.id}>
+                    <Link to={reportAppLink(app.id)}>{app.name}</Link>
+                    <p>
+                      {app.hostedAttestation
+                        ? `Overdue since ${app.hostedAttestation.nextDue.slice(
+                            0,
+                            10,
+                          )} UTC`
+                        : 'Confirmation missing'}{' '}
+                      · {app.owner}
                     </p>
                   </li>
                 ))}
