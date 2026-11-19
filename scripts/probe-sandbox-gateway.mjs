@@ -2,6 +2,16 @@ const prompt = 'Frontstage sandbox latency probe using synthetic data.';
 const timeoutMs = 10_000;
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+function readLimit(env, name) {
+  const raw = env[name];
+  if (raw === undefined) return undefined;
+  const limit = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error(`${name} must be a positive integer in milliseconds.`);
+  }
+  return limit;
+}
+
 function readConfig(env) {
   let origin;
   try {
@@ -34,7 +44,17 @@ function readConfig(env) {
       'FRONTSTAGE_PROBE_SAMPLES must be an integer from 1 to 30.',
     );
   }
-  return { origin, key, model, samples };
+  return {
+    origin,
+    key,
+    model,
+    samples,
+    clientP95MaxMs: readLimit(env, 'FRONTSTAGE_PROBE_MAX_CLIENT_P95_MS'),
+    frontstageP95MaxMs: readLimit(
+      env,
+      'FRONTSTAGE_PROBE_MAX_FRONTSTAGE_P95_MS',
+    ),
+  };
 }
 
 function summarize(values) {
@@ -95,17 +115,36 @@ try {
     client.push(timing.client);
     frontstage.push(timing.frontstage);
   }
+  const clientMilliseconds = summarize(client);
+  const frontstageMilliseconds = summarize(frontstage);
+  const { clientP95MaxMs, frontstageP95MaxMs } = config;
+  const clientExceeded =
+    clientP95MaxMs !== undefined && clientMilliseconds.p95 > clientP95MaxMs;
+  const frontstageExceeded =
+    frontstageP95MaxMs !== undefined &&
+    frontstageMilliseconds.p95 > frontstageP95MaxMs;
+  const passed = !clientExceeded && !frontstageExceeded;
   console.log(
     JSON.stringify(
       {
         samples: config.samples,
-        clientMilliseconds: summarize(client),
-        frontstageMilliseconds: summarize(frontstage),
+        clientMilliseconds,
+        frontstageMilliseconds,
+        ...(clientP95MaxMs !== undefined || frontstageP95MaxMs !== undefined
+          ? { targets: { clientP95MaxMs, frontstageP95MaxMs, passed } }
+          : {}),
       },
       null,
       2,
     ),
   );
+  if (!passed) {
+    if (clientExceeded)
+      console.error(`Client p95 exceeded ${clientP95MaxMs} ms.`);
+    if (frontstageExceeded)
+      console.error(`Frontstage p95 exceeded ${frontstageP95MaxMs} ms.`);
+    process.exitCode = 2;
+  }
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;
