@@ -1,0 +1,12 @@
+{
+  "name": "data-validation",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node validate.mjs",
+    "test": "node --test"
+  }
+}

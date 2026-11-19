@@ -197,6 +197,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     ['gateway-automation', 'automation', true],
     ['ai-assisted-software', 'AI-assisted software', false],
     ['internal-api', 'internal API', false],
+    ['data-validation', 'data validation', false],
   ] as const) {
     const pending = page.waitForEvent('download');
     await page
@@ -228,22 +229,27 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(descriptor).toContain('classification: restricted');
     expect(descriptor).toContain('backupOwner: user:default/backup');
     expect(brief).toContain('Highest data classification: restricted');
-    if (id === 'internal-api') {
+    if (id === 'internal-api' || id === 'data-validation') {
+      const entryPoint = id === 'internal-api' ? 'server' : 'validate';
+      const sourceFiles = [
+        'package.json',
+        `${entryPoint}.mjs`,
+        `${entryPoint}.test.mjs`,
+      ];
+      if (id === 'data-validation') sourceFiles.push('sample.json');
       expect(descriptor).not.toMatch(/^\s+models:/m);
       const appPackage = JSON.parse(strFromU8(files[`${id}/package.json`]));
       expect(appPackage.scripts).toEqual({
-        start: 'node server.mjs',
+        start: `node ${entryPoint}.mjs`,
         test: 'node --test',
       });
-      expect(files[`${id}/server.mjs`]).toBeDefined();
-      expect(files[`${id}/server.test.mjs`]).toBeDefined();
+      for (const name of sourceFiles)
+        expect(files[`${id}/${name}`]).toBeDefined();
       if (testInfo.project.name === 'desktop') {
-        const projectDir = await mkdtemp(
-          join(tmpdir(), 'frontstage-internal-api-'),
-        );
+        const projectDir = await mkdtemp(join(tmpdir(), `frontstage-${id}-`));
         try {
           await Promise.all(
-            ['package.json', 'server.mjs', 'server.test.mjs'].map(name =>
+            sourceFiles.map(name =>
               writeFile(join(projectDir, name), files[`${id}/${name}`]),
             ),
           );
@@ -251,6 +257,11 @@ test('workspace screens share navigation and fit the viewport', async ({
             cwd: projectDir,
             timeout: 10_000,
           });
+          if (id === 'data-validation')
+            execFileSync(process.execPath, ['validate.mjs', 'sample.json'], {
+              cwd: projectDir,
+              timeout: 10_000,
+            });
         } finally {
           await rm(projectDir, { recursive: true, force: true });
         }

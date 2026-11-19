@@ -35,6 +35,21 @@ const starters = [
       'Start with a local Node.js API, a synthetic response, and tests for its HTTP behavior.',
   },
   {
+    id: 'data-validation',
+    type: 'app',
+    runtime: false,
+    name: 'Data validation',
+    sourceFiles: [
+      'package.json',
+      'validate.mjs',
+      'validate.test.mjs',
+      'sample.json',
+    ],
+    action: 'Download data validation starter',
+    description:
+      'Check local JSON files and return an exit code that automation can use.',
+  },
+  {
     id: 'gateway-assistant',
     type: 'assistant',
     runtime: true,
