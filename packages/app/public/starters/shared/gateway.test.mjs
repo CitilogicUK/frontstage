@@ -95,17 +95,38 @@ test('gateway requests stay within the configured endpoint and propagate failure
   assert.equal(request.mock.callCount(), 5);
 
   delete process.env.FRONTSTAGE_GATEWAY_TIMEOUT_MS;
+  const reference = '12345678-1234-4123-8123-123456789abc';
   request.mock.mockImplementation(async () =>
     Response.json(
       { error: { message: 'Model unavailable.' } },
-      { status: 503, headers: { 'Retry-After': '12' } },
+      {
+        status: 503,
+        headers: {
+          'Retry-After': '12',
+          'X-Frontstage-Request-Id': reference,
+        },
+      },
     ),
   );
-  await assert.rejects(
-    runModel('Synthetic prompt'),
-    /Model unavailable\. Wait 12 seconds before trying again\./,
-  );
+  await assert.rejects(runModel('Synthetic prompt'), {
+    message: `Model unavailable. Wait 12 seconds before trying again. Support reference ${reference}.`,
+  });
   assert.equal(request.mock.callCount(), 6);
+
+  for (const [status, header] of [
+    [503, 'invalid-reference'],
+    [429, reference],
+  ]) {
+    request.mock.mockImplementation(async () =>
+      Response.json(
+        { error: { message: 'Gateway unavailable.' } },
+        { status, headers: { 'X-Frontstage-Request-Id': header } },
+      ),
+    );
+    await assert.rejects(runModel('Synthetic prompt'), {
+      message: 'Gateway unavailable.',
+    });
+  }
 });
 
 test('input is trimmed and rejects blank or oversized streams', async () => {
