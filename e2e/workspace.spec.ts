@@ -5536,6 +5536,20 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
   await expect(
     page.getByRole('region', { name: 'Awaiting owner decisions' }),
   ).toHaveCount(0);
+  const downloadReady = page.waitForEvent('download');
+  await report
+    .getByRole('button', { name: 'Download retirement reviews CSV' })
+    .click();
+  const download = await downloadReady;
+  expect(download.suggestedFilename()).toBe(
+    'frontstage-retirement-reviews.csv',
+  );
+  const csv = await readFile(await download.path(), 'utf8');
+  expect(csv).toContain(
+    '"retired","2025-05-02T00:00:00.000Z","2025-05-03T00:00:00.000Z"',
+  );
+  expect(csv).toContain('app=retirement-candidate');
+  expect(csv).not.toContain(reason);
 });
 
 test('the assigned owner can act on a scheduled retirement request', async ({

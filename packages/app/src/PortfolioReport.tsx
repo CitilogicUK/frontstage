@@ -21,6 +21,7 @@ import {
   gatewaySpendShareCsv,
   ownershipIssuesCsv,
   portfolioCsv,
+  retirementReviewsCsv,
   type OutsideGatewayUsagePreview,
   type PortfolioExportRow,
 } from './portfolioExport';
@@ -416,7 +417,7 @@ export function PortfolioReport({
         .flatMap(app => {
           const review = app.retirementReview;
           return review && review.status !== 'pending' && review.decidedAt
-            ? [{ app, outcome: review.status, decidedAt: review.decidedAt }]
+            ? [{ app, review, decidedAt: review.decidedAt }]
             : [];
         })
         .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))
@@ -1436,6 +1437,23 @@ export function PortfolioReport({
                 ))}
               </ul>
             )}
+            {pendingRetirementReviews.length + retirementDecisions.length >
+              0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCsv(
+                    retirementReviewsCsv(
+                      [...pendingRetirementReviews, ...retirementDecisions],
+                      window.location.href,
+                    ),
+                    'frontstage-retirement-reviews.csv',
+                  )
+                }
+              >
+                Download retirement reviews CSV
+              </button>
+            )}
             {pendingRetirementReviews.length > 0 && (
               <section aria-labelledby="pending-retirement-reviews">
                 <h3 id="pending-retirement-reviews">
@@ -1459,11 +1477,11 @@ export function PortfolioReport({
               <details>
                 <summary>Latest recorded decisions</summary>
                 <ul>
-                  {retirementDecisions.map(({ app, outcome, decidedAt }) => (
+                  {retirementDecisions.map(({ app, review, decidedAt }) => (
                     <li key={app.id}>
                       <Link to={reportAppLink(app.id)}>{app.name}</Link>
                       {' · '}
-                      {outcome === 'retired' ? 'Retired' : 'Kept'}{' '}
+                      {review.status === 'retired' ? 'Retired' : 'Kept'}{' '}
                       <time dateTime={decidedAt}>{decidedAt.slice(0, 10)}</time>
                     </li>
                   ))}
