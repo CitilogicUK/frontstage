@@ -116,6 +116,22 @@ test(
         maxClassification: 'restricted',
       },
     ];
+    const codingTools = [
+      {
+        id: 'internal-editor',
+        name: 'Internal editor',
+        description: 'Writes internal fixture code.',
+        maxClassification: 'internal',
+      },
+      {
+        id: 'confidential-review',
+        name: 'Confidential review',
+        description: 'Reviews confidential fixture code.',
+        maxClassification: 'confidential',
+        docsUrl: 'https://example.invalid/coding-tools/review',
+      },
+    ];
+    let codingToolsConfigured = true;
     const server = createServer(async (request, response) => {
       requests.push({
         path: request.url,
@@ -129,6 +145,17 @@ test(
         return;
       }
       switch (request.url) {
+        case '/workspace/api/governance/approved-coding-tools':
+          response.end(
+            JSON.stringify({
+              configured: codingToolsConfigured,
+              ...hiddenFields,
+              tools: codingToolsConfigured
+                ? codingTools.map(tool => ({ ...tool, ...hiddenFields }))
+                : [],
+            }),
+          );
+          break;
         case '/workspace/api/governance/approved-connectors':
           response.end(
             JSON.stringify({
@@ -206,6 +233,7 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'list_approved_coding_tools',
         'list_approved_connectors',
         'list_approved_models',
         'preview_risk',
@@ -276,6 +304,36 @@ test(
         assertPrivateFieldsAbsent(listed);
       }
 
+      const invalidCodingTools = await call('list_approved_coding_tools', {
+        classification: 'invalid',
+      });
+      assert.equal(invalidCodingTools.isError, true);
+      assert.equal(requests.length, 5);
+      for (const [args, expected] of [
+        [{}, codingTools],
+        [{ classification: 'confidential' }, [codingTools[1]]],
+        [{ classification: 'restricted' }, []],
+      ]) {
+        const listed = await call('list_approved_coding_tools', args);
+        assert.equal(listed.isError ?? false, false);
+        assert.deepEqual(listed.structuredContent, {
+          configured: true,
+          tools: expected,
+        });
+        assert.deepEqual(
+          JSON.parse(listed.content[0].text),
+          listed.structuredContent,
+        );
+        assertPrivateFieldsAbsent(listed);
+      }
+      codingToolsConfigured = false;
+      const unconfigured = await call('list_approved_coding_tools', {});
+      assert.deepEqual(unconfigured.structuredContent, {
+        configured: false,
+        tools: [],
+      });
+      assertPrivateFieldsAbsent(unconfigured);
+
       const search = await call('search_apps', {
         query: 'ORDER',
         limit: 1,
@@ -341,6 +399,10 @@ test(
           '/workspace/api/governance/gateway/models',
           '/workspace/api/governance/approved-connectors',
           '/workspace/api/governance/approved-connectors',
+          '/workspace/api/governance/approved-coding-tools',
+          '/workspace/api/governance/approved-coding-tools',
+          '/workspace/api/governance/approved-coding-tools',
+          '/workspace/api/governance/approved-coding-tools',
           '/workspace/api/governance/apps',
           '/workspace/api/governance/apps/order-workflow',
           '/workspace/api/governance/apps/missing',
@@ -351,7 +413,7 @@ test(
       );
       assert.deepEqual(
         requests.map(request => request.method),
-        ['POST', ...Array(10).fill('GET')],
+        ['POST', ...Array(14).fill('GET')],
       );
       assert.ok(
         requests.every(request => request.bearer === `Bearer ${token}`),
@@ -449,6 +511,7 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'list_approved_coding_tools',
         'list_approved_connectors',
         'list_approved_models',
         'preview_descriptor',

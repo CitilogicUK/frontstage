@@ -34,6 +34,10 @@ function readConfig() {
       'api/governance/approved-connectors',
       backend,
     ),
+    approvedCodingToolsUrl: new URL(
+      'api/governance/approved-coding-tools',
+      backend,
+    ),
     token,
     writeEnabled: process.env.FRONTSTAGE_MCP_WRITE_ENABLED === 'true',
   };
@@ -116,6 +120,18 @@ const connectorsPolicy = z.object({
       kind: connectorKind,
       description: z.string(),
       access: z.enum(['read', 'write']),
+      maxClassification: classification,
+      docsUrl: z.string().optional(),
+    }),
+  ),
+});
+const codingToolsPolicy = z.object({
+  configured: z.boolean(),
+  tools: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string(),
       maxClassification: classification,
       docsUrl: z.string().optional(),
     }),
@@ -227,6 +243,7 @@ async function start() {
     tierPreviewUrl,
     gatewayModelsUrl,
     approvedConnectorsUrl,
+    approvedCodingToolsUrl,
     token,
     writeEnabled,
   } = readConfig();
@@ -342,6 +359,32 @@ async function start() {
             (!kind || connector.kind === kind) &&
             classification.options.indexOf(connector.maxClassification) >=
               minimum,
+        ),
+      });
+    },
+  );
+  server.registerTool(
+    'list_approved_coding_tools',
+    {
+      description:
+        'List approved AI coding tools for development, optionally filtered by the classification of code or data shared with the tool.',
+      inputSchema: z.object({ classification: classification.optional() }),
+      outputSchema: codingToolsPolicy,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ classification: dataClassification }) => {
+      const policy = await fetchCatalog(
+        approvedCodingToolsUrl,
+        token,
+        codingToolsPolicy,
+      );
+      if (dataClassification === undefined) return toolResult(policy);
+      const minimum = classification.options.indexOf(dataClassification);
+      return toolResult({
+        ...policy,
+        tools: policy.tools.filter(
+          tool =>
+            classification.options.indexOf(tool.maxClassification) >= minimum,
         ),
       });
     },
