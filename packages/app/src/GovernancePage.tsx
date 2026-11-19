@@ -959,11 +959,12 @@ export function GovernancePage() {
     (view === 'Reviews' && reviewFilter === 'first') ||
     firstDecisionTargetQueue;
   const pendingSignoffsQueue = view === 'Reviews' && reviewFilter === 'mine';
+  const missingTicketQueue =
+    view === 'Reviews' && reviewFilter === 'missing-ticket';
+  const showFirstDecisionWait =
+    firstDecisionQueue || pendingSignoffsQueue || missingTicketQueue;
   useEffect(() => {
-    if (
-      !canReview ||
-      (view !== 'Reports' && !firstDecisionQueue && !pendingSignoffsQueue)
-    )
+    if (!canReview || (view !== 'Reports' && !showFirstDecisionWait))
       return undefined;
     let active = true;
     setReviewTurnaround(undefined);
@@ -982,8 +983,7 @@ export function GovernancePage() {
     api,
     apps,
     canReview,
-    firstDecisionQueue,
-    pendingSignoffsQueue,
+    showFirstDecisionWait,
     reviewTurnaroundAttempt,
     view,
   ]);
@@ -1521,7 +1521,7 @@ export function GovernancePage() {
         scheduledReviewDate(a)?.getTime() ?? Number.POSITIVE_INFINITY;
       const bDue =
         scheduledReviewDate(b)?.getTime() ?? Number.POSITIVE_INFINITY;
-      const waitPriority = pendingSignoffsQueue
+      const waitPriority = showFirstDecisionWait
         ? (firstDecisionWait.get(b.id) ?? -1) -
           (firstDecisionWait.get(a.id) ?? -1)
         : 0;
@@ -2051,8 +2051,7 @@ export function GovernancePage() {
                     Download first decisions CSV
                   </button>
                 )}
-              {view === 'Reviews' &&
-                reviewFilter === 'missing-ticket' &&
+              {missingTicketQueue &&
                 !loading &&
                 !error &&
                 matching.length > 0 && (
@@ -2061,7 +2060,10 @@ export function GovernancePage() {
                     onClick={() =>
                       downloadCsv(
                         missingReviewTicketsCsv(
-                          matching,
+                          matching.map(app => ({
+                            ...app,
+                            firstDecisionWait: firstDecisionWait.get(app.id),
+                          })),
                           config.getString('app.baseUrl'),
                           reviewTracks,
                         ),
@@ -2233,10 +2235,9 @@ export function GovernancePage() {
                       );
                       const review = appReview(app, now);
                       const daysOverdue = reviewDaysOverdue(app, now);
-                      const waitingDays =
-                        firstDecisionQueue || pendingSignoffsQueue
-                          ? firstDecisionWait.get(app.id)
-                          : undefined;
+                      const waitingDays = showFirstDecisionWait
+                        ? firstDecisionWait.get(app.id)
+                        : undefined;
                       return (
                         <tr key={app.id}>
                           <td className="gov-app-cell">
@@ -2330,7 +2331,7 @@ export function GovernancePage() {
                                   maximumFractionDigits: 1,
                                 })}{' '}
                                 weekdays waiting
-                                {pendingSignoffsQueue && ' for first decision'}
+                                {!firstDecisionQueue && ' for first decision'}
                               </small>
                             )}
                             {waitingDays !== undefined &&

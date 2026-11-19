@@ -2116,6 +2116,16 @@ test('reviewers can find required reviews without a linked ticket', async ({
       },
     }),
   );
+  await page.route('**/api/governance/reports/review-turnaround', route =>
+    route.fulfill({
+      json: {
+        pendingAppIds: [app.id],
+        pendingApps: [{ appId: app.id, workingDays: 16.5 }],
+        target: { workingDays: 15 },
+      },
+    }),
+  );
+
   await page.goto('/?view=reports');
   const queueLink = page.getByRole('link', {
     name: '2 missing a review ticket',
@@ -2131,6 +2141,15 @@ test('reviewers can find required reviews without a linked ticket', async ({
   await expect(rows).toHaveCount(2);
   await expect(rows.filter({ hasText: app.name })).toHaveCount(1);
   await expect(rows.filter({ hasText: overdueApp.name })).toHaveCount(1);
+  await expect(rows.filter({ hasText: app.name })).toContainText(
+    '16.5 weekdays waiting for first decision',
+  );
+  await expect(rows.filter({ hasText: app.name })).toContainText(
+    'At or over review target',
+  );
+  await expect(rows.filter({ hasText: overdueApp.name })).not.toContainText(
+    'weekdays waiting for first decision',
+  );
 
   await rows
     .filter({ hasText: app.name })
@@ -2165,7 +2184,8 @@ test('reviewers can find required reviews without a linked ticket', async ({
   );
   const csv = await readFile(await download.path(), 'utf8');
   const [headers, ...exportedRows] = csv.trimEnd().split(/\r?\n/);
-  expect(headers).toMatch(/,review_sign_offs$/);
+  expect(headers).toMatch(/,review_sign_offs,first_decision_wait_weekdays$/);
+  expect(exportedRows[0]).toMatch(/,16\.5$/);
   expect(exportedRows[0]).toContain(
     '"Security sign-off: approved | Data Protection sign-off: pending"',
   );
