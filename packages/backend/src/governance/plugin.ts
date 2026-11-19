@@ -226,6 +226,10 @@ type RecordAction =
   | 'directory-access-withdrawn'
   | 'directory-access-provisioned'
   | 'review-ticket-updated'
+  | 'owner-handover-requested'
+  | 'owner-handover-cancelled'
+  | 'owner-handover-declined'
+  | 'owner-handover-accepted'
   | 'ownership-handover';
 
 const retirementReviewWritesPerRun = 50;
@@ -272,6 +276,7 @@ export type GovernanceRecord = AppInput & {
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  ownerHandover?: { nominee: string; requestedAt: string };
   directoryListing?: { summary: string; url: string };
 };
 
@@ -924,6 +929,7 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             graduationNominee,
             graduationReason,
+            ownerHandoverNominee,
             humanApprovalEvidenceUrl,
             at,
           }: {
@@ -931,6 +937,7 @@ export const governancePlugin = createBackendPlugin({
             renewalException?: RenewalException;
             graduationNominee?: string;
             graduationReason?: string;
+            ownerHandoverNominee?: string;
             humanApprovalEvidenceUrl?: string;
             at?: string;
           } = {},
@@ -947,6 +954,7 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             graduationNominee,
             graduationReason,
+            ownerHandoverNominee,
             humanApprovalEvidenceUrl,
             at,
             record,
@@ -1023,6 +1031,7 @@ export const governancePlugin = createBackendPlugin({
             expectedRetirementActivity,
             graduationNominee,
             graduationReason,
+            ownerHandoverNominee,
             humanApprovalEvidenceUrl,
           }: {
             ownerChanged?: boolean;
@@ -1031,9 +1040,12 @@ export const governancePlugin = createBackendPlugin({
             expectedRetirementActivity?: string | null;
             graduationNominee?: string;
             graduationReason?: string;
+            ownerHandoverNominee?: string;
             humanApprovalEvidenceUrl?: string;
           } = {},
         ) {
+          if (ownerChanged || record.lifecycle === 'retired')
+            delete record.ownerHandover;
           await db.transaction(async transaction => {
             const count = await transaction(table)
               .where({ id: record.id, revision })
@@ -1085,6 +1097,7 @@ export const governancePlugin = createBackendPlugin({
                 renewalException,
                 graduationNominee,
                 graduationReason,
+                ownerHandoverNominee,
                 humanApprovalEvidenceUrl,
               },
             );
@@ -1357,12 +1370,29 @@ export const governancePlugin = createBackendPlugin({
           };
         }
 
+        function visibleOwnerHandover(
+          record: GovernanceRecord,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ) {
+          const handover = record.ownerHandover;
+          if (
+            !handover ||
+            principal.type !== 'user' ||
+            (principal.userEntityRef !== record.owner &&
+              principal.userEntityRef !== handover.nominee &&
+              !reviewers.includes(principal.userEntityRef))
+          )
+            return undefined;
+          return { ...handover, backupRequired: evaluateTier(record) >= 2 };
+        }
+
         function withRiskAssessment<T extends GovernanceRecord>(
           record: T,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
         ) {
           return {
             ...record,
+            ownerHandover: visibleOwnerHandover(record, principal),
             ...(canViewReviewDetails(record, principal) &&
               appReviewDetails(record)),
           };
@@ -1384,6 +1414,7 @@ export const governancePlugin = createBackendPlugin({
             directoryListing: canManageDirectory
               ? record.directoryListing
               : undefined,
+            ownerHandover: visibleOwnerHandover(record, principal),
             directoryLaunchEligible: canManageDirectory
               ? canPublishInDirectory(record, now)
               : undefined,
@@ -3078,6 +3109,7 @@ export const governancePlugin = createBackendPlugin({
           updated.graduation = graduationAfterEdit(record, updated, principal);
           updated.directoryListing = directoryListingAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
+          updated.ownerHandover = record.ownerHandover;
           const remainsHosted =
             updated.lifecycle !== 'retired' &&
             updated.type === 'provider-hosted app';
@@ -3262,6 +3294,189 @@ export const governancePlugin = createBackendPlugin({
           await assertProductionEngineeringHandoff(record, updated);
           await save(updated, revision, principal, 'ownership-handover', {
             ownerChanged: true,
+          });
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
+
+        const ownerHandoverPath = '/apps/:id/owner-handover';
+        const handoverUser = z
+          .string()
+          .regex(/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/);
+        const handoverRevision = z.object({
+          expectedUpdatedAt: z.string().datetime(),
+        });
+
+        function assertCurrentOwnerHandover(
+          record: GovernanceRecord,
+          expectedUpdatedAt: string,
+        ) {
+          if (record.updatedAt !== expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen its current record before updating the handover.',
+            );
+          if (record.lifecycle === 'retired')
+            throw new ConflictError('Retired apps cannot be handed over.');
+        }
+
+        router.post(ownerHandoverPath, async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = handoverRevision
+            .extend({ nominee: handoverUser })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Choose a Catalog nominee and provide the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          if (record.owner !== principal.userEntityRef)
+            throw new NotAllowedError(
+              'Only the current app owner can nominate a replacement.',
+            );
+          assertCurrentOwnerHandover(record, input.data.expectedUpdatedAt);
+          if (record.ownerHandover)
+            throw new ConflictError(
+              'This app already has a pending ownership handover.',
+            );
+          const { nominee } = input.data;
+          if (nominee === record.owner || isAcceptedCoOwner(record, nominee))
+            throw new InputError(
+              'Choose someone other than the current owner or accepted engineering co-owner.',
+            );
+          if (
+            (await activeCatalogEntities([nominee], true))
+              .get(nominee)
+              ?.kind.toLowerCase() !== 'user'
+          )
+            throw new InputError(
+              'Choose an active Catalog user as the new owner.',
+            );
+          const updatedAt = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt,
+            ownerHandover: { nominee, requestedAt: updatedAt },
+          };
+          await save(updated, revision, principal, 'owner-handover-requested', {
+            ownerHandoverNominee: nominee,
+          });
+          await sendGovernanceNotification({
+            recipient: nominee,
+            title: 'App ownership handover requested',
+            description:
+              'Open the app in Inventory to review the ownership handover.',
+            search: `?app=${encodeURIComponent(record.id)}`,
+            scope: `governance-owner-handover-request-${record.id}-${updatedAt}`,
+          });
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
+
+        router.patch(ownerHandoverPath, async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = handoverRevision
+            .extend({
+              decision: z.enum(['accept', 'decline']),
+              backupOwner: handoverUser.optional(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide a handover decision, current app timestamp, and required replacement backup owner.',
+            );
+          const { record, revision } = await load(req.params.id);
+          const nominee = principal.userEntityRef;
+          if (record.ownerHandover?.nominee !== nominee)
+            throw new NotAllowedError(
+              'Only the current nominee can decide this ownership handover.',
+            );
+          assertCurrentOwnerHandover(record, input.data.expectedUpdatedAt);
+          const accepted = input.data.decision === 'accept';
+          let updated: GovernanceRecord = {
+            ...record,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          if (accepted) {
+            if (isAcceptedCoOwner(record, nominee))
+              throw new NotAllowedError(
+                'An accepted engineering co-owner cannot end their own handoff.',
+              );
+            if (input.data.backupOwner === nominee)
+              throw new InputError(
+                'Choose a backup owner other than the new owner.',
+              );
+            const app = parseApp(
+              {
+                ...record,
+                owner: nominee,
+                backupOwner: input.data.backupOwner,
+              },
+              record,
+            );
+            const active = await activeCatalogEntities(
+              ownershipRefs(app),
+              true,
+            );
+            if (!ownershipRefs(app).every(ref => active.has(ref)))
+              throw new InputError(
+                'Choose active owners and a team from the Backstage catalog.',
+              );
+            updated = recordAfterAppEdit(record, app, principal);
+            await assertProductionEngineeringHandoff(record, updated);
+          }
+          delete updated.ownerHandover;
+          await save(
+            updated,
+            revision,
+            principal,
+            accepted ? 'owner-handover-accepted' : 'owner-handover-declined',
+            { ownerChanged: accepted, ownerHandoverNominee: nominee },
+          );
+          await sendGovernanceNotification({
+            recipient: record.owner,
+            title: `App ownership handover ${
+              accepted ? 'accepted' : 'declined'
+            }`,
+            description:
+              'Open the app in Inventory to review the handover decision.',
+            search: `?app=${encodeURIComponent(record.id)}`,
+            scope: `governance-owner-handover-decision-${record.id}-${updated.updatedAt}`,
+          });
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
+
+        router.delete(ownerHandoverPath, async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = handoverRevision.safeParse(req.body);
+          if (!input.success)
+            throw new InputError('Provide the current app timestamp.');
+          const { record, revision } = await load(req.params.id);
+          if (record.owner !== principal.userEntityRef)
+            throw new NotAllowedError(
+              'Only the current app owner can cancel the ownership handover.',
+            );
+          assertCurrentOwnerHandover(record, input.data.expectedUpdatedAt);
+          if (!record.ownerHandover)
+            throw new ConflictError(
+              'This app has no pending ownership handover.',
+            );
+          const updated = {
+            ...record,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          delete updated.ownerHandover;
+          await save(updated, revision, principal, 'owner-handover-cancelled', {
+            ownerHandoverNominee: record.ownerHandover.nominee,
           });
           res
             .set('Cache-Control', 'no-store')

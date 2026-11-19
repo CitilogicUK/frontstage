@@ -157,6 +157,7 @@ export function AppAuditHistory({
         renewalException?: RenewalException;
         graduationNominee?: string;
         graduationReason?: string;
+        ownerHandoverNominee?: string;
         humanApprovalEvidenceUrl?: string;
       } = JSON.parse(event);
       const { record } = entry;
@@ -258,6 +259,18 @@ export function AppAuditHistory({
         details.push('Approval reopened');
       if (entry.action === 'ownership-handover')
         action = 'Backup owner took ownership';
+      if (
+        entry.action === 'owner-handover-requested' ||
+        entry.action === 'owner-handover-cancelled' ||
+        entry.action === 'owner-handover-declined' ||
+        entry.action === 'owner-handover-accepted'
+      ) {
+        action = `Owner handover ${entry.action.slice(
+          'owner-handover-'.length,
+        )}`;
+        if (entry.ownerHandoverNominee)
+          details.push(`Nominated owner ${entry.ownerHandoverNominee}`);
+      }
       if (entry.action === 'reviewed') {
         action = `Review: ${record.reviewStatus}`;
         for (const track of Object.keys(reviewTrackLabels) as ReviewTrack[]) {

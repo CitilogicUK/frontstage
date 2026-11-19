@@ -62,6 +62,7 @@ import {
   type DirectoryListing,
 } from './AppDirectory';
 import { DirectoryRequestQueue } from './DirectoryAccessRequests';
+import { AppOwnerHandover, type OwnerHandover } from './AppOwnerHandover';
 import { AppBackupHandover } from './AppBackupHandover';
 import { AppGraduation, type Graduation } from './AppGraduation';
 import {
@@ -145,6 +146,7 @@ type App = {
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  ownerHandover?: OwnerHandover;
   requiresProductionEngineeringCoOwner?: true;
   directoryListing?: DirectoryListing;
   directoryLaunchEligible?: boolean;
@@ -3131,6 +3133,77 @@ export function GovernancePage() {
                 }
               />
             )}
+            {selected.lifecycle !== 'retired' &&
+              (actor === selected.owner || selected.ownerHandover) && (
+                <AppOwnerHandover
+                  key={`owner-handover-${selected.updatedAt}`}
+                  handover={selected.ownerHandover}
+                  canManage={actor === selected.owner}
+                  canRespond={actor === selected.ownerHandover?.nominee}
+                  requiresBackup={
+                    selected.ownerHandover?.backupRequired ?? selected.tier >= 2
+                  }
+                  busy={busy}
+                  onRequest={event =>
+                    submit(event, async data => {
+                      applySavedApp(
+                        await api(`/apps/${selected.id}/owner-handover`, {
+                          nominee: String(data.get('nominee') ?? '').trim(),
+                          expectedUpdatedAt: selected.updatedAt,
+                        }),
+                      );
+                      setMessage('Owner handover requested.');
+                    })
+                  }
+                  onAccept={event =>
+                    submit(event, async data => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/owner-handover`,
+                          {
+                            decision: 'accept',
+                            backupOwner:
+                              String(data.get('backupOwner') ?? '').trim() ||
+                              undefined,
+                            expectedUpdatedAt: selected.updatedAt,
+                          },
+                          'PATCH',
+                        ),
+                      );
+                      setMessage('Owner handover accepted.');
+                    })
+                  }
+                  onDecline={event =>
+                    submit(event, async () => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/owner-handover`,
+                          {
+                            decision: 'decline',
+                            expectedUpdatedAt: selected.updatedAt,
+                          },
+                          'PATCH',
+                        ),
+                      );
+                      setMessage('Owner handover declined.');
+                    })
+                  }
+                  onCancel={event =>
+                    submit(event, async () => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/owner-handover`,
+                          {
+                            expectedUpdatedAt: selected.updatedAt,
+                          },
+                          'DELETE',
+                        ),
+                      );
+                      setMessage('Owner handover cancelled.');
+                    })
+                  }
+                />
+              )}
             {(canNominateCoOwner ||
               selected.graduation ||
               needsProductionHandoff) && (
