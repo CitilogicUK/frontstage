@@ -1,6 +1,7 @@
 import { TestDatabases } from '@backstage/backend-test-utils';
 import {
   gatewayKeyAuditMigration,
+  gatewayKeyEnvironmentsMigration,
   gatewayMigration,
   readGatewayKeyEvents,
 } from './gateway';
@@ -46,6 +47,31 @@ describe('gateway key audit migration', () => {
         action: 'revoked',
         previousDigest: issued.digest,
       });
+    },
+  );
+
+  it.each(databases.eachSupportedId())(
+    'preserves legacy key hashes in the sandbox slot on %s',
+    async databaseId => {
+      const db = await databases.init(databaseId);
+      await db.schema.createTable('apps', table =>
+        table.string('id').primary(),
+      );
+      await db('apps').insert({ id: 'legacy-app' });
+      await gatewayMigration('apps').up(db);
+      const keys = 'governance_gateway_keys';
+      const original = { app_id: 'legacy-app', digest: 'a'.repeat(64) };
+      await db(keys).insert(original);
+      await gatewayKeyEnvironmentsMigration('apps').up(db);
+      expect(await db(keys)).toEqual([{ ...original, environment: 'sandbox' }]);
+      await db(keys).insert({
+        app_id: 'legacy-app',
+        environment: 'production',
+        digest: 'b'.repeat(64),
+      });
+      await expect(db(keys)).resolves.toHaveLength(2);
+      await gatewayKeyEnvironmentsMigration('apps').down(db);
+      expect(await db(keys)).toEqual([]);
     },
   );
 });

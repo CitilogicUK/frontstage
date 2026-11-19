@@ -7,6 +7,7 @@ const blockReasons: Record<string, string> = {
   model: 'Model or data policy',
   'spend-threshold': 'Monthly spend threshold reached',
   'rate-limit': 'Rate limit reached',
+  environment: 'Production gateway unavailable',
 };
 
 export function gatewayBlockReason(reason: string) {
@@ -14,6 +15,8 @@ export function gatewayBlockReason(reason: string) {
 }
 
 const nextSteps: Record<string, string> = {
+  environment:
+    'Use a sandbox key for simulation or retry once the production gateway is available.',
   'provider-hosted':
     'Use the approved provider workspace and verify its sharing and connector settings.',
   review:

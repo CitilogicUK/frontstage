@@ -55,15 +55,86 @@ async function readResponse<T>(response: Response): Promise<T> {
   );
 }
 
+type GatewayEnvironment = 'sandbox' | 'production';
+
+type GatewayPlaygroundProps = {
+  app: GatewayApp;
+  onKeyChanged: () => void;
+};
+
 export function GatewayPlayground({
   app,
   onKeyChanged,
-}: {
-  app: GatewayApp;
-  onKeyChanged: () => void;
+}: GatewayPlaygroundProps) {
+  const { policy } = useGatewayModelPolicy();
+  const [environment, setEnvironment] = useState<GatewayEnvironment>('sandbox');
+  const productionAvailable = policy?.productionAvailable === true;
+  const selectedEnvironment = productionAvailable ? environment : 'sandbox';
+  const classification = app.effectiveClassification ?? app.classification;
+  const approvedModels = policy
+    ? app.models.filter(id =>
+        policy.models.some(
+          model =>
+            model.id === id &&
+            model.allowedClassifications.includes(classification),
+        ),
+      )
+    : app.models;
+
+  return (
+    <section className="gov-gateway" aria-label="Gateway playground">
+      <h3>Gateway playground</h3>
+      {productionAvailable && (
+        <label>
+          Gateway key environment
+          <select
+            value={selectedEnvironment}
+            onChange={event =>
+              setEnvironment(
+                event.currentTarget.value === 'production'
+                  ? 'production'
+                  : 'sandbox',
+              )
+            }
+          >
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+          </select>
+        </label>
+      )}
+      {selectedEnvironment === 'production' && (
+        <p>
+          Production prompts are sent to the live provider and can incur costs.
+        </p>
+      )}
+      <GatewayEnvironmentPanel
+        key={selectedEnvironment}
+        app={app}
+        environment={selectedEnvironment}
+        classification={classification}
+        approvedModels={approvedModels}
+        onKeyChanged={onKeyChanged}
+      />
+    </section>
+  );
+}
+
+function GatewayEnvironmentPanel({
+  app,
+  environment,
+  classification,
+  approvedModels,
+  onKeyChanged,
+}: GatewayPlaygroundProps & {
+  environment: GatewayEnvironment;
+  classification: string;
+  approvedModels: string[];
 }) {
   const discovery = useApi(discoveryApiRef);
   const { fetch: backstageFetch } = useApi(fetchApiRef);
+  const keyPath = `/apps/${encodeURIComponent(app.id)}/gateway-key${
+    environment === 'production' ? '?environment=production' : ''
+  }`;
   const [key, setKey] = useState<string>();
   const [readingKeyStatus, setReadingKeyStatus] = useState(true);
   const [notice, setNotice] = useState('');
@@ -101,10 +172,7 @@ export function GatewayPlayground({
     discovery
       .getBaseUrl('governance')
       .then(base =>
-        backstageFetch(
-          `${base}/apps/${encodeURIComponent(app.id)}/gateway-key`,
-          { signal: controller.signal },
-        ),
+        backstageFetch(`${base}${keyPath}`, { signal: controller.signal }),
       )
       .then(readResponse<{ issued: boolean }>)
       .then(result => {
@@ -119,7 +187,7 @@ export function GatewayPlayground({
       });
 
     return () => controller.abort();
-  }, [app.id, backstageFetch, discovery, readUsage]);
+  }, [backstageFetch, discovery, keyPath, readUsage]);
 
   async function issueKey() {
     setPendingAction('issue');
@@ -128,10 +196,9 @@ export function GatewayPlayground({
     setRevealed(false);
     try {
       const base = await discovery.getBaseUrl('governance');
-      const response = await backstageFetch(
-        `${base}/apps/${encodeURIComponent(app.id)}/gateway-key`,
-        { method: 'POST' },
-      );
+      const response = await backstageFetch(`${base}${keyPath}`, {
+        method: 'POST',
+      });
       const result = await readResponse<{ key: string }>(response);
       setKey(result.key);
       setIssued(true);
@@ -149,10 +216,9 @@ export function GatewayPlayground({
     setError('');
     try {
       const base = await discovery.getBaseUrl('governance');
-      const response = await backstageFetch(
-        `${base}/apps/${encodeURIComponent(app.id)}/gateway-key`,
-        { method: 'DELETE' },
-      );
+      const response = await backstageFetch(`${base}${keyPath}`, {
+        method: 'DELETE',
+      });
       if (!response.ok) await readResponse(response);
       setIssued(false);
       setKey(undefined);
@@ -199,17 +265,6 @@ export function GatewayPlayground({
     }
   }
 
-  const { policy } = useGatewayModelPolicy();
-  const classification = app.effectiveClassification ?? app.classification;
-  const approvedModels = policy
-    ? app.models.filter(id =>
-        policy.models.some(
-          model =>
-            model.id === id &&
-            model.allowedClassifications.includes(classification),
-        ),
-      )
-    : app.models;
   const unavailableModels = app.models.filter(
     id => !approvedModels.includes(id),
   );
@@ -230,8 +285,7 @@ export function GatewayPlayground({
   if (usageError) usageText = 'Usage is unavailable.';
 
   return (
-    <section className="gov-gateway" aria-label="Gateway playground">
-      <h3>Gateway playground</h3>
+    <>
       {app.lifecycle !== 'active' && (
         <p>The app must be active to use the gateway.</p>
       )}
@@ -361,6 +415,6 @@ export function GatewayPlayground({
           </ul>
         </details>
       )}
-    </section>
+    </>
   );
 }

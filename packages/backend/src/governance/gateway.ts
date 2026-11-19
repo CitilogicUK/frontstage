@@ -44,6 +44,19 @@ function tokenAggregates(db: Database) {
 }
 
 const keysTable = 'governance_gateway_keys';
+const keyEnvironmentInput = z.enum(['sandbox', 'production']);
+type KeyEnvironment = z.infer<typeof keyEnvironmentInput>;
+type ExecutionMode = 'simulation' | 'openai';
+
+function requestedKeyEnvironment(value: unknown): KeyEnvironment | undefined {
+  if (value === undefined) return undefined;
+  const environment = keyEnvironmentInput.safeParse(value);
+  if (!environment.success)
+    throw new InputError(
+      'Choose the sandbox or production gateway key environment.',
+    );
+  return environment.data;
+}
 const keyEventsTable = 'governance_gateway_key_events';
 const blocksTable = 'governance_gateway_blocks';
 const usageTable = 'governance_gateway_usage';
@@ -208,6 +221,7 @@ type KeyEventRow = {
 function keyAuditFields(
   row: KeyEventRow,
   previous?: { revision: number; digest: string },
+  environment?: KeyEnvironment,
 ) {
   const revision = (previous?.revision ?? -1) + 1;
   const event = JSON.stringify({
@@ -216,6 +230,7 @@ function keyAuditFields(
     action: row.action,
     actor: row.actor,
     at: new Date(row.created_at).toISOString(),
+    ...(environment && { environment }),
     revision,
     previousDigest: previous?.digest ?? null,
   });
@@ -231,6 +246,7 @@ async function logGatewayKeyChange(
   appId: string,
   actor: string,
   action: 'issued' | 'rotated' | 'revoked',
+  environment?: KeyEnvironment,
 ) {
   const previous = await transaction(keyEventsTable)
     .where({ app_id: appId })
@@ -245,7 +261,7 @@ async function logGatewayKeyChange(
   };
   await transaction(keyEventsTable).insert({
     ...row,
-    ...keyAuditFields(row, previous),
+    ...keyAuditFields(row, previous, environment),
   });
 }
 
@@ -254,8 +270,24 @@ export async function revokeGatewayKey(
   appId: string,
   actor: string,
 ) {
-  const deleted = await transaction(keysTable).where({ app_id: appId }).del();
-  if (deleted) await logGatewayKeyChange(transaction, appId, actor, 'revoked');
+  const credentials = transaction(keysTable).where({ app_id: appId });
+  const scopes = await credentials
+    .clone()
+    .orderBy('environment')
+    .select<{ environment: KeyEnvironment }[]>('environment');
+  if (!scopes.length) return;
+  await credentials.del();
+  for (const { environment } of scopes) {
+    await logGatewayKeyChange(
+      transaction,
+      appId,
+      actor,
+      'revoked',
+      scopes.length === 1 && environment === 'sandbox'
+        ? undefined
+        : environment,
+    );
+  }
 }
 
 export function readGatewayKeyEvents(db: Database, appId: string) {
@@ -333,6 +365,45 @@ export function gatewayMigration(appsTable: string) {
       await db.schema.dropTable(usageTable);
       await db.schema.dropTable(keyEventsTable);
       await db.schema.dropTable(keysTable);
+    },
+  };
+}
+
+export function gatewayKeyEnvironmentsMigration(appsTable: string) {
+  return {
+    async up(db: Database) {
+      const scopedKeys = `${keysTable}_scoped`;
+      await db.schema.createTable(scopedKeys, table => {
+        table
+          .string('app_id')
+          .notNullable()
+          .references('id')
+          .inTable(appsTable);
+        table
+          .string('environment', 16)
+          .notNullable()
+          .checkIn(keyEnvironmentInput.options);
+        table.string('digest', 64).unique().notNullable();
+        table.primary(['app_id', 'environment']);
+      });
+      await db(scopedKeys).insert(
+        db(keysTable).select(
+          'app_id',
+          db.raw('? as environment', ['sandbox']),
+          'digest',
+        ),
+      );
+      await db.schema.dropTable(keysTable);
+      await db.schema.renameTable(scopedKeys, keysTable);
+    },
+    async down(db: Database) {
+      // Unscoped credentials must be reissued after rollback. Restoring a
+      // sandbox digest to an unscoped live gateway could grant live access.
+      await db.schema.dropTable(keysTable);
+      await db.schema.createTable(keysTable, table => {
+        table.string('app_id').primary().references('id').inTable(appsTable);
+        table.string('digest', 64).unique().notNullable();
+      });
     },
   };
 }
@@ -557,7 +628,7 @@ export function registerGatewayRoutes(options: {
     );
   }
 
-  const simulated = config.mode === 'simulation';
+  const simulationDeployment = config.mode === 'simulation';
   if (config.enabled && !config.mode) {
     throw new Error(
       'Select an explicit mode before enabling the governance gateway.',
@@ -570,7 +641,7 @@ export function registerGatewayRoutes(options: {
   }
   if (
     config.enabled &&
-    simulated &&
+    simulationDeployment &&
     (process.env.NODE_ENV !== 'development' ||
       !['localhost', '127.0.0.1', '::1'].includes(options.listenHost ?? ''))
   ) {
@@ -578,7 +649,7 @@ export function registerGatewayRoutes(options: {
       'Gateway simulation is available only on a loopback development backend.',
     );
   }
-  if (config.enabled && !simulated && !config.openaiApiKey) {
+  if (config.enabled && !simulationDeployment && !config.openaiApiKey) {
     throw new Error('OpenAI gateway mode requires a provider key.');
   }
   const providerKey = config.openaiApiKey;
@@ -598,11 +669,15 @@ export function registerGatewayRoutes(options: {
     }
   }
 
-  async function recordBlock(appId: string, reason: string) {
+  async function recordBlock(
+    appId: string,
+    reason: string,
+    mode: ExecutionMode,
+  ) {
     await db(blocksTable).insert({
       app_id: appId,
       reason,
-      mode: simulated ? 'simulation' : 'openai',
+      mode,
       created_at: new Date(),
     });
   }
@@ -903,7 +978,11 @@ export function registerGatewayRoutes(options: {
           }))
           .sort((a, b) => a.id.localeCompare(b.id))
       : [];
-    res.json({ enabled: config.enabled, models });
+    res.json({
+      enabled: config.enabled,
+      productionAvailable: config.enabled && config.mode === 'openai',
+      models,
+    });
   });
 
   function checkCatalogOwnership(app: GovernanceRecord) {
@@ -919,18 +998,32 @@ export function registerGatewayRoutes(options: {
     assertEnabled();
     const { record } = await load(req.params.id);
     assertCanEdit(record, principal);
+    const environment =
+      requestedKeyEnvironment(req.query.environment) ?? 'sandbox';
     const existing = await db(keysTable)
-      .where({ app_id: record.id })
+      .where({ app_id: record.id, environment })
       .first('app_id');
     res.set('Cache-Control', 'no-store').json({ issued: Boolean(existing) });
   });
 
   router.delete('/apps/:id/gateway-key', async (req, res) => {
     const { principal } = await httpAuth.credentials(req, { allow: ['user'] });
+    const requestedEnvironment = requestedKeyEnvironment(req.query.environment);
+    const environment = requestedEnvironment ?? 'sandbox';
     await db.transaction(async transaction => {
       const { record } = await load(req.params.id, transaction);
       assertCanEdit(record, principal);
-      await revokeGatewayKey(transaction, record.id, principal.userEntityRef);
+      const deleted = await transaction(keysTable)
+        .where({ app_id: record.id, environment })
+        .del();
+      if (deleted)
+        await logGatewayKeyChange(
+          transaction,
+          record.id,
+          principal.userEntityRef,
+          'revoked',
+          requestedEnvironment,
+        );
     });
     res.set('Cache-Control', 'no-store').status(204).end();
   });
@@ -941,6 +1034,12 @@ export function registerGatewayRoutes(options: {
     const { record, revision } = await load(req.params.id);
     assertCanEdit(record, principal);
     assertGatewayAppType(record);
+    const requestedEnvironment = requestedKeyEnvironment(req.query.environment);
+    const environment = requestedEnvironment ?? 'sandbox';
+    if (environment === 'production' && config.mode !== 'openai')
+      throw new NotAllowedError(
+        'Production gateway keys require a live gateway deployment.',
+      );
     if (record.lifecycle === 'retired')
       throw new NotAllowedError('Retired apps cannot issue gateway keys.');
     if (!record.models.some(model => modelPolicy(record, model))) {
@@ -961,6 +1060,14 @@ export function registerGatewayRoutes(options: {
       if (current.revision !== revision)
         throw new ConflictError('The app changed. Refresh and try again.');
       if (
+        environment === 'production' &&
+        (current.record.lifecycle !== 'active' ||
+          !meetsLaunchRequirements(current.record))
+      )
+        throw new NotAllowedError(
+          'Production gateway keys require an active app that meets current launch requirements.',
+        );
+      if (
         current.record.lifecycle === 'active' &&
         current.record.tier === 3 &&
         !meetsLaunchRequirements(current.record)
@@ -970,13 +1077,13 @@ export function registerGatewayRoutes(options: {
         );
 
       const inserted = await transaction(keysTable)
-        .insert({ app_id: record.id, digest })
-        .onConflict('app_id')
+        .insert({ app_id: record.id, environment, digest })
+        .onConflict(['app_id', 'environment'])
         .ignore()
         .returning('app_id');
       if (!inserted.length) {
         await transaction(keysTable)
-          .where({ app_id: record.id })
+          .where({ app_id: record.id, environment })
           .update({ digest });
       }
       await logGatewayKeyChange(
@@ -984,6 +1091,7 @@ export function registerGatewayRoutes(options: {
         record.id,
         principal.userEntityRef,
         inserted.length ? 'issued' : 'rotated',
+        requestedEnvironment,
       );
     });
     res.set('Cache-Control', 'no-store').status(201).json({ key });
@@ -1014,12 +1122,26 @@ export function registerGatewayRoutes(options: {
           'A valid gateway bearer key is required.',
         );
       const digest = hashKey(key);
-      const credential = await db(keysTable).where({ digest }).first('app_id');
+      const credential = await db<{
+        app_id: string;
+        environment: KeyEnvironment;
+        digest: string;
+      }>(keysTable)
+        .where({ digest })
+        .first('app_id', 'environment');
       if (!credential)
         throw new AuthenticationError(
           'A valid gateway bearer key is required.',
         );
       const { record, revision } = await load(credential.app_id);
+      const simulated = credential.environment === 'sandbox';
+      const mode: ExecutionMode = simulated ? 'simulation' : 'openai';
+      if (!simulated && (config.mode !== 'openai' || !providerKey)) {
+        await recordBlock(record.id, 'environment', mode);
+        throw new NotAllowedError(
+          'Production gateway keys require a live gateway deployment.',
+        );
+      }
 
       const parsed = chatInput.safeParse(req.body);
       if (!parsed.success)
@@ -1030,7 +1152,7 @@ export function registerGatewayRoutes(options: {
       const policy = modelPolicy(record, model);
       const block = launchBlock(record);
       if (block || !policy) {
-        await recordBlock(record.id, block?.reason ?? 'model');
+        await recordBlock(record.id, block?.reason ?? 'model', mode);
         throw new NotAllowedError(
           block?.message ??
             'The model is unavailable for this app and data classification.',
@@ -1038,7 +1160,7 @@ export function registerGatewayRoutes(options: {
       }
 
       if (!(await checkCatalogOwnership(record))) {
-        await recordBlock(record.id, 'ownership');
+        await recordBlock(record.id, 'ownership', mode);
         throw new NotAllowedError(
           'Restore active catalog ownership before calling the gateway.',
         );
@@ -1052,7 +1174,7 @@ export function registerGatewayRoutes(options: {
           requestsPerMinute,
         );
         if (!reservation.allowed) {
-          await recordBlock(record.id, 'rate-limit');
+          await recordBlock(record.id, 'rate-limit', mode);
           res
             .set('Retry-After', String(reservation.retryAfter))
             .set('Cache-Control', 'no-store')
@@ -1071,7 +1193,11 @@ export function registerGatewayRoutes(options: {
       const finalBlock = await db.transaction(async transaction => {
         const current = await load(record.id, transaction);
         const valid = await transaction(keysTable)
-          .where({ app_id: record.id, digest })
+          .where({
+            app_id: record.id,
+            environment: credential.environment,
+            digest,
+          })
           .first('app_id');
         if (!valid)
           throw new AuthenticationError(
@@ -1101,7 +1227,7 @@ export function registerGatewayRoutes(options: {
         return undefined;
       });
       if (finalBlock) {
-        await recordBlock(record.id, finalBlock.reason);
+        await recordBlock(record.id, finalBlock.reason, mode);
         throw new NotAllowedError(finalBlock.message);
       }
 
@@ -1124,7 +1250,7 @@ export function registerGatewayRoutes(options: {
         id: randomUUID(),
         app_id: record.id,
         model,
-        execution_mode: simulated ? 'simulation' : 'openai',
+        execution_mode: mode,
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
         estimated_cost_nanos_usd: estimateCost(
