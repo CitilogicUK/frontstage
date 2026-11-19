@@ -172,4 +172,14 @@ Give concurrent worktrees different browser-test ports so they can run alongside
 FRONTSTAGE_E2E_APP_PORT=3101 FRONTSTAGE_E2E_BACKEND_PORT=7101 yarn verify
 ```
 
-Draft pull requests skip the automated verification job. Ready PR updates, marking a PR ready, and pushes to `main` run the full check. The workflow also supports manual dispatch once it is available on the default branch. The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
+Draft pull requests skip the automated verification job. Run checks in worktrees by default. Set the repository Actions variable `FRONTSTAGE_AUTOMATIC_VERIFICATION` to `enabled` to run the full check on a GitHub-hosted runner for ready PR updates, marking a PR ready, and pushes to `main`. Manual dispatch defaults to the local runner. Once this workflow lands on `main`, start the repository's isolated `frontstage-local` runner for on-demand verification. Dispatch the workflow from `main` and supply the reviewed commit to verify. The tested branch does not need its own copy of the dispatch inputs.
+
+```sh
+gh workflow run verify.yml --ref main -f verification_ref=REVIEWED_COMMIT_SHA
+```
+
+Use a commit you reviewed because the checkout runs its own install and test scripts on the local runner. When the runner is unavailable, run `yarn verify` in the feature worktree.
+
+For an isolated Docker runner, register the Linux runner for this repository with `--ephemeral --labels frontstage-local`. Give it an isolated Docker network with a disposable PostgreSQL 17 container and set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` in the runner container to that database. Set `BACKSTAGE_TEST_DISABLE_DOCKER=1` so Backstage uses the supplied test database without a Docker socket. The runner needs outbound access to GitHub and package registries and permission to install Playwright's Linux dependencies. The runner deregisters after the job, and you can remove its container, the test database, and the network.
+
+The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
