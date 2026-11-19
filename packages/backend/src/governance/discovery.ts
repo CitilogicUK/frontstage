@@ -23,6 +23,7 @@ const githubConfig = z
   .strict();
 
 const githubSearchPageSize = 100;
+const githubSearchPageByteLimit = 4 * 1024 * 1024;
 const githubSearchMaxPages = 3;
 
 const githubResult = z.object({
@@ -244,7 +245,7 @@ export function githubDiscovery(
         redirect: 'error',
       });
       if (!response.ok) {
-        await response.body?.cancel();
+        void response.body?.cancel().catch(() => {});
         return { status: response.status === 404 ? 'missing' : 'unavailable' };
       }
       const mediaType = response.headers
@@ -260,7 +261,7 @@ export function githubDiscovery(
           mediaType === 'text/json' ||
           mediaType?.endsWith('+json'))
       ) {
-        await response.body?.cancel();
+        void response.body?.cancel().catch(() => {});
         return { status: 'unavailable' };
       }
       const content = await readBoundedResponseText(
@@ -470,10 +471,16 @@ export function githubDiscovery(
         const result = await fetch(pageUrl, options)
           .then(async response => {
             if (!response.ok) {
-              await response.body?.cancel();
+              void response.body?.cancel().catch(() => {});
               return undefined;
             }
-            return githubResult.parse(await response.json());
+            const content = await readBoundedResponseText(
+              response,
+              githubSearchPageByteLimit,
+            );
+            return content === undefined
+              ? undefined
+              : githubResult.parse(JSON.parse(content));
           })
           .catch(() => undefined);
         if (!result) {
