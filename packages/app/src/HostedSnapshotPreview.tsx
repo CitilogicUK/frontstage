@@ -30,17 +30,36 @@ export function HostedSnapshotPreview({
     event.preventDefault();
     const form = event.currentTarget;
     setError('');
-    let snapshot: unknown;
-    try {
-      snapshot = JSON.parse(String(new FormData(form).get('snapshot')));
-    } catch {
-      setError('Enter a valid JSON snapshot.');
+    const data = new FormData(form);
+    const pasted = String(data.get('snapshot') ?? '').trim();
+    const selection = data.get('snapshotFile');
+    const file =
+      selection instanceof File && selection.name ? selection : undefined;
+    if (file && pasted) {
+      setError('Choose a snapshot file or paste JSON.');
+      return;
+    }
+    if (!file && !pasted) {
+      setError('Choose a snapshot file or enter JSON.');
+      return;
+    }
+    if (file && file.size > 1024 * 1024) {
+      setError('Choose a snapshot file no larger than 1 MB.');
       return;
     }
     const controller = new AbortController();
     request.current = controller;
     setPending(true);
     try {
+      const raw = file ? await file.text() : pasted;
+      if (controller.signal.aborted) return;
+      let snapshot: unknown;
+      try {
+        snapshot = JSON.parse(raw);
+      } catch {
+        setError('Enter a valid JSON snapshot.');
+        return;
+      }
       await onPreview(snapshot, controller.signal);
       if (!controller.signal.aborted) form.reset();
     } catch (reason) {
@@ -60,16 +79,25 @@ export function HostedSnapshotPreview({
       <div className="gov-report-heading">
         <h2 id="hosted-snapshot-title">Hosted inventory snapshot</h2>
         <p>
-          Paste a JSON object with an <code>apps</code> array. Each app needs a
-          name, provider, workspace, and source URL (<code>sourceUrl</code>).
+          Upload or paste a JSON object with an <code>apps</code> array. Each
+          app needs a name, provider, workspace, and source URL (
+          <code>sourceUrl</code>).
         </p>
       </div>
       <form onSubmit={preview}>
         <fieldset className="gov-fieldset" disabled={pending}>
           <legend>Preview snapshot</legend>
           <label>
+            Snapshot file
+            <input
+              name="snapshotFile"
+              type="file"
+              accept=".json,application/json"
+            />
+          </label>
+          <label>
             Snapshot JSON
-            <textarea name="snapshot" required rows={4} spellCheck={false} />
+            <textarea name="snapshot" rows={4} spellCheck={false} />
           </label>
           <div>
             <button className="gov-button" type="submit">

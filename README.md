@@ -219,7 +219,7 @@ Set `governance.discovery.github.organization` and `topic` to use a different Gi
 
 ## Reconcile a hosted provider inventory
 
-A reviewer can open **Discovery → Hosted inventory snapshot** and paste a JSON export containing up to 100 entries. Each entry needs an app name, provider, enterprise workspace and a distinct HTTPS source URL without credentials.
+A reviewer can open **Discovery → Hosted inventory snapshot** and upload or paste a JSON export containing up to 100 entries. Uploaded files can be up to 1 MB. Each entry needs an app name, provider, enterprise workspace and a distinct HTTPS source URL without credentials.
 
 ```json
 {

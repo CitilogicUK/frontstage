@@ -2692,10 +2692,21 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   const guest = page.getByRole('button', { name: 'Enter', exact: true });
   await expect(heading.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
-  await page
-    .getByRole('textbox', { name: 'Snapshot JSON' })
-    .fill(JSON.stringify(snapshot));
-  await page.getByRole('button', { name: 'Preview hosted snapshot' }).click();
+  const file = page.getByLabel('Snapshot file');
+  const preview = page.getByRole('button', { name: 'Preview hosted snapshot' });
+  await file.setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{'),
+  });
+  await preview.click();
+  await expect(page.getByText('Enter a valid JSON snapshot.')).toBeVisible();
+  await file.setInputFiles({
+    name: 'hosted-inventory.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(snapshot)),
+  });
+  await preview.click();
   await expect(
     page.getByRole('link', { name: 'View app record' }),
   ).toHaveAttribute('href', /app=known-hosted-app/);
