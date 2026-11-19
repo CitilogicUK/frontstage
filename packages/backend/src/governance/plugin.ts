@@ -78,6 +78,7 @@ import {
   reviewTrackConfig,
   trackedReview,
   type Signoffs,
+  type ReviewTrack,
 } from './reviewTracks';
 import { gatewayRateMigration } from './gatewayRateLimit';
 import { parseAppCsv } from './csv';
@@ -282,6 +283,7 @@ export type GovernanceRecord = AppInput & {
   updatedAt: string;
   activeSince?: string;
   reviewNotes?: string;
+  previousReviewChanges?: Partial<Record<ReviewTrack, string>>;
   signoffs?: Signoffs;
   hostedAttestation?: { at: string; nextDue: string };
   hostedReconfirmationAt?: string;
@@ -1525,6 +1527,7 @@ export const governancePlugin = createBackendPlugin({
           return {
             ...result,
             reviewNotes: undefined,
+            previousReviewChanges: undefined,
             reviewTicketUrl: undefined,
             evidence: undefined,
             signoffs: undefined,
@@ -3274,16 +3277,25 @@ export const governancePlugin = createBackendPlugin({
             !ownerChanged &&
             app.backupOwner === record.backupOwner
           ) {
-            if (record.reviewStatus === 'pending' && !record.signoffs) {
-              updated.reviewNotes = record.reviewNotes;
+            if (record.reviewStatus === 'pending') {
+              updated.previousReviewChanges = record.previousReviewChanges;
+              if (!record.signoffs) updated.reviewNotes = record.reviewNotes;
             } else if (record.reviewStatus === 'changes needed') {
-              updated.reviewNotes = trackConfig
-                ? Object.values(
-                    currentSignoffs(record.signoffs, trackConfig, Date.now()),
-                  )
-                    .filter(signoff => signoff.status === 'changes needed')
-                    .sort((a, b) => b.at.localeCompare(a.at))[0]?.notes
-                : record.reviewNotes;
+              if (trackConfig) {
+                const changes = Object.entries(
+                  currentSignoffs(record.signoffs, trackConfig, Date.now()),
+                )
+                  .filter(([, signoff]) => signoff.status === 'changes needed')
+                  .sort(([, a], [, b]) => b.at.localeCompare(a.at));
+                if (changes.length > 0) {
+                  updated.previousReviewChanges = Object.fromEntries(
+                    changes.map(([track, signoff]) => [track, signoff.notes]),
+                  );
+                  updated.reviewNotes = changes[0][1].notes;
+                }
+              } else {
+                updated.reviewNotes = record.reviewNotes;
+              }
             }
           }
           updated.ownerHandover = record.ownerHandover;
@@ -4215,6 +4227,10 @@ export const governancePlugin = createBackendPlugin({
             ...summary,
             signoffs: signoffs || undefined,
             reviewNotes: decision.data.notes,
+            previousReviewChanges:
+              summary.reviewStatus === 'pending'
+                ? record.previousReviewChanges
+                : undefined,
             renewalException: undefined,
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);

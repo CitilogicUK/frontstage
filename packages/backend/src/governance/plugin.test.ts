@@ -6409,34 +6409,67 @@ describe('governance record access', () => {
       const { body: reopened } = await edit(otherTrackApproved, {
         purpose: 'Update the declared purpose after receiving review feedback.',
       });
-      const { body: editedAgain } = await edit(reopened, {
+      expect(reopened.reviewNotes).toBe(requestedChanges);
+      const expectedSecurityChanges = separateTracks
+        ? { security: requestedChanges }
+        : undefined;
+      expect(reopened.previousReviewChanges).toEqual(expectedSecurityChanges);
+
+      const protectionChanges = 'Describe how personal data is minimized.';
+      const { body: blockedBySecurity } = await review(
+        reopened.updatedAt,
+        'changes needed',
+      ).expect(200);
+      const blockedByBoth = separateTracks
+        ? (
+            await review(
+              blockedBySecurity.updatedAt,
+              'changes needed',
+              protection,
+              protectionChanges,
+            ).expect(200)
+          ).body
+        : blockedBySecurity;
+      const { body: bothReopened } = await edit(blockedByBoth, {
+        purpose: 'Address the requested changes in the revised purpose.',
+      });
+      const expectedFeedback = {
+        reviewStatus: 'pending',
+        reviewNotes: separateTracks ? protectionChanges : requestedChanges,
+      };
+      const expectFeedback = (record: typeof app) => {
+        expect(record).toMatchObject(expectedFeedback);
+        expect(record.previousReviewChanges).toEqual(
+          separateTracks
+            ? { security: requestedChanges, dataProtection: protectionChanges }
+            : undefined,
+        );
+      };
+      expectFeedback(bothReopened);
+      const { body: editedAgain } = await edit(bothReopened, {
         purpose: 'Clarify the revised purpose for the next review.',
       });
-      expect(editedAgain).toMatchObject({
-        reviewStatus: 'pending',
-        reviewNotes: requestedChanges,
-      });
+      expectFeedback(editedAgain);
       for (const user of [owner, backup]) {
         const { body: visible } = await api
           .get(path)
           .set('Authorization', auth(user))
           .expect(200);
-        expect(visible).toMatchObject({
-          reviewStatus: 'pending',
-          reviewNotes: requestedChanges,
-        });
+        expectFeedback(visible);
       }
       const { body: unrelated } = await api
         .get(path)
         .set('Authorization', auth('user:default/other'))
         .expect(200);
       expect(unrelated).not.toHaveProperty('reviewNotes');
+      expect(unrelated).not.toHaveProperty('previousReviewChanges');
       await api
         .get(collection)
         .set('Authorization', auth('user:default/other'))
         .expect(200)
         .expect(({ body }) => {
           expect(body.apps[0]).not.toHaveProperty('reviewNotes');
+          expect(body.apps[0]).not.toHaveProperty('previousReviewChanges');
         });
 
       const { body: backupChanged } = await edit(editedAgain, {
@@ -6444,12 +6477,19 @@ describe('governance record access', () => {
       });
       expect(backupChanged.reviewStatus).toBe('pending');
       expect(backupChanged).not.toHaveProperty('reviewNotes');
+      expect(backupChanged).not.toHaveProperty('previousReviewChanges');
       const { body: requestedAgain } = await review(
         backupChanged.updatedAt,
         'changes needed',
       ).expect(200);
+      const { body: pendingTransfer } = await edit(requestedAgain, {
+        purpose: 'Record changes before transferring ownership.',
+      });
+      expect(pendingTransfer.previousReviewChanges).toEqual(
+        expectedSecurityChanges,
+      );
       const newOwner = 'user:default/next-owner';
-      const { body: ownerChanged } = await edit(requestedAgain, {
+      const { body: ownerChanged } = await edit(pendingTransfer, {
         owner: newOwner,
       });
       expect(ownerChanged.reviewStatus).toBe('pending');
@@ -6458,17 +6498,27 @@ describe('governance record access', () => {
         .set('Authorization', auth(newOwner))
         .expect(200);
       expect(transferred).not.toHaveProperty('reviewNotes');
+      expect(transferred).not.toHaveProperty('previousReviewChanges');
       const { body: renewedRequest } = await review(
         ownerChanged.updatedAt,
         'changes needed',
       ).expect(200);
-      const { body: lowerRisk } = await edit(
+      const { body: pendingReassessment } = await edit(
         renewedRequest,
+        { purpose: 'Reconsider the scope before reassessing the app.' },
+        newOwner,
+      );
+      expect(pendingReassessment.previousReviewChanges).toEqual(
+        expectedSecurityChanges,
+      );
+      const { body: lowerRisk } = await edit(
+        pendingReassessment,
         { audience: 'team' },
         newOwner,
       );
       expect(lowerRisk.tier).toBeLessThan(3);
       expect(lowerRisk).not.toHaveProperty('reviewNotes');
+      expect(lowerRisk).not.toHaveProperty('previousReviewChanges');
     },
   );
 

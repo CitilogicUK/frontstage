@@ -1190,6 +1190,7 @@ test('owners can filter Inventory to active requests for review changes', async 
   page,
 }) => {
   const owner = 'user:default/owner';
+  let reopened = false;
   const base = {
     owner,
     purpose: 'Synthetic review fixture',
@@ -1215,17 +1216,27 @@ test('owners can filter Inventory to active requests for review changes', async 
             ...base,
             id: 'needs-changes',
             name: 'Needs changes app',
-            reviewNotes: 'Data Protection approved.',
-            signoffs: {
-              security: {
-                status: 'changes needed',
-                notes: 'Document access checks.',
-              },
-              dataProtection: {
-                status: 'approved',
-                notes: 'Data Protection approved.',
-              },
-            },
+            ...(reopened
+              ? {
+                  reviewStatus: 'pending',
+                  previousReviewChanges: {
+                    security: 'Document access checks.',
+                    dataProtection: 'Clarify data retention.',
+                  },
+                }
+              : {
+                  reviewNotes: 'Data Protection approved.',
+                  signoffs: {
+                    security: {
+                      status: 'changes needed',
+                      notes: 'Document access checks.',
+                    },
+                    dataProtection: {
+                      status: 'approved',
+                      notes: 'Data Protection approved.',
+                    },
+                  },
+                }),
           },
           {
             ...base,
@@ -1270,6 +1281,13 @@ test('owners can filter Inventory to active requests for review changes', async 
   await expect(
     details.getByText('Data Protection approved.', { exact: true }),
   ).toHaveCount(0);
+  reopened = true;
+  await page.goto('/?app=needs-changes');
+  const previous = details.getByRole('region', {
+    name: 'Previous requested changes',
+  });
+  await expect(previous).toContainText('Document access checks.');
+  await expect(previous).toContainText('Clarify data retention.');
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({

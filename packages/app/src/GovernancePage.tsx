@@ -146,6 +146,7 @@ type App = {
   updatedAt: string;
   activeSince?: string;
   reviewNotes?: string;
+  previousReviewChanges?: Partial<Record<ReviewTrack, string>>;
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
@@ -644,6 +645,16 @@ export function GovernancePage() {
       ? [{ track, notes: signoff.notes }]
       : [];
   });
+  const previousRequestedChanges = reviewTracks.flatMap(track => {
+    const notes = selected?.previousReviewChanges?.[track];
+    return notes ? [{ track, notes }] : [];
+  });
+  const displayedChanges = requestedChanges.length
+    ? requestedChanges
+    : previousRequestedChanges;
+  const changesHeading = requestedChanges.length
+    ? 'Requested review changes'
+    : 'Previous requested changes';
   const loadingDiscoveryApp =
     view === 'Discovery' &&
     Boolean(detailId && !selected && discoveryApp?.id !== detailId);
@@ -2902,11 +2913,11 @@ export function GovernancePage() {
                   </form>
                 </details>
               )}
-            {requestedChanges.length > 0 ? (
-              <section aria-label="Requested review changes">
-                <h3>Requested review changes</h3>
+            {displayedChanges.length > 0 ? (
+              <section aria-label={changesHeading}>
+                <h3>{changesHeading}</h3>
                 <ul>
-                  {requestedChanges.map(({ track, notes }) => (
+                  {displayedChanges.map(({ track, notes }) => (
                     <li key={track}>
                       <strong>{reviewTrackLabels[track]}</strong>
                       <p>{notes}</p>
