@@ -77,6 +77,8 @@ import {
   calculateTier,
   evaluateTierPolicy,
   effectiveClassification,
+  hostedDataAccessInput,
+  hostedSharingInput,
   nextReview,
   ReviewStatus,
   reviewTicketUrlInput,
@@ -365,6 +367,11 @@ export const governancePlugin = createBackendPlugin({
             z.object({
               provider: z.string().trim().min(1),
               workspace: z.string().trim().min(1),
+              allowedSharing: z.array(hostedSharingInput).min(1).optional(),
+              allowedDataAccess: z
+                .array(hostedDataAccessInput)
+                .min(1)
+                .optional(),
             }),
           )
           .optional()
@@ -713,13 +720,30 @@ export const governancePlugin = createBackendPlugin({
           return parseApp(entity.data.spec);
         }
 
-        function hostedWorkspaceApproved(app: AppInput) {
-          const hosted = app.hosted;
-          return approvedHostedWorkspaces?.some(
+        function hostedWorkspaceApproval(app: AppInput) {
+          if (!approvedHostedWorkspaces) return 'unconfigured';
+          const { hosted } = app;
+          if (!hosted) return 'unlisted';
+          const entries = approvedHostedWorkspaces.filter(
             entry =>
-              entry.provider === hosted?.provider &&
-              entry.workspace === hosted?.workspace,
+              entry.provider === hosted.provider &&
+              entry.workspace === hosted.workspace,
           );
+          if (!entries.length) return 'unlisted';
+          return entries.some(
+            entry =>
+              (entry.allowedSharing?.includes(hosted.sharing) ?? true) &&
+              (entry.allowedDataAccess?.includes(hosted.dataAccess) ?? true),
+          )
+            ? 'approved'
+            : 'settings-mismatch';
+        }
+
+        function hostedWorkspaceApproved(app: AppInput) {
+          const approval = hostedWorkspaceApproval(app);
+          return approval === 'unconfigured'
+            ? undefined
+            : approval === 'approved';
         }
 
         function workspaceMeetsLaunchRequirements(app: AppInput) {
@@ -744,7 +768,9 @@ export const governancePlugin = createBackendPlugin({
             !workspaceMeetsLaunchRequirements(app)
           ) {
             throw new InputError(
-              'Choose an approved provider workspace before activating this app.',
+              hostedWorkspaceApproval(app) === 'settings-mismatch'
+                ? 'Choose sharing and data access settings allowed for this provider workspace before activating this app.'
+                : 'Choose an approved provider workspace before activating this app.',
             );
           }
         }
@@ -1009,16 +1035,25 @@ export const governancePlugin = createBackendPlugin({
             .filter(
               app =>
                 app.type === 'provider-hosted app' &&
-                app.lifecycle !== 'retired' &&
-                hostedWorkspaceApproved(app) === false,
+                app.lifecycle !== 'retired',
             )
-            .map(app => ({
-              appId: app.id,
-              name: app.name,
-              lifecycle: app.lifecycle,
-              provider: app.hosted?.provider,
-              workspace: app.hosted?.workspace,
-            }))
+            .flatMap(app => {
+              const approval = hostedWorkspaceApproval(app);
+              if (approval !== 'unlisted' && approval !== 'settings-mismatch')
+                return [];
+              return [
+                {
+                  appId: app.id,
+                  name: app.name,
+                  lifecycle: app.lifecycle,
+                  provider: app.hosted?.provider,
+                  workspace: app.hosted?.workspace,
+                  ...(approval === 'settings-mismatch' && {
+                    settingsMismatch: true,
+                  }),
+                },
+              ];
+            })
             .sort(
               (a, b) =>
                 Number(b.lifecycle === 'active') -
@@ -2748,9 +2783,12 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Hosted workspace attestation applies to non-retired provider-hosted apps.',
             );
-          if (hostedWorkspaceApproved(record) === false)
+          const approval = hostedWorkspaceApproval(record);
+          if (approval === 'unlisted' || approval === 'settings-mismatch')
             throw new InputError(
-              'Choose an approved provider workspace before attesting.',
+              approval === 'settings-mismatch'
+                ? 'Choose sharing and data access settings allowed for this provider workspace before attesting.'
+                : 'Choose an approved provider workspace before attesting.',
             );
           await validateOwners(record);
           const at = nextRecordTimestamp(record.updatedAt);

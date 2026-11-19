@@ -7,6 +7,18 @@ export const classification = z.enum([
   'confidential',
   'restricted',
 ]);
+export const hostedSharingInput = z.enum([
+  'private',
+  'named people',
+  'company',
+  'public link',
+]);
+export const hostedDataAccessInput = z.enum([
+  'none',
+  'stores input',
+  'reads connected data',
+  'both',
+]);
 const requiredText = z.string().trim().min(1);
 export const sourceUrl = z
   .string()
@@ -64,13 +76,8 @@ const appFields = z.object({
     .object({
       provider: requiredText,
       workspace: requiredText,
-      sharing: z.enum(['private', 'named people', 'company', 'public link']),
-      dataAccess: z.enum([
-        'none',
-        'stores input',
-        'reads connected data',
-        'both',
-      ]),
+      sharing: hostedSharingInput,
+      dataAccess: hostedDataAccessInput,
       dataClassification: classification.optional(),
     })
     .optional(),

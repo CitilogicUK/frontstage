@@ -7,6 +7,8 @@ governance:
   approvedHostedWorkspaces:
     - provider: Example AI
       workspace: Company sandbox
+      allowedSharing: [private, named people]
+      allowedDataAccess: ['none']
   approvedConnectors:
     - id: catalog-sandbox
       name: Catalog sandbox

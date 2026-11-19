@@ -3729,6 +3729,12 @@ describe('governance record access', () => {
               reviewers: [reviewer],
               approvedHostedWorkspaces: [
                 { provider: 'Example AI', workspace: 'Company' },
+                {
+                  provider: 'Example AI',
+                  workspace: 'Limited',
+                  allowedSharing: ['private'],
+                  allowedDataAccess: ['none'],
+                },
               ],
             },
           },
@@ -3853,11 +3859,13 @@ describe('governance record access', () => {
     const { body: changed } = await edit(renamed, {
       hosted: {
         ...renamed.hosted,
+        sharing: 'company',
         dataAccess: 'stores input',
         dataClassification: 'internal',
       },
     });
     expect(changed).not.toHaveProperty('hostedAttestation');
+    expect(changed.hostedWorkspaceAllowed).toBe(true);
     const { body: renewed } = await attest(changed).expect(200);
     const { body: reassigned } = await edit(renewed, { owner: nextOwner });
     expect(reassigned).not.toHaveProperty('hostedAttestation');
@@ -3884,6 +3892,44 @@ describe('governance record access', () => {
     expect(converted).not.toHaveProperty('hostedAttestation');
     expect(converted).not.toHaveProperty('hostedWorkspaceAllowed');
     await attest(converted).expect(400);
+
+    const { body: limited } = await create('Limited').expect(201);
+    const activate = (app: { id: string; updatedAt: string }) =>
+      api
+        .patch(`${apps}/${app.id}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle: 'active', expectedUpdatedAt: app.updatedAt });
+    const { body: shared } = await edit(limited, {
+      hosted: { ...limited.hosted, sharing: 'company' },
+    });
+    expect(shared.hostedWorkspaceAllowed).toBe(false);
+    await activate(shared).expect(400);
+    await attest(shared).expect(400);
+    const { body: workspaceIssues } = await api
+      .get('/api/governance/reports/hosted-workspaces')
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(workspaceIssues.issues).toContainEqual(
+      expect.objectContaining({ appId: shared.id, settingsMismatch: true }),
+    );
+
+    const { body: storesInput } = await edit(shared, {
+      hosted: {
+        ...limited.hosted,
+        dataAccess: 'stores input',
+        dataClassification: 'internal',
+      },
+    });
+    expect(storesInput.hostedWorkspaceAllowed).toBe(false);
+    await activate(storesInput).expect(400);
+    await attest(storesInput).expect(400);
+
+    const { body: compliant } = await edit(storesInput, {
+      hosted: limited.hosted,
+    });
+    expect(compliant.hostedWorkspaceAllowed).toBe(true);
+    const { body: compliantActive } = await activate(compliant).expect(200);
+    await attest(compliantActive).expect(200);
 
     const { body: history } = await api
       .get(`${path}/history`)

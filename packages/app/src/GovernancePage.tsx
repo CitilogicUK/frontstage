@@ -2377,7 +2377,8 @@ export function GovernancePage() {
                 {actor === selected.owner &&
                   selected.hostedWorkspaceAllowed === false && (
                     <p>
-                      Choose an approved workspace in Edit app details before
+                      Choose an approved workspace and use its permitted sharing
+                      and data access settings in Edit app details before
                       confirming.
                     </p>
                   )}

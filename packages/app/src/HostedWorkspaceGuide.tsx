@@ -7,7 +7,12 @@ import {
 
 type WorkspacePolicy = {
   configured: boolean;
-  workspaces: Array<{ provider: string; workspace: string }>;
+  workspaces: Array<{
+    provider: string;
+    workspace: string;
+    allowedSharing?: string[];
+    allowedDataAccess?: string[];
+  }>;
 };
 
 export function HostedWorkspaceGuide() {
@@ -50,11 +55,22 @@ export function HostedWorkspaceGuide() {
       )}
       {!!policy?.workspaces.length && (
         <ul>
-          {policy.workspaces.map(({ provider, workspace }, index) => (
-            <li key={`${provider}-${workspace}-${index}`}>
-              {provider} · {workspace}
-            </li>
-          ))}
+          {policy.workspaces.map(
+            (
+              { provider, workspace, allowedSharing, allowedDataAccess },
+              index,
+            ) => (
+              <li key={`${provider}-${workspace}-${index}`}>
+                {provider} · {workspace}
+                {allowedSharing && (
+                  <p>Allowed sharing: {allowedSharing.join(', ')}</p>
+                )}
+                {allowedDataAccess && (
+                  <p>Allowed data access: {allowedDataAccess.join(', ')}</p>
+                )}
+              </li>
+            ),
+          )}
         </ul>
       )}
     </section>
