@@ -407,31 +407,38 @@ export function PortfolioReport({
     )
     .sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd);
 
-  function downloadReport(team?: string) {
-    if (!report) return;
-    const baseFields = (row: { appId: string; mode: string }) => ({
-      from: report.from,
+  function exportAppFields(from: string, row: { appId: string; mode: string }) {
+    return {
+      from,
       appId: row.appId,
       appName: byId.get(row.appId)?.name ?? row.appId,
       team: teamOf(row.appId),
       mode: row.mode,
-    });
+    };
+  }
+
+  function exportBlock(from: string, row: UsageReport['blocks'][number]) {
+    return {
+      ...exportAppFields(from, row),
+      reason: row.reason,
+      successfulCalls: 0,
+      blockedCalls: row.calls,
+      estimatedCostUsd: 0,
+    };
+  }
+
+  function downloadReport(team?: string) {
+    if (!report) return;
     const exportRows = [
       ...report.usage.map(row => ({
-        ...baseFields(row),
+        ...exportAppFields(report.from, row),
         model: row.model,
         successfulCalls: row.calls,
         blockedCalls: 0,
         estimatedCostUsd: row.estimatedCostUsd,
         tokens: row.tokens,
       })),
-      ...report.blocks.map(row => ({
-        ...baseFields(row),
-        reason: row.reason,
-        successfulCalls: 0,
-        blockedCalls: row.calls,
-        estimatedCostUsd: 0,
-      })),
+      ...report.blocks.map(row => exportBlock(report.from, row)),
     ];
     const csv = portfolioCsv(
       team ? exportRows.filter(row => row.team === team) : exportRows,
@@ -1189,6 +1196,22 @@ export function PortfolioReport({
                   ))}
                 </select>
               </label>
+            )}
+            {report && blocks.length > 0 && (
+              <button
+                type="button"
+                className="gov-button"
+                onClick={() =>
+                  downloadCsv(
+                    portfolioCsv(
+                      blocks.map(row => exportBlock(report.from, row)),
+                    ),
+                    'frontstage-gateway-policy-blocks.csv',
+                  )
+                }
+              >
+                Download policy blocks CSV
+              </button>
             )}
           </div>
           {blocks.length === 0 && (
