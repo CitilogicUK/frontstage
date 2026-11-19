@@ -42,6 +42,8 @@ The local image smoke test also checks that Frontstage becomes ready after an ap
 
 For an audit restore drill, save the record and key head digests separately from the backup while the test app is quiescent. After restoring, export Audit history again before making changes. Pass the saved record head as the second argument to `yarn audit:verify` and the saved key head with `--key-head`. If the versioned export had no key events, use `--expect-no-key-events` instead. After writes resume, use the saved nonempty digests with `--checkpoint` and `--key-checkpoint` to check that the new history still includes them.
 
+The mocked live-provider integration test also verifies that a malformed provider reply returns a generic error and leaves synthetic prompts, upstream content, and credentials out of the response and failure log. [Gateway integration test](../packages/backend/src/governance/plugin.test.ts)
+
 ## Metric scope
 
 | Spec metric          | What the prototype measures                                                                                                                                                                                                                                                    |
