@@ -1,3 +1,6 @@
+import { appRecordUrl } from './reviewDue';
+import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
+
 const usageColumns = [
   'window_start_utc',
   'app_id',
@@ -30,7 +33,7 @@ export type PortfolioExportRow = {
 
 function csvCell(value: string | number) {
   if (typeof value === 'number') return String(value);
-  const spreadsheetSafe = /^[\t\r\n]|^\s*[=+@-]/u.test(value)
+  const spreadsheetSafe = /^[\t\r\n]|^\s*[=+@＝＋－＠-]/u.test(value)
     ? `'${value}`
     : value;
   return `"${spreadsheetSafe.replace(/"/g, '""')}"`;
@@ -173,6 +176,39 @@ export function firstDecisionsCsv(
       app.team,
       app.workingDays ?? '',
       target ?? '',
+    ]),
+  );
+}
+
+export function pendingSignoffsCsv(
+  apps: Array<{
+    id: string;
+    name: string;
+    owner: string;
+    team: string;
+    missingTracks: ReviewTrack[];
+    nextReview: string | null;
+  }>,
+  baseUrl: string,
+) {
+  return encodeCsv(
+    [
+      'app_id',
+      'app_name',
+      'owner',
+      'team',
+      'pending_sign_offs',
+      'next_review_utc',
+      'app_url',
+    ],
+    apps.map(app => [
+      app.id,
+      app.name,
+      app.owner,
+      app.team,
+      app.missingTracks.map(track => reviewTrackLabels[track]).join(' | '),
+      app.nextReview ?? '',
+      appRecordUrl(baseUrl, app.id).href,
     ]),
   );
 }

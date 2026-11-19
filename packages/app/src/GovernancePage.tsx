@@ -38,9 +38,17 @@ import {
   downloadCsv,
   firstDecisionsCsv,
   inventoryCsv,
+  pendingSignoffsCsv,
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
+import {
+  AppDirectory,
+  AppDirectoryPublisher,
+  type DirectoryListing,
+} from './AppDirectory';
+import { DirectoryRequestQueue } from './DirectoryAccessRequests';
+import { AppBackupHandover } from './AppBackupHandover';
 import { AppGraduation, type Graduation } from './AppGraduation';
 import {
   AppRetirementReview,
@@ -91,6 +99,8 @@ type App = {
     dataAccess: string;
     dataClassification?: string;
   };
+  hostedWorkspaceAllowed?: boolean;
+  hostedAttestation?: { at: string; nextDue: string };
   deliveryStage?: string;
   tier: number;
   reviewStatus: string;
@@ -102,6 +112,8 @@ type App = {
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  directoryListing?: DirectoryListing;
+  directoryLaunchEligible?: boolean;
   reviewTicketUrl?: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
@@ -135,6 +147,7 @@ type View = Exclude<keyof typeof workspaceViews, 'Catalog'>;
 
 const viewParameters = new Map<string, View>([
   ['register', 'Register'],
+  ['directory', 'Directory'],
   ['discovery', 'Discovery'],
   ['reviews', 'Reviews'],
   ['reports', 'Reports'],
@@ -147,11 +160,17 @@ function appOwner(ref: string) {
   return ref.replace(/^user:default\//, '');
 }
 
+function isAcceptedEngineeringCoOwner(app: App, actor: string) {
+  return (
+    app.graduation?.status === 'accepted' && actor === app.graduation.nominee
+  );
+}
+
 function isIndependentReviewer(app: App, actor: string) {
   return (
     actor !== app.owner &&
     actor !== app.backupOwner &&
-    (app.graduation?.status !== 'accepted' || actor !== app.graduation.nominee)
+    !isAcceptedEngineeringCoOwner(app, actor)
   );
 }
 
@@ -294,9 +313,11 @@ export function GovernancePage() {
   const reviewFilter =
     reviewParam === 'all' ||
     reviewParam === 'required' ||
-    ((reviewParam === 'first' || reviewParam === 'first-target') &&
+    ((reviewParam === 'first' ||
+      reviewParam === 'first-target' ||
+      reviewParam === 'missing-ticket') &&
       canReview) ||
-    (reviewParam === 'mine' && reviewerTracks.length > 0)
+    (reviewParam === 'mine' && canReview && reviewerTracks.length > 0)
       ? reviewParam
       : 'attention';
   const [error, setError] = useState('');
@@ -352,8 +373,19 @@ export function GovernancePage() {
     view === 'Discovery' &&
     Boolean(detailId && !selected && discoveryApp?.id !== detailId);
   const [message, setMessage] = useState('');
+  const [appEditorToggle, setAppEditorToggle] = useState<{
+    key: string;
+    open: boolean;
+  }>();
 
+  const appEditorKey = `${selected?.id}-edit-${selected?.updatedAt}`;
+  const appEditorOpen =
+    appEditorToggle?.key === appEditorKey
+      ? appEditorToggle.open
+      : params.get('edit') === '1';
   const reviewDate = selected && scheduledReviewDate(selected);
+  const actorIsAcceptedCoOwner =
+    selected !== undefined && isAcceptedEngineeringCoOwner(selected, actor);
   const canNominateCoOwner =
     selected &&
     graduationEnabled &&
@@ -371,13 +403,13 @@ export function GovernancePage() {
       : undefined;
   const canManageRenewalException =
     canReview && !!selected && isIndependentReviewer(selected, actor);
-  const canDownloadReminder =
+  const canDownloadReminders =
     selected &&
-    reviewDate &&
     (actor === selected.owner || actor === selected.backupOwner || canReview);
+  const hostedAttestationDue = selected?.hostedAttestation?.nextDue;
 
   function downloadReviewReminders(
-    reminders: Array<{ app: App; due: Date }>,
+    reminders: Parameters<typeof reviewCalendar>[0],
     filename: string,
   ) {
     const calendar = reviewCalendar(reminders, config.getString('app.baseUrl'));
@@ -407,6 +439,7 @@ export function GovernancePage() {
   }
 
   function closeApp() {
+    setAppEditorToggle(undefined);
     setSelected(undefined);
     setError('');
     setMessage('');
@@ -481,24 +514,28 @@ export function GovernancePage() {
     mergeSavedApps([record]);
   }
 
-  async function refresh() {
-    const result = await api('/apps');
-    setApps(result.apps);
-    setActor(result.actor ?? '');
-    setCanReview(result.canReview);
-    setGraduationEnabled(result.graduationEnabled === true);
-    setReviewTracks(result.reviewTracks ?? []);
-    setReviewerTracks(result.reviewerTracks ?? []);
-    setGatewayEnabled(result.gatewayEnabled === true);
-  }
-
+  const inventoryRequested = useRef(false);
   useEffect(() => {
-    refresh()
-      .catch(reason => setError(String(reason)))
+    if (view === 'Directory' || inventoryRequested.current) return;
+    inventoryRequested.current = true;
+    setLoading(true);
+    setError('');
+    api('/apps')
+      .then(result => {
+        setApps(result.apps);
+        setActor(result.actor ?? '');
+        setCanReview(result.canReview);
+        setGraduationEnabled(result.graduationEnabled === true);
+        setReviewTracks(result.reviewTracks ?? []);
+        setReviewerTracks(result.reviewerTracks ?? []);
+        setGatewayEnabled(result.gatewayEnabled === true);
+      })
+      .catch(reason => {
+        inventoryRequested.current = false;
+        setError(String(reason));
+      })
       .finally(() => setLoading(false));
-    // The Backstage APIs are stable for the lifetime of the page.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [api, view]);
 
   useEffect(() => {
     if (view !== 'Discovery' && view !== 'Reports' && !repositoryId)
@@ -914,10 +951,18 @@ export function GovernancePage() {
   const firstDecisionWait = new Map(
     reviewTurnaround?.pendingApps?.map(app => [app.appId, app.workingDays]),
   );
+  function missingSignoffs(app: App) {
+    return isIndependentReviewer(app, actor) && requiresCriticalReview(app, now)
+      ? reviewerTracks.filter(track => !app.signoffs?.[track])
+      : [];
+  }
+
   function matchesReviewFilter(app: App) {
     if (app.tier !== 3 || app.lifecycle === 'retired') return false;
     if (reviewFilter === 'attention') return appReview(app, now).priority <= 1;
     if (reviewFilter === 'required') return requiresCriticalReview(app, now);
+    if (reviewFilter === 'missing-ticket')
+      return !app.reviewTicketUrl && requiresCriticalReview(app, now);
     if (firstDecisionQueue) {
       if (!pendingFirstDecisions.has(app.id)) return false;
       if (!firstDecisionTargetQueue) return true;
@@ -925,13 +970,7 @@ export function GovernancePage() {
       const target = reviewTurnaround?.target?.workingDays;
       return wait !== undefined && target !== undefined && wait >= target;
     }
-    if (reviewFilter === 'mine') {
-      return (
-        isIndependentReviewer(app, actor) &&
-        requiresCriticalReview(app, now) &&
-        reviewerTracks.some(track => !app.signoffs?.[track])
-      );
-    }
+    if (reviewFilter === 'mine') return missingSignoffs(app).length > 0;
     return true;
   }
 
@@ -1002,6 +1041,11 @@ export function GovernancePage() {
         ? 'Check all first decisions to see the rest of the queue.'
         : 'No first-decision target is configured.';
     }
+    if (reviewFilter === 'missing-ticket') {
+      emptyTitle = 'No missing review tickets';
+      emptyMessage =
+        'Every app that currently requires review has a linked ticket.';
+    }
     if (reviewFilter === 'mine') {
       emptyTitle = 'No pending sign-offs for you';
       emptyMessage = 'Check all critical apps to see the rest of the queue.';
@@ -1024,7 +1068,7 @@ export function GovernancePage() {
           This app record is unavailable.
         </p>
       )}
-      {error && !selected && (
+      {view !== 'Directory' && error && !selected && (
         <p
           className={
             view === 'Import' ? 'gov-notice gov-import-error' : 'gov-notice'
@@ -1034,7 +1078,7 @@ export function GovernancePage() {
           {error}
         </p>
       )}
-      {message && !selected && (
+      {view !== 'Directory' && message && !selected && (
         <p className="gov-notice" role="status">
           {message}
         </p>
@@ -1208,6 +1252,11 @@ export function GovernancePage() {
                     {canReview && (
                       <option value="first">Awaiting first decision</option>
                     )}
+                    {canReview && (
+                      <option value="missing-ticket">
+                        Missing review ticket
+                      </option>
+                    )}
                     {canReview &&
                       (reviewTurnaround?.target ||
                         firstDecisionTargetQueue) && (
@@ -1215,7 +1264,7 @@ export function GovernancePage() {
                           At or over first-decision target
                         </option>
                       )}
-                    {reviewerTracks.length > 0 && (
+                    {canReview && reviewerTracks.length > 0 && (
                       <option value="mine">My pending sign-offs</option>
                     )}
                     <option value="all">All critical apps</option>
@@ -1271,6 +1320,29 @@ export function GovernancePage() {
                     }
                   >
                     Download first decisions CSV
+                  </button>
+                )}
+              {view === 'Reviews' &&
+                reviewFilter === 'mine' &&
+                !loading &&
+                !error &&
+                matching.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadCsv(
+                        pendingSignoffsCsv(
+                          matching.map(app => ({
+                            ...app,
+                            missingTracks: missingSignoffs(app),
+                          })),
+                          config.getString('app.baseUrl'),
+                        ),
+                        'frontstage-pending-signoffs.csv',
+                      )
+                    }
+                  >
+                    Download pending sign-offs CSV
                   </button>
                 )}
               {!loading && !error && reminderEntries.length > 0 && (
@@ -1538,7 +1610,7 @@ export function GovernancePage() {
             {selected.nextReview && (
               <p>Next review due {selected.nextReview.slice(0, 10)}.</p>
             )}
-            {canDownloadReminder && (
+            {canDownloadReminders && reviewDate && (
               <button
                 type="button"
                 onClick={() =>
@@ -1582,6 +1654,85 @@ export function GovernancePage() {
                   <button disabled={busy}>Record attestation</button>
                 </form>
               )}
+            {selected.hosted && selected.lifecycle !== 'retired' && (
+              <section aria-label="Hosted workspace attestation">
+                <h3>Quarterly hosted workspace attestation</h3>
+                <p>
+                  {selected.hosted.provider} · {selected.hosted.workspace} ·
+                  Sharing: {selected.hosted.sharing} · Data access:{' '}
+                  {selected.hosted.dataAccess}
+                  {selected.hosted.dataClassification &&
+                    ` (${selected.hosted.dataClassification})`}
+                </p>
+                {selected.hostedAttestation ? (
+                  <p>
+                    Last confirmed {selected.hostedAttestation.at.slice(0, 10)}.{' '}
+                    {Date.parse(selected.hostedAttestation.nextDue) <= now
+                      ? 'Overdue since'
+                      : 'Next due'}{' '}
+                    {selected.hostedAttestation.nextDue.slice(0, 10)}.
+                  </p>
+                ) : (
+                  <p>Workspace settings have not been confirmed.</p>
+                )}
+                {canDownloadReminders &&
+                  hostedAttestationDue &&
+                  Number.isFinite(Date.parse(hostedAttestationDue)) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadReviewReminders(
+                          [
+                            {
+                              app: selected,
+                              due: new Date(hostedAttestationDue),
+                              kind: 'hosted-attestation',
+                            },
+                          ],
+                          'frontstage-workspace-attestation.ics',
+                        )
+                      }
+                    >
+                      Download workspace reminder
+                    </button>
+                  )}
+                {actor === selected.owner &&
+                  selected.hostedWorkspaceAllowed === false && (
+                    <p>
+                      Choose an approved workspace in Edit app details before
+                      confirming.
+                    </p>
+                  )}
+                {actor === selected.owner &&
+                  selected.hostedWorkspaceAllowed !== false && (
+                    <form
+                      key={`hosted-attest-${selected.id}-${selected.updatedAt}`}
+                      onSubmit={event =>
+                        submit(event, async data => {
+                          const updated = await api(
+                            `/apps/${selected.id}/hosted-attestation`,
+                            {
+                              confirmed: data.get('confirmed') === 'on',
+                              expectedUpdatedAt: selected.updatedAt,
+                            },
+                          );
+                          applySavedApp(updated);
+                          setMessage('Hosted workspace attestation recorded.');
+                        })
+                      }
+                    >
+                      <label>
+                        <input type="checkbox" name="confirmed" required />I
+                        checked the provider and confirm the workspace, sharing,
+                        and data access match this record.
+                      </label>
+                      <button disabled={busy}>
+                        Record workspace attestation
+                      </button>
+                    </form>
+                  )}
+              </section>
+            )}
             {selected.evidence &&
               evidenceFields.some(([field]) => selected.evidence?.[field]) && (
                 <section aria-label="Review evidence">
@@ -1613,18 +1764,85 @@ export function GovernancePage() {
                 </a>
               </p>
             )}
+            {selected.tier === 3 &&
+              selected.lifecycle !== 'retired' &&
+              (actor === selected.owner || canReview) && (
+                <details
+                  className="gov-app-editor"
+                  key={`review-ticket-${selected.id}`}
+                >
+                  <summary>Edit review ticket</summary>
+                  <p>Clear the URL and save to remove the ticket link.</p>
+                  <form
+                    key={selected.updatedAt}
+                    onSubmit={event => {
+                      if (appEditorOpen) {
+                        event.preventDefault();
+                        return;
+                      }
+                      submit(event, async data => {
+                        const url =
+                          String(data.get('ticket-url') ?? '').trim() || null;
+                        applySavedApp(
+                          await api(
+                            `/apps/${selected.id}/review-ticket`,
+                            { url, expectedUpdatedAt: selected.updatedAt },
+                            'PATCH',
+                          ),
+                        );
+                        setMessage(
+                          url
+                            ? 'Review ticket saved.'
+                            : 'Review ticket removed.',
+                        );
+                      });
+                    }}
+                  >
+                    <label>
+                      Ticket URL
+                      <input
+                        name="ticket-url"
+                        type="url"
+                        defaultValue={selected.reviewTicketUrl}
+                      />
+                    </label>
+                    {appEditorOpen && (
+                      <p>
+                        Save any changes to the app details and close that
+                        editor to use this shortcut.
+                      </p>
+                    )}
+                    <button disabled={busy || appEditorOpen}>
+                      Save review ticket
+                    </button>
+                  </form>
+                </details>
+              )}
             {selected.reviewNotes && <p>{selected.reviewNotes}</p>}
             {(actor === selected.owner || canReview) && (
               <details
                 className="gov-app-editor"
-                key={`${selected.id}-edit-${selected.updatedAt}`}
-                open={params.get('edit') === '1' || undefined}
+                key={appEditorKey}
+                onToggle={event =>
+                  setAppEditorToggle({
+                    key: appEditorKey,
+                    open: event.currentTarget.open,
+                  })
+                }
+                open={appEditorOpen}
               >
                 <summary>Edit app details</summary>
                 {selected.tier === 3 && (
                   <p>
                     Changes to purpose, ownership, or review evidence require a
                     new review. Moving to production also requires a new review.
+                  </p>
+                )}
+                {actorIsAcceptedCoOwner && (
+                  <p id="engineering-handoff-edit-help">
+                    Ask the accountable owner or another reviewer to change the
+                    owner or delivery stage. These changes end your engineering
+                    handoff.
                   </p>
                 )}
                 <form
@@ -1654,7 +1872,9 @@ export function GovernancePage() {
                                 .map(model => model.trim())
                                 .filter(Boolean)
                             : [],
-                          deliveryStage: data.get('deliveryStage') || undefined,
+                          deliveryStage: actorIsAcceptedCoOwner
+                            ? selected.deliveryStage
+                            : data.get('deliveryStage') || undefined,
                           reviewTicketUrl: data.get('reviewTicketUrl') || null,
                           evidence: Object.fromEntries(
                             evidenceFields.map(([field]) => [
@@ -1757,10 +1977,16 @@ export function GovernancePage() {
                       aria-labelledby="app-editor-owner-label"
                       required
                       name="owner"
+                      readOnly={actorIsAcceptedCoOwner}
                       aria-describedby={
-                        selected.usesAiAtRuntime !== false
-                          ? 'ownership-handoff-help'
-                          : undefined
+                        [
+                          actorIsAcceptedCoOwner &&
+                            'engineering-handoff-edit-help',
+                          selected.usesAiAtRuntime !== false &&
+                            'ownership-handoff-help',
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || undefined
                       }
                       defaultValue={selected.owner}
                     />
@@ -1786,6 +2012,12 @@ export function GovernancePage() {
                     Delivery stage
                     <select
                       name="deliveryStage"
+                      disabled={actorIsAcceptedCoOwner}
+                      aria-describedby={
+                        actorIsAcceptedCoOwner
+                          ? 'engineering-handoff-edit-help'
+                          : undefined
+                      }
                       defaultValue={selected.deliveryStage ?? ''}
                     >
                       <option value="">Select a stage</option>
@@ -1845,12 +2077,87 @@ export function GovernancePage() {
                 </form>
               </details>
             )}
+            {selected.lifecycle === 'active' &&
+              (actor === selected.owner || canReview) && (
+                <AppDirectoryPublisher
+                  key={`directory-publisher-${selected.id}`}
+                  listing={selected.directoryListing}
+                  launchEligible={selected.directoryLaunchEligible !== false}
+                  updatedAt={selected.updatedAt}
+                  busy={busy}
+                  onPublish={event =>
+                    submit(event, async data => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/directory`,
+                          {
+                            summary: String(data.get('summary') ?? '').trim(),
+                            url: String(data.get('url') ?? '').trim(),
+                            expectedUpdatedAt: selected.updatedAt,
+                          },
+                          'PUT',
+                        ),
+                      );
+                      setMessage('Directory listing saved.');
+                    })
+                  }
+                  onUnpublish={event =>
+                    submit(event, async () => {
+                      applySavedApp(
+                        await api(
+                          `/apps/${selected.id}/directory`,
+                          { expectedUpdatedAt: selected.updatedAt },
+                          'DELETE',
+                        ),
+                      );
+                      setMessage('Directory listing removed.');
+                    })
+                  }
+                />
+              )}
+            {(actor === selected.owner || canReview) && (
+              <DirectoryRequestQueue
+                key={`directory-requests-${selected.id}`}
+                appId={selected.id}
+                appRevision={selected.updatedAt}
+                listingMeetsLaunchRequirements={
+                  selected.lifecycle === 'active' &&
+                  selected.directoryLaunchEligible !== false &&
+                  !!selected.directoryListing
+                }
+              />
+            )}
+            {actor === selected.backupOwner && (
+              <AppBackupHandover
+                key={`backup-handover-${selected.id}`}
+                appId={selected.id}
+                updatedAt={selected.updatedAt}
+                tier={selected.tier}
+                busy={busy}
+                onTakeOwnership={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/backup-handover`, {
+                        backupOwner:
+                          String(data.get('backupOwner') ?? '').trim() ||
+                          undefined,
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('You are now the accountable owner.');
+                  })
+                }
+              />
+            )}
             {(canNominateCoOwner || selected.graduation) && (
               <AppGraduation
                 key={`graduation-${selected.updatedAt}`}
                 graduation={selected.graduation}
                 canNominate={canNominateCoOwner === true}
-                canCancel={actor === selected.owner || canReview}
+                canRemove={
+                  (actor === selected.owner || canReview) &&
+                  !actorIsAcceptedCoOwner
+                }
                 canDecide={
                   graduationEnabled &&
                   nomineeCanDecideGraduation(selected, actor)
@@ -1867,16 +2174,26 @@ export function GovernancePage() {
                     setMessage('Engineering co-owner nominated.');
                   })
                 }
-                onCancel={event =>
-                  submit(event, async () => {
+                onRemove={event =>
+                  submit(event, async data => {
+                    const ending = selected.graduation?.status === 'accepted';
                     applySavedApp(
                       await api(
                         `/apps/${selected.id}/graduation`,
-                        { expectedUpdatedAt: selected.updatedAt },
+                        {
+                          expectedUpdatedAt: selected.updatedAt,
+                          reason: ending
+                            ? String(data.get('reason') ?? '').trim()
+                            : undefined,
+                        },
                         'DELETE',
                       ),
                     );
-                    setMessage('Engineering nomination cancelled.');
+                    setMessage(
+                      ending
+                        ? 'Engineering handoff ended.'
+                        : 'Engineering nomination cancelled.',
+                    );
                   })
                 }
                 onDecide={event =>
@@ -1960,14 +2277,22 @@ export function GovernancePage() {
                 <label>
                   Lifecycle
                   <select name="lifecycle" defaultValue={selected.lifecycle}>
-                    {options(appLifecycles)}
+                    {options(
+                      actorIsAcceptedCoOwner
+                        ? appLifecycles.filter(value => value !== 'retired')
+                        : appLifecycles,
+                    )}
                   </select>
                 </label>
                 <label>
                   Reason for lifecycle change (optional)
                   <textarea name="reason" maxLength={500} />
                 </label>
-                <p>Retiring an app also revokes its gateway key.</p>
+                <p>
+                  {actorIsAcceptedCoOwner
+                    ? 'Ask the owner or another reviewer to retire this app.'
+                    : 'Retiring an app also revokes its gateway key.'}
+                </p>
                 <button disabled={busy}>Update lifecycle</button>
               </form>
             )}
@@ -2117,6 +2442,7 @@ export function GovernancePage() {
           error={reportError}
         />
       )}
+      {view === 'Directory' && <AppDirectory />}
       {view === 'Discovery' &&
         (discoveryError ? (
           <p role="alert" className="gov-notice">
