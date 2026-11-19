@@ -2127,6 +2127,74 @@ describe('governance record access', () => {
     expect(ownerEnded.body).not.toHaveProperty('graduation');
   });
 
+  it('previews hosted inventory for reviewers without creating app records', async () => {
+    const reviewer = 'user:default/reviewer';
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const preview = (user: string) =>
+      api
+        .post('/api/governance/discovery/hosted/preview')
+        .set('Authorization', mockCredentials.user.header(user));
+    const known = {
+      name: 'Existing hosted assistant',
+      provider: 'Example AI',
+      workspace: 'Enterprise',
+      sourceUrl: 'https://example.com/apps/known',
+    };
+    const candidate = {
+      ...known,
+      name: 'Unregistered hosted assistant',
+      sourceUrl: 'https://example.com/apps/new',
+    };
+    await db('governance_apps').insert({
+      id: 'known',
+      source_key: known.sourceUrl,
+      payload: '{}',
+      revision: 0,
+    });
+    await preview('user:default/builder')
+      .send({ apps: [known] })
+      .expect(403);
+    await preview(reviewer)
+      .send({
+        apps: [
+          { ...candidate, sourceUrl: 'https://name:secret@example.com/app' },
+        ],
+      })
+      .expect(400);
+    await preview(reviewer)
+      .send({
+        apps: [
+          known,
+          { ...known, sourceUrl: 'https://EXAMPLE.com/apps/known' },
+        ],
+      })
+      .expect(400);
+    for (const apps of [
+      [known, candidate],
+      [candidate, known],
+    ]) {
+      await preview(reviewer)
+        .send({ apps })
+        .expect('Cache-Control', 'no-store')
+        .expect(200, {
+          apps: apps.map(app =>
+            app === known ? { ...app, appId: 'known' } : app,
+          ),
+        });
+    }
+    expect(await db('governance_apps').pluck('id')).toEqual(['known']);
+  });
+
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
     const reviewer = 'user:default/reviewer';
     const owner = 'user:default/owner';

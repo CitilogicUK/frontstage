@@ -82,6 +82,28 @@ import {
   tierPolicyInput,
 } from './policy';
 
+const hostedInventoryInput = z
+  .object({
+    apps: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(100),
+            provider: z.string().trim().min(1).max(100),
+            workspace: z.string().trim().min(1).max(100),
+            sourceUrl: z
+              .string()
+              .trim()
+              .max(2048)
+              .refine(isHttpsUrlWithoutCredentials),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  })
+  .strict();
+
 const importInput = z.union([
   z.object({ apps: z.array(z.unknown()).min(1).max(100) }).strict(),
   z.object({ csv: z.string().min(1).max(500_000) }).strict(),
@@ -1573,6 +1595,38 @@ export const governancePlugin = createBackendPlugin({
             decision.data.action === 'dismiss' ? decision.data.reason : null,
           );
           res.json({ action: decision.data.action });
+        });
+
+        router.post('/discovery/hosted/preview', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          const input = hostedInventoryInput.safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide 1 to 100 apps with a name, provider, workspace and HTTPS source URL without credentials.',
+            );
+
+          const sources = input.data.apps.map(app =>
+            appSourceKey(app.sourceUrl),
+          );
+          if (new Set(sources).size !== sources.length)
+            throw new InputError('Each app must have a distinct source URL.');
+
+          const matches = await db(table)
+            .whereIn('source_key', sources)
+            .select<{ id: string; source_key: string }[]>('id', 'source_key');
+          const registered = new Map(
+            matches.map(app => [app.source_key, app.id]),
+          );
+          res.set('Cache-Control', 'no-store').json({
+            apps: input.data.apps.map((app, index) => ({
+              ...app,
+              appId: registered.get(sources[index]),
+            })),
+          });
         });
 
         router.get('/discovery/github/:id/descriptor', async (req, res) => {
