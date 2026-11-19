@@ -120,17 +120,20 @@ export function DirectoryRequestAction({
 
 export function DirectoryRequestQueue({
   appId,
-  hasListing,
+  listingMeetsLaunchRequirements,
+  appRevision,
 }: {
   appId: string;
-  hasListing: boolean;
+  listingMeetsLaunchRequirements: boolean;
+  appRevision: string;
 }) {
   const api = useDirectoryRequestApi(appId);
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<AccessRequestQueue>();
   const [queueVersion, setQueueVersion] = useState(0);
   const requests = queue?.requests;
-  const canApprove = hasListing && queue?.canApprove === true;
+  const canApprove =
+    listingMeetsLaunchRequirements && queue?.canApprove === true;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -148,7 +151,7 @@ export function DirectoryRequestQueue({
       },
     );
     return () => controller.abort();
-  }, [api, hasListing, open, queueVersion]);
+  }, [api, appRevision, open, queueVersion]);
 
   async function decide(event: FormEvent<HTMLFormElement>, requestId: string) {
     event.preventDefault();

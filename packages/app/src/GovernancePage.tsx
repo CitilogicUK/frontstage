@@ -1896,8 +1896,11 @@ export function GovernancePage() {
               <DirectoryRequestQueue
                 key={`directory-requests-${selected.id}`}
                 appId={selected.id}
-                hasListing={
-                  selected.lifecycle === 'active' && !!selected.directoryListing
+                appRevision={selected.updatedAt}
+                listingMeetsLaunchRequirements={
+                  selected.lifecycle === 'active' &&
+                  selected.directoryLaunchEligible !== false &&
+                  !!selected.directoryListing
                 }
               />
             )}

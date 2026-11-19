@@ -2659,6 +2659,17 @@ test('a directory access request receives a recorded owner decision', async ({
   await page.route('**/api/governance/apps', route =>
     route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
   );
+  await page.route('**/api/governance/apps/access-app/directory', route => {
+    expect(route.request().method()).toBe('PUT');
+    canApprove = true;
+    return route.fulfill({
+      json: {
+        ...app,
+        directoryLaunchEligible: true,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+      },
+    });
+  });
   await page.route('**/api/governance/directory', route =>
     route.fulfill({
       json: {
@@ -2759,11 +2770,10 @@ test('a directory access request receives a recorded owner decision', async ({
   await details.getByRole('button', { name: 'Record access decision' }).click();
   await expect(details.getByRole('alert')).toHaveText(conflictMessage);
   await expect(approve).toBeDisabled();
-  const queue = details.getByText('Directory access requests', { exact: true });
-  await queue.click();
-  await expect(approve).toHaveCount(0);
-  canApprove = true;
-  await queue.click();
+  await details.getByText('Directory listing', { exact: true }).click();
+  await details
+    .getByRole('button', { name: 'Update directory listing' })
+    .click();
   await expect(approve).toBeEnabled();
   await details
     .getByRole('combobox', { name: 'Access decision' })
