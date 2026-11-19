@@ -1940,6 +1940,7 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
 
 test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   let registered = false;
+  let discoveryUnavailable = true;
   await page.route('**/api/governance/apps/registered-app', route =>
     route.fulfill({
       json: {
@@ -1963,8 +1964,14 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
       json: { actor: 'user:default/reviewer', canReview: true, apps: [] },
     }),
   );
-  await page.route('**/api/governance/discovery/github', route =>
-    route.fulfill({
+  await page.route('**/api/governance/discovery/github', route => {
+    if (discoveryUnavailable) {
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Discovery is temporarily unavailable.' } },
+      });
+    }
+    return route.fulfill({
       json: {
         source: { organization: 'example', topic: 'governance' },
         lastScan: null,
@@ -1980,16 +1987,19 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
           },
         ],
       },
-    }),
-  );
+    });
+  });
   await page.route(
-    '**/api/governance/discovery/github',
+    '**/api/governance/discovery/github/sample/sdk-evidence',
     route =>
       route.fulfill({
-        status: 503,
-        json: { error: { message: 'Discovery is temporarily unavailable.' } },
+        json: {
+          manifests: [
+            { path: 'package.json', status: 'checked', packages: ['openai'] },
+            { path: 'requirements.txt', status: 'missing', packages: [] },
+          ],
+        },
       }),
-    { times: 1 },
   );
   await page.route(
     '**/api/governance/discovery/github/sample/decision',
@@ -2014,8 +2024,18 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText(
     'temporarily unavailable',
   );
+  discoveryUnavailable = false;
   await page.getByRole('button', { name: 'Retry loading Discovery' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
+  const discoveryRow = page.getByRole('row', { name: /Sample repository/ });
+  await discoveryRow
+    .getByRole('button', { name: 'Check AI SDK dependencies' })
+    .click();
+  await expect(discoveryRow.getByText(/openai/i)).toBeVisible();
+  await expect(discoveryRow.getByText(/requirements\.txt/i)).toBeVisible();
+  await expect(
+    discoveryRow.getByRole('link', { name: 'Claim repository' }),
+  ).toBeVisible();
   await page.getByText('Dismiss repository', { exact: true }).click();
   await page.getByLabel('Dismissal reason').fill('Not an app');
   await page.getByRole('button', { name: 'Confirm dismissal' }).click();

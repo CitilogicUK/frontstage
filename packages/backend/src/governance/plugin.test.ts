@@ -1685,6 +1685,10 @@ describe('governance record access', () => {
       .expect(200);
     const preview = (id: number, user: string) =>
       api.get(`${discovery}/${id}/descriptor`).set('Authorization', auth(user));
+    const evidence = (id: number, user: string) =>
+      api
+        .get(`${discovery}/${id}/sdk-evidence`)
+        .set('Authorization', auth(user));
     const descriptor = {
       apiVersion: 'governance.backstage.io/v1alpha1',
       kind: 'AIApp',
@@ -1725,6 +1729,7 @@ describe('governance record access', () => {
     });
     for (const id of [200, 400]) {
       await preview(id, owner).expect(200, { status: 'unavailable' });
+      await evidence(id, owner).expect(404);
       await api
         .post(`${discovery}/${id}/claim`)
         .set('Authorization', auth(owner))
@@ -1736,6 +1741,14 @@ describe('governance record access', () => {
       .get(`${discovery}/100/descriptor`)
       .set('Authorization', mockCredentials.none.header())
       .expect(401);
+    await api
+      .get(`${discovery}/100/sdk-evidence`)
+      .set('Authorization', mockCredentials.none.header())
+      .expect(401);
+    await api
+      .get(`${discovery}/100/sdk-evidence`)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
     expect(github).toHaveBeenCalledTimes(1);
     github.mockResolvedValueOnce(
       new Response(
@@ -1770,6 +1783,92 @@ describe('governance record access', () => {
       }),
     );
     expect(await db('governance_apps')).toEqual([]);
+
+    github
+      .mockResolvedValueOnce(
+        Response.json({
+          dependencies: { openai: '^4', 'unrelated-package': '^1' },
+          devDependencies: { '@anthropic-ai/sdk': '^1' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('google_genai>=1\n# langchain', {
+          headers: { 'Content-Type': 'application/vnd.github.raw+json' },
+        }),
+      );
+    await evidence(100, owner)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, {
+        manifests: [
+          {
+            path: 'package.json',
+            status: 'checked',
+            packages: ['@anthropic-ai/sdk', 'openai'],
+          },
+          {
+            path: 'requirements.txt',
+            status: 'checked',
+            packages: ['google-genai'],
+          },
+        ],
+      });
+    expect(github.mock.calls.slice(-2)).toEqual(
+      ['package.json', 'requirements.txt'].map(path => [
+        new URL(`https://api.github.com/repos/example/helper/contents/${path}`),
+        expect.objectContaining({
+          headers: {
+            Accept: 'application/vnd.github.raw+json',
+            'User-Agent': 'Frontstage',
+          },
+          redirect: 'error',
+          signal: expect.any(AbortSignal),
+        }),
+      ]),
+    );
+    expect(await db('governance_apps')).toEqual([]);
+
+    github
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(''));
+    await evidence(200, reviewer).expect(200, {
+      manifests: [
+        { path: 'package.json', status: 'missing', packages: [] },
+        { path: 'requirements.txt', status: 'checked', packages: [] },
+      ],
+    });
+    expect(github.mock.calls.slice(-2)).toEqual(
+      ['package.json', 'requirements.txt'].map(path => [
+        new URL(
+          `https://api.github.com/repos/example/private/contents/${path}`,
+        ),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: `Bearer ${token}`,
+          }),
+          redirect: 'error',
+        }),
+      ]),
+    );
+
+    github
+      .mockResolvedValueOnce(new Response('invalid JSON'))
+      .mockResolvedValueOnce(new Response('x'.repeat(100_001)));
+    await evidence(100, owner).expect(200, {
+      manifests: [
+        { path: 'package.json', status: 'unavailable', packages: [] },
+        { path: 'requirements.txt', status: 'unavailable', packages: [] },
+      ],
+    });
+
+    github
+      .mockResolvedValueOnce(Response.json({}))
+      .mockResolvedValueOnce(Response.json({ type: 'dir', entries: [] }));
+    await evidence(100, owner).expect(200, {
+      manifests: [
+        { path: 'package.json', status: 'checked', packages: [] },
+        { path: 'requirements.txt', status: 'unavailable', packages: [] },
+      ],
+    });
 
     github.mockResolvedValueOnce(new Response(null, { status: 404 }));
     await preview(200, reviewer).expect(200, { status: 'unavailable' });
@@ -1808,6 +1907,20 @@ describe('governance record access', () => {
     await preview(100, reviewer).expect(200, { status: 'unavailable' });
     await preview(300, reviewer).expect(200, { status: 'unavailable' });
     await preview(999, reviewer).expect(200, { status: 'unavailable' });
+    for (const id of [100, 300, 999]) await evidence(id, reviewer).expect(404);
+    expect(github).not.toHaveBeenCalled();
+
+    github
+      .mockImplementationOnce(async () => {
+        await db('governance_discovered_repositories')
+          .where({ id: '400' })
+          .update({ is_stale: true });
+        return Response.json({ dependencies: { openai: '^4' } });
+      })
+      .mockResolvedValueOnce(new Response('openai'));
+    await evidence(400, reviewer).expect(404);
+    github.mockClear();
+    await evidence(400, reviewer).expect(404);
     expect(github).not.toHaveBeenCalled();
   });
 

@@ -1551,6 +1551,20 @@ export const governancePlugin = createBackendPlugin({
           res.json({ status: 'unavailable' });
         });
 
+        router.get('/discovery/github/:id/sdk-evidence', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          res.set('Cache-Control', 'no-store');
+          const evidence = await github.sdkEvidence(
+            req.params.id,
+            reviewers.includes(principal.userEntityRef),
+          );
+          if (!evidence)
+            throw new NotFoundError('Discovered repository not found.');
+          res.json(evidence);
+        });
+
         router.post('/discovery/github/:id/claim', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
