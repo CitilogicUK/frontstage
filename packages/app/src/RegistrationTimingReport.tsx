@@ -5,11 +5,19 @@ import {
   useApi,
 } from '@backstage/core-plugin-api';
 
-type RegistrationTiming = {
+import {
+  downloadCsv,
+  registrationTimingCsv,
+  type RegistrationTimingTotals,
+} from './portfolioExport';
+
+type RegistrationTiming = Omit<
+  RegistrationTimingTotals,
+  'windowStartUtc' | 'windowEndUtc'
+> & {
   enabled: boolean;
-  days: number;
-  sampleCount: number;
-  medianSeconds: number | null;
+  windowStartUtc?: string;
+  windowEndUtc?: string;
 };
 
 export function RegistrationTimingReport() {
@@ -37,6 +45,8 @@ export function RegistrationTimingReport() {
     return () => controller.abort();
   }, [attempt, discovery, fetch]);
 
+  const { windowStartUtc, windowEndUtc } = report ?? {};
+
   return (
     <section
       className="gov-panel gov-stage-report"
@@ -44,6 +54,23 @@ export function RegistrationTimingReport() {
     >
       <div className="gov-report-heading">
         <h2 id="registration-timing-title">Tier 1 registration time</h2>
+        {report?.enabled && windowStartUtc && windowEndUtc && (
+          <button
+            type="button"
+            onClick={() =>
+              downloadCsv(
+                registrationTimingCsv({
+                  ...report,
+                  windowStartUtc,
+                  windowEndUtc,
+                }),
+                'frontstage-registration-timing.csv',
+              )
+            }
+          >
+            Download registration timing CSV
+          </button>
+        )}
       </div>
       {report === undefined && (
         <p role="status">Loading registration timing…</p>

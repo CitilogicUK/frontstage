@@ -486,6 +486,35 @@ export function registrationFeedbackCsv(report: RegistrationFeedbackTotals) {
   );
 }
 
+export type RegistrationTimingTotals = {
+  days: number;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  sampleCount: number;
+  medianSeconds: number | null;
+};
+
+export function registrationTimingCsv(report: RegistrationTimingTotals) {
+  return encodeCsv(
+    [
+      'window_start_utc',
+      'window_end_utc',
+      'window_days',
+      'sample_count',
+      'median_seconds',
+    ],
+    [
+      [
+        report.windowStartUtc,
+        report.windowEndUtc,
+        report.days,
+        report.sampleCount,
+        report.medianSeconds ?? '',
+      ],
+    ],
+  );
+}
+
 export function downloadCsv(csv: string, filename: string) {
   const url = URL.createObjectURL(
     new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }),

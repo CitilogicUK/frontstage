@@ -67,6 +67,6 @@ Use managed test accounts and a synthetic Tier 3 app owned by the builder. Keep 
 | Time to decision     | Median UTC weekdays from first pending Tier 3 submission to the first overall approval or request for changes. Pending decisions appear in the queue.                                                                                                                          |
 | Builder satisfaction | The opt-in local report shows the response rate and satisfied share for feedback offered after interactive registration over 30 UTC calendar days. The form also emits the optional three-point response through Backstage Analytics. A pilot needs a representative baseline. |
 
-The **Registration feedback** report offers a reviewer CSV download with the inclusive UTC date range and aggregate offer, response, and satisfied counts.
+Reviewers can download CSVs from **Tier 1 registration time** and **Registration feedback**. Both include the inclusive UTC date range. The timing export includes sample count and median seconds, and the feedback export includes aggregate offer, response, and satisfied counts.
 
 The percentages and time targets in the spec are proposals. Collect representative pilot data before using them as launch criteria.
