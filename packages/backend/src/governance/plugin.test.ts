@@ -1725,6 +1725,9 @@ describe('governance record access', () => {
         }),
       ],
     });
+    const feedbackTime = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-08-30T23:59:59Z'));
     const api = request(server);
     const ownerAuth = mockCredentials.user.header(owner);
     const reviewerAuth = mockCredentials.user.header(reviewer);
@@ -1795,6 +1798,8 @@ describe('governance record access', () => {
     const aggregate = {
       enabled: true,
       days: 30,
+      windowStartUtc: '2026-08-01',
+      windowEndUtc: '2026-08-30',
       eligibleCount: 2,
       responseCount: 1,
       satisfiedCount: 1,
@@ -1814,12 +1819,14 @@ describe('governance record access', () => {
       expect(row.token_digest).toMatch(/^[a-f0-9]{64}$/);
     }
 
-    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 30 * 86_400_000);
+    feedbackTime.mockReturnValue(Date.parse('2026-09-29T00:00:00Z'));
     await submit(ownerAuth, token, 3).expect(404);
     await report()
       .set('Authorization', reviewerAuth)
       .expect(200, {
         ...aggregate,
+        windowStartUtc: '2026-08-31',
+        windowEndUtc: '2026-09-29',
         eligibleCount: 0,
         responseCount: 0,
         satisfiedCount: 0,

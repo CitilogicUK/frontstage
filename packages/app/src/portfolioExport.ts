@@ -454,6 +454,38 @@ export function retirementReviewsCsv(
   );
 }
 
+export type RegistrationFeedbackTotals = {
+  days: number;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  eligibleCount: number;
+  responseCount: number;
+  satisfiedCount: number;
+};
+
+export function registrationFeedbackCsv(report: RegistrationFeedbackTotals) {
+  return encodeCsv(
+    [
+      'window_start_utc',
+      'window_end_utc',
+      'window_days',
+      'eligible_count',
+      'response_count',
+      'satisfied_count',
+    ],
+    [
+      [
+        report.windowStartUtc,
+        report.windowEndUtc,
+        report.days,
+        report.eligibleCount,
+        report.responseCount,
+        report.satisfiedCount,
+      ],
+    ],
+  );
+}
+
 export function downloadCsv(csv: string, filename: string) {
   const url = URL.createObjectURL(
     new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }),

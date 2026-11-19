@@ -90,8 +90,9 @@ export async function registrationFeedbackReport(db: Knex, enabled: boolean) {
       responseCount: 0,
       satisfiedCount: 0,
     };
+  const [windowStartUtc, windowEndUtc] = utcWindow();
   const stats = await db(feedbackTable)
-    .whereBetween('utc_day', utcWindow())
+    .whereBetween('utc_day', [windowStartUtc, windowEndUtc])
     .count({ eligibleCount: '*', responseCount: 'rating' })
     .select(
       db.raw('sum(case when rating = ? then 1 else 0 end) as ??', [
@@ -107,6 +108,8 @@ export async function registrationFeedbackReport(db: Knex, enabled: boolean) {
   return {
     enabled,
     days,
+    windowStartUtc,
+    windowEndUtc,
     eligibleCount: Number(stats?.eligibleCount ?? 0),
     responseCount: Number(stats?.responseCount ?? 0),
     satisfiedCount: Number(stats?.satisfiedCount ?? 0),

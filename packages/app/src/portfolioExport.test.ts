@@ -2,6 +2,7 @@ import {
   hostedSnapshotCsv,
   pendingSignoffsCsv,
   portfolioCsv,
+  registrationFeedbackCsv,
 } from './portfolioExport';
 
 it('exports hosted observations without inferring unsupplied declarations', () => {
@@ -99,5 +100,21 @@ it('exports pending sign-off labels with spreadsheet-safe names and a blank unkn
       `"app-two","'＋Example app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z","https://frontstage.example.com/tools/?app=app-two",0`,
       '',
     ].join('\r\n'),
+  );
+});
+
+it('exports only the aggregate registration feedback window and counts', () => {
+  const report = {
+    days: 30,
+    windowStartUtc: '2026-08-01',
+    windowEndUtc: '2026-08-30',
+    eligibleCount: 8,
+    responseCount: 4,
+    satisfiedCount: 3,
+    actor: 'user:default/private',
+    feedbackToken: 'private-token',
+  };
+  expect(registrationFeedbackCsv(report)).toBe(
+    'window_start_utc,window_end_utc,window_days,eligible_count,response_count,satisfied_count\r\n"2026-08-01","2026-08-30",30,8,4,3\r\n',
   );
 });
