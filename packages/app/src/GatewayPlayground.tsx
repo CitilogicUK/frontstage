@@ -32,6 +32,8 @@ type GatewayResponse = {
   output: string;
   model: string;
   simulated: boolean;
+  frontstageMs?: string;
+  providerMs?: string;
 };
 
 type GatewayApp = {
@@ -277,7 +279,17 @@ function GatewayEnvironmentPanel({
           expectedEnvironment: environment,
         }),
       });
-      setReply(await readResponse<GatewayResponse>(response));
+      const result = await readResponse<GatewayResponse>(response);
+      const timing = response.headers.get('Server-Timing');
+      setReply({
+        ...result,
+        frontstageMs: timing?.match(
+          /(?:^|,\s*)frontstage;dur=(\d+)(?:,|$)/,
+        )?.[1],
+        providerMs: !result.simulated
+          ? timing?.match(/(?:^|,\s*)provider;dur=(\d+)(?:,|$)/)?.[1]
+          : undefined,
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -412,6 +424,8 @@ function GatewayEnvironmentPanel({
           <p>
             {reply.model} ·{' '}
             {reply.simulated ? 'Simulated response' : 'Live response'}
+            {reply.frontstageMs && ` · Frontstage ${reply.frontstageMs} ms`}
+            {reply.providerMs && ` · Provider ${reply.providerMs} ms`}
           </p>
           <pre>{reply.output}</pre>
         </div>
