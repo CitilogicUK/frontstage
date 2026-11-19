@@ -825,9 +825,11 @@ export function GovernancePage() {
   const firstDecisionQueue =
     (view === 'Reviews' && reviewFilter === 'first') ||
     firstDecisionTargetQueue;
+  const pendingSignoffsQueue = view === 'Reviews' && reviewFilter === 'mine';
+  const needsReviewTurnaround =
+    view === 'Reports' || firstDecisionQueue || pendingSignoffsQueue;
   useEffect(() => {
-    if (!canReview || (view !== 'Reports' && !firstDecisionQueue))
-      return undefined;
+    if (!canReview || !needsReviewTurnaround) return undefined;
     let active = true;
     setReviewTurnaround(undefined);
     api('/reports/review-turnaround').then(
@@ -841,7 +843,7 @@ export function GovernancePage() {
     return () => {
       active = false;
     };
-  }, [api, apps, canReview, firstDecisionQueue, reviewTurnaroundAttempt, view]);
+  }, [api, apps, canReview, needsReviewTurnaround, reviewTurnaroundAttempt]);
 
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
@@ -1350,7 +1352,13 @@ export function GovernancePage() {
         scheduledReviewDate(a)?.getTime() ?? Number.POSITIVE_INFINITY;
       const bDue =
         scheduledReviewDate(b)?.getTime() ?? Number.POSITIVE_INFINITY;
-      return priority || aDue - bDue || a.name.localeCompare(b.name);
+      const waitPriority = pendingSignoffsQueue
+        ? (firstDecisionWait.get(b.id) ?? -1) -
+          (firstDecisionWait.get(a.id) ?? -1)
+        : 0;
+      return (
+        priority || aDue - bDue || waitPriority || a.name.localeCompare(b.name)
+      );
     });
   }
 
@@ -2007,9 +2015,10 @@ export function GovernancePage() {
                       );
                       const review = appReview(app, now);
                       const daysOverdue = reviewDaysOverdue(app, now);
-                      const waitingDays = firstDecisionQueue
-                        ? firstDecisionWait.get(app.id)
-                        : undefined;
+                      const waitingDays =
+                        firstDecisionQueue || pendingSignoffsQueue
+                          ? firstDecisionWait.get(app.id)
+                          : undefined;
                       return (
                         <tr key={app.id}>
                           <td className="gov-app-cell">
@@ -2103,6 +2112,7 @@ export function GovernancePage() {
                                   maximumFractionDigits: 1,
                                 })}{' '}
                                 weekdays waiting
+                                {pendingSignoffsQueue && ' for first decision'}
                               </small>
                             )}
                             {waitingDays !== undefined &&

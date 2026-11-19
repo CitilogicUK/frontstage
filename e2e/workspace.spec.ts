@@ -4614,6 +4614,17 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
     }),
   );
 
+  await page.route('**/api/governance/reports/review-turnaround', route =>
+    route.fulfill({
+      json: {
+        pendingApps: [
+          { appId: 'other-pilot', workingDays: 9 },
+          { appId: 'matching-pilot', workingDays: 6.5 },
+        ],
+      },
+    }),
+  );
+
   const reviews = page.getByRole('region', { name: 'Critical app reviews' });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   const exportButton = reviews.getByRole('button', {
@@ -4627,6 +4638,15 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
   }
   await openReviews();
   await expect(reviewFilter).toHaveValue('mine');
+  const rows = reviews.getByRole('row').filter({ has: page.getByRole('cell') });
+  await expect(rows.nth(0)).toContainText('Stock count pilot');
+  await expect(rows.nth(0)).toContainText(
+    '9 weekdays waiting for first decision',
+  );
+  await expect(rows.nth(1)).toContainText('Matching pilot');
+  await expect(rows.nth(1)).toContainText(
+    '6.5 weekdays waiting for first decision',
+  );
   await expect(
     reviews.getByRole('row').filter({
       hasText: /Matching pilot|Stock count pilot|Matching production/,
