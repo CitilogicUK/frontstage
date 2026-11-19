@@ -4470,6 +4470,20 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(mismatchedConnection).toContainText(
     'Registry limits · Write · confidential',
   );
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
+  const discrepancies = page.getByRole('region', {
+    name: 'Connector discrepancies',
+  });
+  await expect(discrepancies).toContainText('Sandbox orders');
+  await expect(discrepancies).toContainText('Unlisted CRM');
+  await expect(discrepancies).not.toContainText('Catalog search');
+  const reviewApp = discrepancies.getByRole('link', { name: app.name });
+  await expect(reviewApp).toHaveAttribute('href', /app=connector-review/);
+  await reviewApp.click();
+  await expect(details).toBeVisible();
+  await expect(connections).toContainText('Catalog search');
+
   await details.getByText('Edit app details', { exact: true }).click();
   const systems = details.getByRole('group', { name: 'Connected systems' });
   await expect(

@@ -33,6 +33,7 @@ import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 import { NoLiveCallsSinceActivation } from './AppRetirementReview';
 import { OutsideGatewayUsage } from './OutsideGatewayUsage';
 import { ManagerEscalations } from './ManagerEscalations';
+import { ConnectorDiscrepancies } from './ApprovedConnectorsGuide';
 import { findStarter } from './AppTemplates';
 
 type AppSummary = {
@@ -48,6 +49,7 @@ type AppSummary = {
   lifecycle: string;
   platform: string;
   models: string[];
+  connections?: Array<{ name: string; access: string }>;
   classification: string;
   effectiveClassification?: string;
   deliveryStage?: string;
@@ -1140,6 +1142,9 @@ export function PortfolioReport({
       )}
       {canReview && (
         <ManagerEscalations key={appSaveVersion} appLink={reportAppLink} />
+      )}
+      {canReview && (
+        <ConnectorDiscrepancies apps={apps} appLink={reportAppLink} />
       )}
       {report?.monthlySpendAlerts && (
         <section

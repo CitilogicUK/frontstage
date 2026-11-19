@@ -4,7 +4,7 @@ import {
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
-import { Link } from 'react-router-dom';
+import { Link, type To } from 'react-router-dom';
 import { appClassifications } from './appDimensions';
 
 type ApprovedConnectors = {
@@ -19,6 +19,29 @@ type ApprovedConnectors = {
     docsUrl?: string;
   }>;
 };
+
+type Connection = { name: string; access: string };
+type Connector = ApprovedConnectors['connectors'][number];
+
+function entriesForConnection(connectors: Connector[], name: string) {
+  const declaredName = name.trim().toLowerCase();
+  return connectors.filter(
+    connector => connector.name.trim().toLowerCase() === declaredName,
+  );
+}
+
+function connectionStatus(
+  entries: Connector[],
+  connection: Connection,
+  classification: string,
+) {
+  if (!entries.length) return 'No matching registry entry';
+  return entries.some(connector =>
+    connectorSupports(connector, connection.access, classification),
+  )
+    ? 'Matches registry limits'
+    : 'Access or classification differs from registry';
+}
 
 function connectorSupports(
   connector: ApprovedConnectors['connectors'][number],
@@ -129,24 +152,17 @@ export function DeclaredConnections({
   connections,
   classification,
 }: {
-  connections: Array<{ name: string; access: string }>;
+  connections: Connection[];
   classification: string;
 }) {
   const { registry, failed } = useApprovedConnectors();
 
-  function registryStatus(connection: { name: string; access: string }) {
+  function registryStatus(connection: Connection) {
     if (!registry?.configured) return undefined;
-    const name = connection.name.trim().toLowerCase();
-    const entries = registry.connectors.filter(
-      connector => connector.name.trim().toLowerCase() === name,
-    );
-    if (!entries.length) return 'No matching registry entry';
-    if (
-      entries.some(connector =>
-        connectorSupports(connector, connection.access, classification),
-      )
-    )
-      return 'Matches registry limits';
+    const entries = entriesForConnection(registry.connectors, connection.name);
+    const status = connectionStatus(entries, connection, classification);
+    if (status !== 'Access or classification differs from registry')
+      return status;
     const limits = [
       ...new Set(
         entries.map(
@@ -159,7 +175,7 @@ export function DeclaredConnections({
     ];
     return (
       <>
-        Access or classification differs from registry
+        {status}
         <br />
         Registry limits · {limits.join(' / ')}
       </>
@@ -195,6 +211,83 @@ export function DeclaredConnections({
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+export function ConnectorDiscrepancies({
+  apps,
+  appLink,
+}: {
+  apps: Array<{
+    id: string;
+    name: string;
+    lifecycle: string;
+    classification: string;
+    effectiveClassification?: string;
+    connections?: Connection[];
+  }>;
+  appLink: (appId: string) => To;
+}) {
+  const { registry, failed } = useApprovedConnectors();
+  const issues = registry?.configured
+    ? apps
+        .flatMap(app => {
+          if (app.lifecycle === 'retired') return [];
+          const classification =
+            app.effectiveClassification ?? app.classification;
+          const discrepancies = (app.connections ?? []).flatMap(connection => {
+            const entries = entriesForConnection(
+              registry.connectors,
+              connection.name,
+            );
+            const status = connectionStatus(
+              entries,
+              connection,
+              classification,
+            );
+            return status === 'Matches registry limits'
+              ? []
+              : [{ ...connection, status }];
+          });
+          return discrepancies.length ? [{ app, discrepancies }] : [];
+        })
+        .sort((a, b) => a.app.name.localeCompare(b.app.name))
+    : [];
+  return (
+    <section
+      className="gov-panel gov-stage-report"
+      aria-labelledby="connector-discrepancies-title"
+    >
+      <div className="gov-report-heading">
+        <h2 id="connector-discrepancies-title">Connector discrepancies</h2>
+        {failed && <p role="alert">The connector registry could not load.</p>}
+        {!failed && !registry && (
+          <p role="status">Loading approved connectors…</p>
+        )}
+        {registry && !registry.configured && (
+          <p>No connector registry is configured.</p>
+        )}
+        {registry?.configured && !issues.length && (
+          <p>No connector discrepancies found.</p>
+        )}
+      </div>
+      {!!issues.length && (
+        <ul>
+          {issues.map(({ app, discrepancies }) => (
+            <li key={app.id}>
+              <Link to={appLink(app.id)}>{app.name}</Link>
+              <ul>
+                {discrepancies.map(({ name, access, status }, index) => (
+                  <li key={`${name}-${index}`}>
+                    {name} · {access} · {status}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
