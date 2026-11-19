@@ -3172,11 +3172,14 @@ export function GovernancePage() {
               submit(event, async data => {
                 const value = (key: string) =>
                   String(data.get(key) ?? '').trim();
-                const endpoint = candidate
-                  ? `/discovery/github/${encodeURIComponent(
-                      candidate.id,
-                    )}/claim`
-                  : '/apps';
+                let endpoint = '/apps';
+                if (candidate) {
+                  endpoint = `/discovery/github/${encodeURIComponent(
+                    candidate.id,
+                  )}/claim`;
+                } else if (hostedRegistration) {
+                  endpoint = '/apps?source=hosted-snapshot';
+                }
                 const deliveryStage = parseDeliveryStage(
                   value('deliveryStage'),
                 );

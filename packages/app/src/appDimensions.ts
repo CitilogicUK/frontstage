@@ -18,6 +18,7 @@ export const appRegistrationSources = {
   registered: 'Direct registration',
   git: 'Git repository',
   'bulk import': 'Bulk import',
+  'hosted snapshot': 'Hosted snapshot',
   unrecorded: 'Unrecorded',
 };
 

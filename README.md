@@ -234,7 +234,7 @@ A reviewer can open **Discovery → Hosted inventory snapshot** and upload or pa
 }
 ```
 
-Preview matches the source URLs against Inventory. Open the record for a match or prefill registration for an unmatched entry. Complete ownership, model and risk details before submitting. Preview does not save the snapshot or create records. This prototype uses an offline snapshot supplied by the reviewer.
+Preview matches the source URLs against Inventory. Open the record for a match or prefill registration for an unmatched entry. Complete ownership, model and risk details before submitting. Submitted apps appear under **Hosted snapshot** in Inventory and Reports. Preview does not save the snapshot or create records. This prototype uses an offline snapshot supplied by the reviewer.
 
 ## App directory
 

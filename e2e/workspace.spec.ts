@@ -2633,8 +2633,11 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   };
   const snapshot = { apps: [known, candidate] };
   let registered = false;
-  await page.route('**/api/governance/apps', async route => {
+  await page.route(/\/api\/governance\/apps(?:\?|$)/, async route => {
     if (route.request().method() === 'POST') {
+      expect(new URL(route.request().url()).searchParams.get('source')).toBe(
+        'hosted-snapshot',
+      );
       const body = route.request().postDataJSON();
       expect(body).toMatchObject({
         name: candidate.name,
@@ -2652,6 +2655,7 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
         json: {
           ...body,
           id: 'new-hosted-app',
+          discoverySource: 'hosted snapshot',
           tier: 1,
           reviewStatus: 'not required',
           updatedAt: '2026-11-01T00:00:00.000Z',
