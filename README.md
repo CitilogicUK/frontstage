@@ -217,6 +217,26 @@ Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080
 
 **Median time to first Tier 3 decision** measures from the first pending submission to the first recorded overall approval or request for changes. It uses the available audit history across all reporting windows. The calculation includes elapsed time on UTC weekdays and excludes weekends. A partial sign-off or an app still waiting for a decision does not contribute to the median. Set `governance.firstDecisionTargetWeekdays` to a positive integer to flag pending reviews that reach your team’s target in Reports and the **Awaiting first decision** queue.
 
+### Review usage outside the gateway
+
+In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and leaves unmatched sources visible for investigation. It does not save the export or contact the provider.
+
+```json
+{
+  "from": "2026-06-01T00:00:00Z",
+  "to": "2026-06-08T00:00:00Z",
+  "rows": [
+    {
+      "sourceUrl": "https://example.com/frontstage-demo/meeting-summary",
+      "model": "gpt-4.1-mini",
+      "calls": 12
+    }
+  ]
+}
+```
+
+Submit up to 100 rows with one total per source URL and model in the stated UTC window. Include only source URLs, model IDs, and counts.
+
 ## Hosted workspace attestation
 
 For provider-hosted apps where no admin API is available, the accountable owner can open the app details and confirm that the provider workspace, sharing, and data access match the declaration. Frontstage records who confirmed the settings and when in Audit history. The next confirmation is due in 90 days. Changing the owner or declared hosted settings clears the current confirmation. The scorecard highlights missing or overdue confirmations. Owners can open **My workspace confirmations** in Inventory to find their overdue and unconfirmed workspaces. Reviewers can open **Hosted workspace attestations** in Reports to find apps that need follow-up.

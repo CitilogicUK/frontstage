@@ -617,6 +617,80 @@ test('templates recover runtime downloads after retrying approved models', async
   await expect(localDownload).toBeEnabled();
 });
 
+test('reviewers can match outside-gateway usage to registered apps', async ({
+  page,
+}) => {
+  const app = {
+    id: 'meetings',
+    name: 'Meeting summary',
+    purpose: 'Summarizes synthetic notes.',
+    owner: 'user:default/owner',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    sourceUrl: 'https://github.com/example/meetings',
+    lifecycle: 'active',
+    classification: 'internal',
+    tier: 1,
+    reviewStatus: 'not required',
+    models: ['fixture-model'],
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  };
+  const snapshot = {
+    from: '2026-06-01T00:00:00Z',
+    to: '2026-06-08T00:00:00Z',
+    rows: [
+      { sourceUrl: app.sourceUrl, model: 'fixture-model', calls: 12 },
+      {
+        sourceUrl: 'https://github.com/example/unknown',
+        model: 'fixture-model',
+        calls: 3,
+      },
+    ],
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { apps: [app], actor: 'user:default/reviewer', canReview: true },
+    }),
+  );
+  await page.route(
+    '**/api/governance/reports/outside-gateway/preview',
+    route => {
+      expect(route.request().method()).toBe('POST');
+      expect(route.request().postDataJSON()).toEqual(snapshot);
+      return route.fulfill({
+        json: {
+          ...snapshot,
+          rows: [
+            { ...snapshot.rows[0], appId: app.id, appName: app.name },
+            snapshot.rows[1],
+          ],
+        },
+      });
+    },
+  );
+
+  await page.goto('/?view=reports');
+  const report = page.getByRole('region', { name: 'Outside-gateway usage' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(report.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  await report
+    .getByRole('textbox', { name: 'Outside-gateway usage JSON' })
+    .fill(JSON.stringify(snapshot));
+  await report
+    .getByRole('button', { name: 'Preview outside-gateway usage' })
+    .click();
+  const match = report.getByRole('link', { name: app.name });
+  await expect(match).toBeVisible();
+  await expect(report.getByText('No app matched')).toBeVisible();
+  await expect(
+    report.getByRole('row', { name: /Meeting summary/ }),
+  ).toContainText('12');
+  await match.click();
+  await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
+});
+
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
   request,

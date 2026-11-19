@@ -984,6 +984,72 @@ export const governancePlugin = createBackendPlugin({
           });
         }
 
+        router.post('/reports/outside-gateway/preview', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+
+          const input = z
+            .object({
+              from: z.string().datetime(),
+              to: z.string().datetime(),
+              rows: z
+                .array(
+                  z
+                    .object({
+                      sourceUrl: z
+                        .string()
+                        .max(2048)
+                        .refine(isHttpsUrlWithoutCredentials),
+                      model: z.string().trim().min(1).max(128),
+                      calls: z.number().int().min(1).max(1_000_000_000),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(100),
+            })
+            .strict()
+            .safeParse(req.body);
+          const invalidPeriodOrRows =
+            'Supply a valid UTC period and 1 to 100 distinct outside gateway usage rows.';
+          if (!input.success) throw new InputError(invalidPeriodOrRows);
+          const { from, to, rows } = input.data;
+          if (!(Date.parse(from) < Date.parse(to)))
+            throw new InputError(invalidPeriodOrRows);
+
+          const sourceKeys = rows.map(row => appSourceKey(row.sourceUrl));
+          const usageKeys = rows.map((row, index) =>
+            JSON.stringify([sourceKeys[index], row.model]),
+          );
+          if (new Set(usageKeys).size !== rows.length)
+            throw new InputError(invalidPeriodOrRows);
+
+          const matches = await db(table)
+            .whereIn('source_key', [...new Set(sourceKeys)])
+            .select<Array<{ id: string; source_key: string; payload: string }>>(
+              'id',
+              'source_key',
+              'payload',
+            );
+          const appsBySource = new Map(
+            matches.map(app => {
+              const { name } = JSON.parse(app.payload) as GovernanceRecord;
+              return [app.source_key, { appId: app.id, appName: name }];
+            }),
+          );
+          res.set('Cache-Control', 'no-store').json({
+            from,
+            to,
+            rows: rows.map((row, index) => ({
+              ...row,
+              ...appsBySource.get(sourceKeys[index]),
+            })),
+          });
+        });
+
         router.get('/reports/ownership', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
