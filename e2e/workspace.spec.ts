@@ -298,6 +298,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.clock.setFixedTime(now);
   const dateInDays = (days: number, offsetMs = 0) =>
     new Date(now + days * 86_400_000 + offsetMs).toISOString();
+  let includeRetirementDecision = false;
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -330,12 +331,15 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             name: 'Overdue app',
             deliveryStage: 'production',
             nextReview: dateInDays(0),
+            retirementReview: includeRetirementDecision
+              ? { status: 'pending', owner: actor, requestedAt: dateInDays(-1) }
+              : undefined,
           },
           {
             ...base,
             id: 'other',
             name: 'Another owner’s app',
-            owner: 'user:default/another',
+            owner: includeRetirementDecision ? actor : 'user:default/another',
             backupOwner: actor,
             team: 'group:default/operations',
             nextReview: dateInDays(-5),
@@ -390,6 +394,8 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.nth(0)).toContainText('Attestation overdue');
   await expect(rows.nth(1)).toContainText('Attestation due soon');
   await expect(rows.nth(2)).toContainText('Attestation current');
+  await expect(rows.nth(0)).toContainText('Less than a day overdue');
+  await expect(rows.nth(1)).not.toContainText('days overdue');
   const reviewStatus = page.getByRole('combobox', { name: 'Review status' });
   await page
     .getByRole('link', { name: '2 of your apps need review attention' })
@@ -516,6 +522,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   expect(csv).toContain('delivery_stage,uses_ai_at_runtime');
   expect(csv).toContain('"Current app"');
   expect(csv).toContain('"poc","No"');
+  expect(csv.trimEnd()).toContain(`,"","${workspaceUrl}/?app=current"`);
   expect(csv).not.toContain('Overdue app');
 
   await page.getByLabel('Delivery stage').selectOption('unset');
@@ -531,6 +538,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Another owner’s app');
   await expect(rows.first()).toContainText('Attestation overdue');
+  await expect(rows.first()).toContainText('5 days overdue');
   await rows
     .first()
     .getByRole('button', { name: /Another owner/ })
@@ -648,7 +656,17 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page).toHaveURL(/review=overdue$/);
   await expect(reviewStatus).toHaveValue('overdue');
   await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText('Overdue app');
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await expect(rows.first()).toContainText('5 days overdue');
+  await expect(rows.last()).toContainText('Overdue app');
+  const overdueCsvPending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const overdueDownload = await overdueCsvPending;
+  const overdueCsv = await readFile(await overdueDownload.path(), 'utf8');
+  const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
+  expect(columns).toMatch(/next_review_utc,days_overdue,app_url$/);
+  expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other"`)).toBe(true);
+  expect(newest.endsWith(`,0,"${workspaceUrl}/?app=overdue"`)).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
@@ -685,6 +703,13 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(
     sharedApp.getByRole('button', { name: 'Record attestation' }),
   ).toHaveCount(0);
+
+  viewer = actor;
+  includeRetirementDecision = true;
+  await page.goto('/?owner=me&review=overdue');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await expect(rows.last()).toContainText('Overdue app');
 });
 
 test('reviewers can download the spreadsheet import sample', async ({
