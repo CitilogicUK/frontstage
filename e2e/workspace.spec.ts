@@ -4458,6 +4458,17 @@ test('claiming a repository opens its app in the registered Discovery queue', as
       return route.fulfill({ status: 201, json: claimed });
     },
   );
+  await page.route(
+    '**/api/governance/discovery/github/claimable/sdk-evidence',
+    route =>
+      route.fulfill({
+        json: {
+          manifests: [
+            { path: 'pyproject.toml', status: 'checked', packages: ['openai'] },
+          ],
+        },
+      }),
+  );
   const queuePath =
     '/?view=discovery&discoveryStatus=all&discoveryQuery=workbook';
   await page.goto(queuePath);
@@ -4487,6 +4498,20 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   await page.getByLabel('App type').selectOption('app');
   await page.getByLabel('Does the app use AI at runtime?').selectOption('no');
   await page.getByLabel('Owning team').fill(claimed.team);
+  const evidence = page.getByRole('region', {
+    name: 'AI SDK dependency evidence',
+  });
+  await evidence
+    .getByRole('button', { name: 'Check AI SDK dependencies' })
+    .click();
+  await expect(evidence.getByRole('status')).toContainText('openai');
+  await expect(page.getByLabel('Purpose', { exact: true })).toHaveValue(
+    repository.description,
+  );
+  await expect(page.getByLabel('Does the app use AI at runtime?')).toHaveValue(
+    'no',
+  );
+
   await page.getByRole('button', { name: 'Register app' }).click();
   const record = page.getByRole('dialog', { name: claimed.name });
   await expect(
