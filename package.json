@@ -19,6 +19,7 @@
     "lint:all": "backstage-cli repo lint",
     "prettier:check": "prettier --check .",
     "new": "backstage-cli new",
+    "test:pilot-image": "node scripts/test-pilot-image.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "test:audit": "node --test scripts/verify-audit.test.mjs",
     "test:mcp": "node --test scripts/catalog-mcp.test.mjs",
