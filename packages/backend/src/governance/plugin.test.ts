@@ -6410,13 +6410,10 @@ describe('governance record access', () => {
         purpose: 'Update the declared purpose after receiving review feedback.',
       });
       expect(reopened.reviewNotes).toBe(requestedChanges);
-      if (separateTracks) {
-        expect(reopened.previousReviewChanges).toEqual({
-          security: requestedChanges,
-        });
-      } else {
-        expect(reopened).not.toHaveProperty('previousReviewChanges');
-      }
+      const expectedSecurityChanges = separateTracks
+        ? { security: requestedChanges }
+        : undefined;
+      expect(reopened.previousReviewChanges).toEqual(expectedSecurityChanges);
 
       const protectionChanges = 'Describe how personal data is minimized.';
       const { body: blockedBySecurity } = await review(
@@ -6442,14 +6439,11 @@ describe('governance record access', () => {
       };
       const expectFeedback = (record: typeof app) => {
         expect(record).toMatchObject(expectedFeedback);
-        if (separateTracks) {
-          expect(record.previousReviewChanges).toEqual({
-            security: requestedChanges,
-            dataProtection: protectionChanges,
-          });
-        } else {
-          expect(record).not.toHaveProperty('previousReviewChanges');
-        }
+        expect(record.previousReviewChanges).toEqual(
+          separateTracks
+            ? { security: requestedChanges, dataProtection: protectionChanges }
+            : undefined,
+        );
       };
       expectFeedback(bothReopened);
       const { body: editedAgain } = await edit(bothReopened, {
@@ -6491,11 +6485,9 @@ describe('governance record access', () => {
       const { body: pendingTransfer } = await edit(requestedAgain, {
         purpose: 'Record changes before transferring ownership.',
       });
-      if (separateTracks) {
-        expect(pendingTransfer.previousReviewChanges).toEqual({
-          security: requestedChanges,
-        });
-      }
+      expect(pendingTransfer.previousReviewChanges).toEqual(
+        expectedSecurityChanges,
+      );
       const newOwner = 'user:default/next-owner';
       const { body: ownerChanged } = await edit(pendingTransfer, {
         owner: newOwner,
@@ -6516,11 +6508,9 @@ describe('governance record access', () => {
         { purpose: 'Reconsider the scope before reassessing the app.' },
         newOwner,
       );
-      if (separateTracks) {
-        expect(pendingReassessment.previousReviewChanges).toEqual({
-          security: requestedChanges,
-        });
-      }
+      expect(pendingReassessment.previousReviewChanges).toEqual(
+        expectedSecurityChanges,
+      );
       const { body: lowerRisk } = await edit(
         pendingReassessment,
         { audience: 'team' },
