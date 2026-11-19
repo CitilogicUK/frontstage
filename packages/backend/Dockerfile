@@ -1,4 +1,4 @@
-# Build from the repository root after running `yarn build:backend` with Node 24.
+# Build from the repository root after running `yarn build:all` with Node 24.
 FROM node:24.15.0-trixie-slim AS base
 
 FROM base AS dependencies
@@ -32,7 +32,8 @@ COPY --from=dependencies --chown=node:node /app/packages ./packages
 COPY --chown=node:node backstage.json package.json ./
 COPY --chown=node:node packages/backend/dist/bundle.tar.gz ./
 COPY --chown=node:node app-config.yaml app-config.postgres.yaml app-config.github-signin.yaml ./
-RUN tar -xzf bundle.tar.gz && rm bundle.tar.gz
+# The host bundle can contain an owner-only entry for the archive root.
+RUN tar --no-overwrite-dir --no-same-owner -xzf bundle.tar.gz && rm bundle.tar.gz
 
 USER node
 EXPOSE 7007
