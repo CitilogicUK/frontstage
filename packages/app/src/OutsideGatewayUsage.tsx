@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   configApiRef,
   discoveryApiRef,
@@ -17,18 +17,23 @@ const maxUsageFileSize = 1024 * 1024;
 export function OutsideGatewayUsage({
   appLink,
   onRegister,
+  preview,
+  onPreview,
 }: {
   appLink: (appId: string) => To;
   onRegister: (sourceUrl: string) => void;
+  preview?: OutsideGatewayUsagePreview;
+  onPreview: (preview: OutsideGatewayUsagePreview | undefined) => void;
 }) {
   const config = useApi(configApiRef);
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
-  const [preview, setPreview] = useState<OutsideGatewayUsagePreview>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const request = useRef<AbortController>();
+  useEffect(() => () => request.current?.abort(), []);
   const sampleUrl = `${config
     .getString('app.baseUrl')
     .replace(/\/$/, '')}/examples/outside-gateway-usage.json`;
@@ -36,13 +41,13 @@ export function OutsideGatewayUsage({
 
   function selectFile(nextFile: File | undefined) {
     setFile(nextFile);
-    setPreview(undefined);
+    onPreview(undefined);
     setError(undefined);
   }
 
   async function loadPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPreview(undefined);
+    onPreview(undefined);
     setError(undefined);
     if (file && file.size > maxUsageFileSize) {
       setError('Choose a JSON file that is 1 MB or smaller.');
@@ -50,6 +55,8 @@ export function OutsideGatewayUsage({
     }
 
     const pastedUsage = String(new FormData(event.currentTarget).get('usage'));
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
     try {
       let input = pastedUsage;
@@ -71,6 +78,7 @@ export function OutsideGatewayUsage({
 
       const base = await discovery.getBaseUrl('governance');
       const response = await fetch(`${base}/reports/outside-gateway/preview`, {
+        signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -86,9 +94,11 @@ export function OutsideGatewayUsage({
         return;
       }
       if (!response.ok) throw new Error('Usage preview failed');
-      setPreview(await response.json());
+      const result: OutsideGatewayUsagePreview = await response.json();
+      if (!controller.signal.aborted) onPreview(result);
     } catch {
-      setError('Outside-gateway usage could not be previewed.');
+      if (!controller.signal.aborted)
+        setError('Outside-gateway usage could not be previewed.');
     } finally {
       setBusy(false);
     }

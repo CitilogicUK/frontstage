@@ -45,6 +45,7 @@ import {
   firstDecisionsCsv,
   inventoryCsv,
   pendingSignoffsCsv,
+  type OutsideGatewayUsagePreview,
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { AppAuditHistory } from './AppAuditHistory';
@@ -446,6 +447,8 @@ export function GovernancePage() {
   const [hostedSnapshotSelection, setHostedSnapshotSelection] =
     useState<HostedSnapshotApp>();
   const [usageSourceSelection, setUsageSourceSelection] = useState<string>();
+  const [usagePreview, setUsagePreview] =
+    useState<OutsideGatewayUsagePreview>();
   const usageRegistrationSource =
     view === 'Register' &&
     canReview &&
@@ -465,6 +468,10 @@ export function GovernancePage() {
     if ((view !== 'Discovery' && view !== 'Register') || !canReview)
       setHostedSnapshot(undefined);
   }, [view, canReview]);
+  useEffect(() => {
+    if (!canReview || (view !== 'Reports' && !usageRegistrationSource))
+      setUsagePreview(undefined);
+  }, [view, canReview, usageRegistrationSource]);
   const registrationFormKey =
     view === 'Register' && (!repositoryId || candidate)
       ? repositoryId ??
@@ -3253,6 +3260,8 @@ export function GovernancePage() {
           loading={loading}
           usageError={usageReportError}
           onRetryUsage={() => setUsageLoadAttempt(attempt => attempt + 1)}
+          usagePreview={usagePreview}
+          onUsagePreview={setUsagePreview}
           onRegisterUsageSource={sourceUrl => {
             resetView();
             setUsageSourceSelection(sourceUrl);
@@ -3453,6 +3462,27 @@ export function GovernancePage() {
                   },
                 });
                 mergeSavedApps([registered]);
+                let usageRefreshFailed = false;
+                if (usageRegistrationSource && usagePreview) {
+                  try {
+                    setUsagePreview(
+                      await api('/reports/outside-gateway/preview', {
+                        from: usagePreview.from,
+                        to: usagePreview.to,
+                        rows: usagePreview.rows.map(
+                          ({ sourceUrl, model, calls }) => ({
+                            sourceUrl,
+                            model,
+                            calls,
+                          }),
+                        ),
+                      }),
+                    );
+                  } catch {
+                    setUsagePreview(undefined);
+                    usageRefreshFailed = true;
+                  }
+                }
                 if (hostedRegistration) {
                   setHostedSnapshot(previous =>
                     previous?.map(app =>
@@ -3469,6 +3499,8 @@ export function GovernancePage() {
                     ...(candidate && { discoveryStatus: 'registered' }),
                     app: registered.id,
                   });
+                } else if (usageRegistrationSource) {
+                  navigate('Reports');
                 } else {
                   navigate('Inventory');
                 }
@@ -3479,7 +3511,9 @@ export function GovernancePage() {
                     candidate || hostedRegistration ? registered.id : undefined,
                 });
                 setMessage(
-                  candidate
+                  usageRefreshFailed
+                    ? 'App registered. Reload the usage file to refresh matches.'
+                    : candidate
                     ? 'Repository claimed and app registered.'
                     : 'App registered.',
                 );
