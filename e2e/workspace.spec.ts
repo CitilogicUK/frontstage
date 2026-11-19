@@ -315,6 +315,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     ['gateway-automation', 'automation', true],
     ['ai-assisted-software', 'AI-assisted software', false],
     ['internal-api', 'internal API', false],
+    ['internal-web-app', 'internal web app', false],
     ['data-validation', 'data validation', false],
   ] as const) {
     const pending = page.waitForEvent('download');
@@ -348,14 +349,22 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(descriptor).toContain('classification: restricted');
     expect(descriptor).toContain('backupOwner: user:default/backup');
     expect(brief).toContain('Highest data classification: restricted');
-    if (id === 'internal-api' || id === 'data-validation') {
-      const entryPoint = id === 'internal-api' ? 'server' : 'validate';
+    if (
+      id === 'internal-api' ||
+      id === 'internal-web-app' ||
+      id === 'data-validation'
+    ) {
+      const entryPoint = id === 'data-validation' ? 'validate' : 'server';
       const sourceFiles = [
         'package.json',
         `${entryPoint}.mjs`,
         `${entryPoint}.test.mjs`,
       ];
       if (id === 'data-validation') sourceFiles.push('sample.json');
+      if (id === 'internal-web-app') {
+        sourceFiles.push('styles.css');
+        expect(files[`${id}/README.md`]).toBeDefined();
+      }
       expect(descriptor).not.toMatch(/^\s+models:/m);
       const appPackage = JSON.parse(strFromU8(files[`${id}/package.json`]));
       expect(appPackage.scripts).toEqual({
@@ -417,7 +426,9 @@ test('workspace screens share navigation and fit the viewport', async ({
       );
     }
   }
-  await page.getByRole('link', { name: 'Register from internal api' }).click();
+  await page
+    .getByRole('link', { name: 'Register from internal web app' })
+    .click();
   await expect(page.getByLabel('Does the app use AI at runtime?')).toHaveValue(
     'no',
   );

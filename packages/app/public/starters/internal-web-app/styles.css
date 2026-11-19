@@ -1,0 +1,277 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  color: #172535;
+  background: #f5f4ee;
+  --paper: #fff;
+  --muted: #46566a;
+  --line: #d7dce1;
+  --accent: #12544d;
+  --accent-dark: #0c3e39;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: var(--accent-dark);
+  text-underline-offset: 0.2em;
+}
+:focus-visible {
+  outline: 3px solid #17685e;
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  inset: 0.75rem auto auto 1rem;
+  padding: 0.7rem;
+  background: var(--paper);
+  transform: translateY(-200%);
+}
+.skip:focus {
+  transform: none;
+}
+.frame {
+  width: min(68rem, calc(100% - 3rem));
+  margin-inline: auto;
+}
+
+.masthead {
+  background: #123530;
+  color: #ecfaf6;
+  border-bottom: 4px solid #82bfb0;
+}
+.masthead-inner {
+  min-height: 3.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.masthead a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+.masthead a:hover {
+  text-decoration: underline;
+}
+.masthead span {
+  color: #c9e4dd;
+  font-size: 0.875rem;
+}
+
+main {
+  padding-block: clamp(2rem, 6vw, 4.5rem) 3rem;
+}
+.intro {
+  margin-bottom: clamp(1.5rem, 5vw, 2.75rem);
+}
+h1,
+h2,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: clamp(2.1rem, 5.5vw, 4rem);
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+.intro p {
+  color: var(--muted);
+  font-size: 1.1rem;
+  margin-top: 0.9rem;
+}
+
+form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.42fr) max-content;
+  gap: 0.9rem;
+  align-items: end;
+  margin-bottom: 1.4rem;
+}
+label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 650;
+}
+input,
+select,
+button {
+  width: 100%;
+  min-height: 2.8rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #8d9ca8;
+  border-radius: 0.4rem;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  background: var(--paper);
+}
+button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:hover {
+  background: var(--accent-dark);
+}
+button:active {
+  transform: translateY(1px);
+}
+
+.results {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+}
+.results-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  padding: 1rem 1.15rem;
+}
+.results-heading h2 {
+  font-size: 1.2rem;
+}
+.results-heading span {
+  color: var(--muted);
+}
+.results-heading a {
+  margin-left: auto;
+  font-weight: 650;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.85rem 1.15rem;
+  border-top: 1px solid var(--line);
+}
+thead th {
+  color: var(--muted);
+  font-size: 0.9rem;
+  background: #eff3f3;
+}
+tbody th {
+  font-weight: 400;
+}
+tbody th strong,
+tbody th span {
+  display: block;
+}
+tbody th span {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-top: 0.1rem;
+}
+.status {
+  display: inline-block;
+  padding: 0.25rem 0.55rem;
+  border-radius: 0.35rem;
+  background: #e8edf3;
+  color: #263e57;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+.status[data-status='available'] {
+  color: #115047;
+  background: #dff2ea;
+}
+.status[data-status='maintenance'] {
+  color: #633d15;
+  background: #faecd7;
+}
+.empty {
+  padding: 1rem 1.15rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+@media (max-width: 40rem) {
+  .frame {
+    width: calc(100% - 2rem);
+  }
+  form {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  }
+  form > :first-child {
+    grid-column: 1 / -1;
+  }
+  table {
+    table-layout: fixed;
+  }
+  thead th:first-child {
+    width: 41%;
+  }
+  thead th:last-child {
+    width: 33%;
+  }
+  th,
+  td {
+    padding: 0.65rem 0.5rem;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .status {
+    max-width: 100%;
+    padding-inline: 0.28rem;
+  }
+  .results-heading,
+  .empty {
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (max-width: 24rem) {
+  table,
+  thead th {
+    font-size: 0.82rem;
+  }
+  thead th:first-child {
+    width: 37%;
+  }
+  thead th:last-child {
+    width: 38%;
+  }
+  th,
+  td {
+    padding-inline: 0.35rem;
+  }
+  tbody th span,
+  .status {
+    font-size: 0.75rem;
+  }
+  .status {
+    padding-inline: 0.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .intro {
+    animation: arrive 0.35s ease-out both;
+  }
+  button {
+    transition: background-color 0.15s ease-out, transform 0.15s ease-out;
+  }
+  @keyframes arrive {
+    from {
+      opacity: 0.6;
+      transform: translateY(0.35rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
