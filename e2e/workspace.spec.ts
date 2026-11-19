@@ -1507,9 +1507,22 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
     ...app,
     id: 'overdue-hosted-app',
     name: 'Overdue hosted app',
+    tier: 2,
+    nextReview: '2025-05-01T00:00:00.000Z',
     hostedAttestation: {
       at: '2025-01-01T00:00:00.000Z',
       nextDue: '2025-04-01T00:00:00.000Z',
+    },
+  };
+  const backedUpApp = {
+    ...initialApp,
+    id: 'backup-hosted-app',
+    name: 'Backup hosted app',
+    owner: 'user:default/other-owner',
+    backupOwner: initialApp.owner,
+    hostedAttestation: {
+      at: new Date().toISOString(),
+      nextDue: new Date(Date.now() + 90 * 86_400_000).toISOString(),
     },
   };
   const retiredApp = {
@@ -1548,7 +1561,7 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
         actor: app.owner,
         gatewayEnabled: true,
         canReview: canReviewHostedApps,
-        apps: [app, overdueApp, retiredApp, regularApp],
+        apps: [app, overdueApp, retiredApp, regularApp, backedUpApp],
       },
     }),
   );
@@ -1663,6 +1676,23 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
     'Workspace confirmation missing',
   );
   await expect(inventory.getByRole('row')).toHaveCount(3);
+  const combinedDownload = page.waitForEvent('download');
+  await inventory
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const combined = await readFile(
+    await (await combinedDownload).path(),
+    'utf8',
+  );
+  expect(combined.match(/BEGIN:VEVENT/g)).toHaveLength(2);
+  expect(combined).toContain('UID:overdue-hosted-app-review@');
+  expect(combined).toContain('SUMMARY:App attestation: Overdue hosted app');
+  expect(combined).toContain('DTSTART;VALUE=DATE:20250501');
+  expect(combined).toContain('UID:overdue-hosted-app-hosted-attestation@');
+  expect(combined).toContain(
+    'SUMMARY:Hosted workspace attestation: Overdue hosted app',
+  );
+  expect(combined).toContain('DTSTART;VALUE=DATE:20250401');
   const ownership = inventory.getByRole('combobox', {
     name: 'Ownership',
     exact: true,
@@ -1673,6 +1703,16 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   });
   await ownership.selectOption('backup');
   await expect(statusFilter).toHaveValue('');
+  const backupDownload = page.waitForEvent('download');
+  await inventory
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const backupCalendar = await readFile(
+    await (await backupDownload).path(),
+    'utf8',
+  );
+  expect(backupCalendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(backupCalendar).toContain('UID:backup-hosted-app-hosted-attestation@');
   await statusFilter.selectOption('workspace');
   await expect(ownership).toHaveValue('me');
   await expect(inventory.getByRole('row')).toHaveCount(3);

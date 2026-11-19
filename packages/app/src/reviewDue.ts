@@ -55,6 +55,16 @@ export function scheduledReviewDate(app: {
   return Number.isFinite(due.getTime()) ? due : undefined;
 }
 
+export function scheduledWorkspaceAttestationDate(app: {
+  lifecycle: string;
+  hosted?: unknown;
+  hostedAttestation?: { nextDue: string };
+}) {
+  if (!app.hosted || app.lifecycle === 'retired') return undefined;
+  const timestamp = Date.parse(app.hostedAttestation?.nextDue ?? '');
+  return Number.isFinite(timestamp) ? new Date(timestamp) : undefined;
+}
+
 export function reviewDaysOverdue(
   app: Parameters<typeof scheduledReviewDate>[0],
   now: number,
