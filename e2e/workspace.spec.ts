@@ -1390,7 +1390,7 @@ test('audit history shows production review and ownership handoff', async ({
   );
   const decisionsCsv = await readFile(await decisionsExport.path(), 'utf8');
   expect(decisionsCsv).toContain(
-    `"${handoff.id}","${handoff.name}","${handoff.owner}","${reportedTeam}",3.5,3`,
+    `"${handoff.id}","${handoff.name}","${handoff.owner}","${handoff.team}",3.5,3`,
   );
   expect(decisionsCsv).not.toContain(renewal.name);
 
