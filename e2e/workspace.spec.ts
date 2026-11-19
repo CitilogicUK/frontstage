@@ -4754,6 +4754,64 @@ test('an independent reviewer can grant and revoke a renewal exception', async (
   await expect(grant).toHaveCount(0);
 });
 
+test('a connector alert opens the owner’s Connected systems editor after sign-in', async ({
+  page,
+  request,
+}) => {
+  await expect
+    .poll(
+      async () => {
+        const response = await request
+          .get(`${workspaceBackendUrl}/api/auth/guest/refresh`, {
+            headers: {
+              Origin: workspaceUrl,
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            timeout: 2_000,
+          })
+          .catch(() => undefined);
+        if (!response) return 0;
+        const status = response.status();
+        await response.dispose();
+        return status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(200);
+
+  const owner = 'user:default/demo-owner';
+  const app = {
+    id: 'connector-alert-app',
+    name: 'Connector alert fixture',
+    owner,
+    team: 'group:default/platform',
+    purpose: 'Checks a synthetic inventory integration.',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 2,
+    reviewStatus: 'not required',
+    usesAiAtRuntime: false,
+    models: [],
+    connections: [{ name: 'Synthetic inventory', access: 'read' }],
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { apps: [app], actor: owner, canReview: false } }),
+  );
+  const path = '/?app=connector-alert-app&edit=connections';
+  await page.goto(path);
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  const dialog = page.getByRole('dialog', { name: app.name });
+  await expect(dialog.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(page).toHaveURL(`${workspaceUrl}${path}`);
+  const systems = dialog.getByRole('group', { name: 'Connected systems' });
+  await expect(systems).toBeFocused();
+  await expect(
+    systems.getByLabel('Connected system 1', { exact: true }),
+  ).toHaveValue('Synthetic inventory');
+});
+
 test('Builder guide shows connector approval limits and registry states', async ({
   page,
 }) => {

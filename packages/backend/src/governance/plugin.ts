@@ -24,6 +24,7 @@ import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import {
   approvedCodingToolsInput,
   approvedConnectorsInput,
+  connectorDiscrepancyFingerprint,
   connectorPolicyCheck,
 } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
@@ -468,6 +469,17 @@ export const governancePlugin = createBackendPlugin({
           .optional()
           .parse(
             config.getOptional('governance.reviewReminderIntervalMinutes'),
+          );
+        const notifyOwnersOnConnectorDiscrepancies =
+          config.getOptionalBoolean(
+            'governance.notifyOwnersOnConnectorDiscrepancies',
+          ) ?? false;
+        if (
+          notifyOwnersOnConnectorDiscrepancies &&
+          reviewReminderIntervalMinutes === undefined
+        )
+          throw new Error(
+            'governance.notifyOwnersOnConnectorDiscrepancies requires governance.reviewReminderIntervalMinutes.',
           );
         const reviewManagerEscalationDays = z
           .number()
@@ -3536,6 +3548,14 @@ export const governancePlugin = createBackendPlugin({
                   evaluateTier,
                   reviewDue: renewalReviewDue,
                   hostedWorkspaceApproved,
+                  connectorDiscrepancyFingerprint:
+                    notifyOwnersOnConnectorDiscrepancies
+                      ? record =>
+                          connectorDiscrepancyFingerprint(
+                            record,
+                            approvedConnectors,
+                          )
+                      : undefined,
                 },
                 load,
                 managerEscalation:

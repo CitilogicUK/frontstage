@@ -59,26 +59,38 @@ export const approvedCodingToolsInput = registryInput(
   'Coding tool IDs must be unique.',
 );
 
-export function connectorPolicyCheck(
-  app: Pick<
-    AppInput,
-    'classification' | 'connections' | 'hosted' | 'lifecycle'
-  >,
-  registry: z.infer<typeof approvedConnectorsInput>,
+type ConnectorPolicyApp = Pick<
+  AppInput,
+  'classification' | 'connections' | 'hosted' | 'lifecycle'
+>;
+type ConnectorRegistry = z.infer<typeof approvedConnectorsInput>;
+
+function declaredConnectorDiscrepancies(
+  app: ConnectorPolicyApp,
+  registry: ConnectorRegistry,
 ) {
   const connections = app.connections ?? [];
   if (!registry || !connections.length || app.lifecycle === 'retired')
     return undefined;
 
-  const dataRank = classification.options.indexOf(effectiveClassification(app));
-  let unlisted = 0;
-  let outsideLimits = 0;
+  const dataClass = effectiveClassification(app);
+  const dataRank = classification.options.indexOf(dataClass);
+  const discrepancies: Array<{
+    name: string;
+    access: 'read' | 'write';
+    reason: 'unlisted' | 'outside-limits';
+  }> = [];
   for (const connection of connections) {
     const name = connection.name.trim().toLowerCase();
     const entries = registry.filter(
       entry => entry.name.trim().toLowerCase() === name,
     );
-    if (!entries.length) unlisted += 1;
+    if (!entries.length)
+      discrepancies.push({
+        name,
+        access: connection.access,
+        reason: 'unlisted',
+      });
     else if (
       !entries.some(
         entry =>
@@ -86,8 +98,43 @@ export function connectorPolicyCheck(
           classification.options.indexOf(entry.maxClassification) >= dataRank,
       )
     )
-      outsideLimits += 1;
+      discrepancies.push({
+        name,
+        access: connection.access,
+        reason: 'outside-limits',
+      });
   }
+  return { dataClass, discrepancies };
+}
+
+export function connectorDiscrepancyFingerprint(
+  app: ConnectorPolicyApp,
+  registry: ConnectorRegistry,
+) {
+  const result = declaredConnectorDiscrepancies(app, registry);
+  if (!result?.discrepancies.length) return undefined;
+  return JSON.stringify([
+    result.dataClass,
+    [
+      ...new Set(
+        result.discrepancies.map(({ name, access, reason }) =>
+          JSON.stringify([name, access, reason]),
+        ),
+      ),
+    ].sort(),
+  ]);
+}
+
+export function connectorPolicyCheck(
+  app: ConnectorPolicyApp,
+  registry: ConnectorRegistry,
+) {
+  const result = declaredConnectorDiscrepancies(app, registry);
+  if (!result) return undefined;
+  const unlisted = result.discrepancies.filter(
+    ({ reason }) => reason === 'unlisted',
+  ).length;
+  const outsideLimits = result.discrepancies.length - unlisted;
   const status = unlisted === 0 && outsideLimits === 0;
   return {
     name: 'Declared connections',

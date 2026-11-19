@@ -41,6 +41,11 @@
           "default": false,
           "description": "Notify an eligible backup when the accountable owner is observed unavailable. Requires scheduled ownership observation."
         },
+        "notifyOwnersOnConnectorDiscrepancies": {
+          "type": "boolean",
+          "default": false,
+          "description": "Notify active accountable owners about declared connector discrepancies on active apps. Requires scheduled review reminders."
+        },
         "retirementReviewIntervalMinutes": {
           "type": "integer",
           "minimum": 15,

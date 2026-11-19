@@ -72,7 +72,8 @@ type ReminderKind =
   | 'manager-risk-renewal'
   | 'hosted-confirmation'
   | 'initial-hosted-confirmation'
-  | 'hosted-reconfirmation';
+  | 'hosted-reconfirmation'
+  | 'connector-discrepancy';
 type Reminder = {
   appId: string;
   owner: string;
@@ -87,6 +88,9 @@ type ReminderPolicy = {
   evaluateTier: (record: GovernanceRecord) => number;
   reviewDue: (record: GovernanceRecord, now: number) => string | null;
   hostedWorkspaceApproved: (record: GovernanceRecord) => boolean | undefined;
+  connectorDiscrepancyFingerprint?: (
+    record: GovernanceRecord,
+  ) => string | undefined;
 };
 
 function reminderKey(
@@ -196,6 +200,13 @@ function candidatesFor(
       ),
     );
   }
+  if (record.lifecycle === 'active') {
+    const fingerprint = policy.connectorDiscrepancyFingerprint?.(record);
+    if (fingerprint)
+      reminders.push(
+        createReminder('connector-discrepancy', null, fingerprint),
+      );
+  }
   return reminders;
 }
 
@@ -203,7 +214,13 @@ export async function sendReviewReminders(options: {
   db: Knex;
   appsTable: string;
   policy: ReminderPolicy;
-  load: (appId: string) => Promise<{ record: GovernanceRecord }>;
+  load: (
+    appId: string,
+    transaction?: Knex,
+  ) => Promise<{
+    record: GovernanceRecord;
+    revision: number;
+  }>;
   unavailableOwners: (refs: string[]) => Promise<Set<string>>;
   notifications: NotificationService;
   logger: LoggerService;
@@ -320,7 +337,7 @@ export async function sendReviewReminders(options: {
       )
         continue;
       try {
-        const { record } = await load(appId);
+        const { record, revision } = await load(appId);
         if (signal.aborted) return;
         if (
           !candidatesFor(record, policy, now, managerEscalation?.days).some(
@@ -329,7 +346,12 @@ export async function sendReviewReminders(options: {
         )
           continue;
         const link = new URL(appBaseUrl);
-        link.search = new URLSearchParams({ app: appId }).toString();
+        const connectorReminder = kind === 'connector-discrepancy';
+        link.search = new URLSearchParams({
+          app: appId,
+          ...(connectorReminder && { edit: 'connections' }),
+        }).toString();
+        if (connectorReminder) link.hash = '';
         const riskTitle =
           reminder.tier === 3 ? 'AI app review due' : 'AI app attestation due';
         const titles = {
@@ -338,6 +360,7 @@ export async function sendReviewReminders(options: {
           'hosted-confirmation': 'Hosted workspace confirmation due',
           'initial-hosted-confirmation': 'Confirm your hosted workspace',
           'hosted-reconfirmation': 'Reconfirm your hosted workspace',
+          'connector-discrepancy': 'App connector declarations need attention',
         };
         let description =
           kind === 'hosted-reconfirmation'
@@ -346,7 +369,29 @@ export async function sendReviewReminders(options: {
         if (due)
           description = `${record.name} is due on ${due.slice(0, 10)} UTC.`;
         if (managerReminder) description = 'An app renewal needs attention.';
-        const claimed = await claimReminderDelivery(db, key, scanTime);
+        if (connectorReminder)
+          description =
+            'Open the app in Inventory to review its declared connections.';
+        const claimed = connectorReminder
+          ? await db.transaction(async transaction => {
+              const { record: current, revision: currentRevision } = await load(
+                appId,
+                transaction,
+              );
+              if (
+                signal.aborted ||
+                currentRevision !== revision ||
+                !candidatesFor(
+                  current,
+                  policy,
+                  now,
+                  managerEscalation?.days,
+                ).some(item => item.key === key)
+              )
+                return false;
+              return claimReminderDelivery(transaction, key, scanTime);
+            })
+          : await claimReminderDelivery(db, key, scanTime);
         if (!claimed || signal.aborted) continue;
         attempts += 1;
         await notifications.send({
