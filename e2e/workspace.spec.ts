@@ -1284,6 +1284,7 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
     updatedAt: '2025-01-01T10:00:00.000Z',
     reviewStatus: 'pending',
   };
+  let reviewer = true;
   const increase = {
     ...base,
     id: 'increase',
@@ -1310,13 +1311,15 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
-        actor: 'user:default/reviewer',
-        canReview: true,
+        actor: reviewer ? 'user:default/reviewer' : base.owner,
+        canReview: reviewer,
         apps: [
           {
             ...base,
             id: 'decrease',
             name: 'Tier decrease',
+            owner: 'user:default/other-owner',
+            backupOwner: base.owner,
             tier: 3,
             riskAssessment: { tier: 2, reasons: [] },
           },
@@ -1358,6 +1361,31 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
   await expect(page).toHaveURL(/review=reassess$/);
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Tier decrease');
+
+  reviewer = false;
+  await page.goto('/');
+  await page
+    .getByRole('link', { name: '1 of your apps needs risk reassessment' })
+    .click();
+  await expect(page).toHaveURL(/owner=me&review=reassess$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Tier increase');
+  await rows
+    .first()
+    .getByRole('button', { name: 'Reassess Tier increase' })
+    .click();
+  await expect(
+    details.getByRole('button', { name: 'Save app details' }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await page
+    .getByRole('combobox', { name: 'Ownership', exact: true })
+    .selectOption('backup');
+  await expect(page).toHaveURL(/owner=backup$/);
+  await expect(rows.first()).toContainText('Tier decrease');
+  await expect(
+    page.getByRole('button', { name: 'Reassess Tier decrease' }),
+  ).toHaveCount(0);
 });
 
 test('audit history shows production review and ownership handoff', async ({

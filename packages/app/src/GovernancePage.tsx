@@ -386,7 +386,12 @@ export function GovernancePage() {
       if (value === 'me' || value === 'backup') next.set('owner', value);
       else next.delete('owner');
       const review = next.get('review');
-      if (value !== 'me' && (review === 'workspace' || review === 'scorecard'))
+      if (
+        value !== 'me' &&
+        (review === 'workspace' ||
+          review === 'scorecard' ||
+          (review === 'reassess' && !canReview))
+      )
         next.delete('review');
       return next;
     });
@@ -1099,6 +1104,13 @@ export function GovernancePage() {
     view === 'Inventory'
       ? appLifecycles.find(value => value === lifecycleParam)
       : undefined;
+  const canFilterReassessment =
+    canReview || (Boolean(actor) && ownershipScope === 'me');
+  const myReassessmentCount =
+    view === 'Inventory' && actor
+      ? apps.filter(app => app.owner === actor && needsRiskReassessment(app))
+          .length
+      : 0;
   const inventoryReview = params.get('review');
   const inventoryReviewFilter =
     view === 'Inventory' &&
@@ -1109,7 +1121,7 @@ export function GovernancePage() {
       inventoryReview === 'access' ||
       inventoryReview === 'workspace' ||
       inventoryReview === 'scorecard' ||
-      (inventoryReview === 'reassess' && canReview))
+      (inventoryReview === 'reassess' && canFilterReassessment))
       ? inventoryReview
       : '';
 
@@ -1483,6 +1495,16 @@ export function GovernancePage() {
             )}
           {view === 'Inventory' && !loading && !error && actor && (
             <>
+              {myReassessmentCount > 0 &&
+                inventoryReviewFilter !== 'reassess' && (
+                  <p className="gov-notice">
+                    <Link to="/?owner=me&review=reassess">
+                      {myReassessmentCount === 1
+                        ? '1 of your apps needs risk reassessment'
+                        : `${myReassessmentCount} of your apps need risk reassessment`}
+                    </Link>
+                  </p>
+                )}
               {ownerScorecardIssues.size > 0 && (
                 <p className="gov-notice">
                   <Link to={`/?${scorecardQueueParams}`}>
@@ -1672,7 +1694,7 @@ export function GovernancePage() {
                     >
                       <option value="">All review statuses</option>
                       <option value="attention">Needs review attention</option>
-                      {canReview && (
+                      {canFilterReassessment && (
                         <option value="reassess">
                           Needs risk reassessment
                         </option>
