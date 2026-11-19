@@ -545,6 +545,7 @@ async function callOpenai(
       refused: Boolean(refusalText),
       inputTokens: result.usage.prompt_tokens,
       outputTokens: result.usage.completion_tokens,
+      providerElapsedMs: performance.now() - startedAt,
     };
   } catch {
     logFailure({
@@ -565,6 +566,7 @@ function simulate(model: string, prompt: string) {
     refused: false,
     inputTokens: Math.ceil(Buffer.byteLength(prompt) / 4),
     outputTokens: Math.ceil(Buffer.byteLength(output) / 4),
+    providerElapsedMs: undefined,
   };
 }
 
@@ -1266,6 +1268,7 @@ export function registerGatewayRoutes(options: {
       });
     },
     async (req, res) => {
+      const startedAt = performance.now();
       assertEnabled();
       const key = /^Bearer (gak_[A-Za-z0-9_-]{43})$/i.exec(
         req.get('authorization') ?? '',
@@ -1430,6 +1433,14 @@ export function registerGatewayRoutes(options: {
         ),
         created_at: new Date(),
       });
+      const { providerElapsedMs } = result;
+      const frontstageElapsedMs = Math.round(
+        performance.now() - startedAt - (providerElapsedMs ?? 0),
+      );
+      const timings = [`frontstage;dur=${frontstageElapsedMs}`];
+      if (providerElapsedMs !== undefined)
+        timings.push(`provider;dur=${Math.round(providerElapsedMs)}`);
+      res.set('Server-Timing', timings.join(', '));
       res.set('Cache-Control', 'no-store').json({
         output: result.output,
         model,
