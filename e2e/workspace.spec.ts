@@ -2031,12 +2031,17 @@ test('critical reviews can request changes while required evidence is missing', 
       },
     }),
   );
-  await page.goto('/?view=reviews&review=missing-evidence');
-  const filter = page.getByRole('combobox', { name: 'Review status' });
+  await page.goto('/?view=reports');
+  const evidenceQueue = page.getByRole('link', {
+    name: '1 missing required evidence',
+  });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
-  await expect(filter.or(guest)).toBeVisible();
+  await expect(evidenceQueue.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
-  await expect(filter).toHaveValue('missing-evidence');
+  await evidenceQueue.click();
+  await expect(
+    page.getByRole('combobox', { name: 'Review status' }),
+  ).toHaveValue('missing-evidence');
   const rows = page.locator('tbody tr');
   await expect(rows).toHaveCount(1);
   await rows.getByRole('button', { name: app.name }).click();
@@ -2069,6 +2074,11 @@ test('critical reviews can request changes while required evidence is missing', 
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(page).toHaveURL(/view=reviews&review=missing-evidence$/);
   await expect(rows).toHaveCount(0);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await expect(
+    page.getByRole('link', { name: 'View required reviews' }),
+  ).toBeVisible();
+  await expect(evidenceQueue).toHaveCount(0);
 });
 
 test('consequential action reviews ask for human approval evidence', async ({
