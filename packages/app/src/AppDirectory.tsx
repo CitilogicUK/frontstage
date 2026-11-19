@@ -21,11 +21,19 @@ type DirectoryApp = DirectoryListing & {
   name: string;
   requestStatus?: DirectoryRequestStatus;
 };
+type UnavailableRequest = Pick<DirectoryApp, 'id' | 'name'> & {
+  requestStatus: DirectoryRequestStatus;
+};
+type DirectoryFeed = {
+  apps: DirectoryApp[];
+  unavailableRequests?: UnavailableRequest[];
+};
 
 export function AppDirectory() {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
-  const [apps, setApps] = useState<DirectoryApp[]>();
+  const [feed, setFeed] = useState<DirectoryFeed>();
+  const apps = feed?.apps;
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
   const requestView = params.get('directoryAccess') === 'mine';
@@ -40,8 +48,8 @@ export function AppDirectory() {
       .then(base => fetch(`${base}/directory`, { signal: controller.signal }))
       .then(async response => {
         if (!response.ok) throw new Error('Could not load the app directory.');
-        const result: { apps: DirectoryApp[] } = await response.json();
-        if (!controller.signal.aborted) setApps(result.apps);
+        const result: DirectoryFeed = await response.json();
+        if (!controller.signal.aborted) setFeed(result);
       })
       .catch(() => {
         if (!controller.signal.aborted) setFailed(true);
@@ -50,14 +58,21 @@ export function AppDirectory() {
   }, [attempt, discovery, fetch]);
 
   const needle = query.trim().toLowerCase();
-  const myRequests = apps?.filter(app => app.requestStatus);
-  const matches = (requestView ? myRequests : apps)?.filter(app =>
-    [app.name, app.summary].some(value => value.toLowerCase().includes(needle)),
+  const myRequests =
+    feed &&
+    [
+      ...feed.apps.filter(app => app.requestStatus),
+      ...(feed.unavailableRequests ?? []),
+    ].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const matches = (requestView ? myRequests : apps)?.filter(
+    app =>
+      app.name.toLowerCase().includes(needle) ||
+      ('summary' in app && app.summary.toLowerCase().includes(needle)),
   );
   let emptyTitle = 'No apps listed';
   let emptyDescription;
   if (requestView) {
-    emptyTitle = 'No access requests for listed apps';
+    emptyTitle = 'No access requests';
     emptyDescription = 'Open All apps to find an app and request access.';
   }
   if (needle && (requestView ? myRequests?.length : apps?.length)) {
@@ -127,18 +142,22 @@ export function AppDirectory() {
                 <tr key={app.id}>
                   <td className="gov-app-cell">
                     <strong>{app.name}</strong>
-                    <p>{app.summary}</p>
+                    {'summary' in app && <p>{app.summary}</p>}
                   </td>
                   <td data-label="Launch">
-                    <a
-                      className="gov-button"
-                      href={app.url}
-                      aria-label={`Open ${app.name}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open app
-                    </a>
+                    {'url' in app ? (
+                      <a
+                        className="gov-button"
+                        href={app.url}
+                        aria-label={`Open ${app.name}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open app
+                      </a>
+                    ) : (
+                      'Listing unavailable'
+                    )}
                   </td>
                   <td
                     className="gov-directory-request-cell"
@@ -148,12 +167,16 @@ export function AppDirectory() {
                       appId={app.id}
                       status={app.requestStatus}
                       onSaved={requestStatus =>
-                        setApps(previous =>
-                          previous?.map(item =>
-                            item.id === app.id
-                              ? { ...item, requestStatus }
-                              : item,
-                          ),
+                        setFeed(
+                          previous =>
+                            previous && {
+                              ...previous,
+                              apps: previous.apps.map(item =>
+                                item.id === app.id
+                                  ? { ...item, requestStatus }
+                                  : item,
+                              ),
+                            },
                         )
                       }
                     />
