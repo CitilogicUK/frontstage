@@ -21,6 +21,9 @@ const githubConfig = z
   })
   .strict();
 
+const githubSearchPageSize = 100;
+const githubSearchMaxPages = 3;
+
 const githubResult = z.object({
   total_count: z.number().int().nonnegative(),
   incomplete_results: z.boolean(),
@@ -34,7 +37,7 @@ const githubResult = z.object({
         visibility: z.enum(['public', 'internal', 'private']).optional(),
       }),
     )
-    .max(100),
+    .max(githubSearchPageSize),
 });
 
 function repositoryPublicFlag(
@@ -452,9 +455,10 @@ export function githubDiscovery(
         'q',
         `org:${config.organization} topic:${config.topic} archived:false`,
       );
-      url.searchParams.set('per_page', '100');
-
-      const result = await fetch(url, {
+      url.searchParams.set('per_page', String(githubSearchPageSize));
+      url.searchParams.set('sort', 'created');
+      url.searchParams.set('order', 'desc');
+      const options: RequestInit = {
         headers: {
           Accept: 'application/vnd.github+json',
           'User-Agent': 'Frontstage',
@@ -462,41 +466,80 @@ export function githubDiscovery(
         },
         signal: AbortSignal.timeout(15_000),
         redirect: 'error',
-      })
-        .then(async response => {
-          if (!response.ok) throw new Error('GitHub returned an error.');
-          return githubResult.parse(await response.json());
-        })
-        .catch(() => {
-          throw new ServiceUnavailableError(
-            'GitHub discovery could not complete. Check source access or retry later.',
-          );
-        });
+      };
 
+      const candidates = new Map<
+        number,
+        z.infer<typeof githubResult>['items'][number]
+      >();
+      const organizationPrefix = `${config.organization.toLowerCase()}/`;
+      let expectedTotal: number | undefined;
+      let partial = false;
+      for (let page = 1; page <= githubSearchMaxPages; page += 1) {
+        const pageUrl = new URL(url);
+        if (page > 1) pageUrl.searchParams.set('page', String(page));
+        const result = await fetch(pageUrl, options)
+          .then(async response => {
+            if (!response.ok) {
+              await response.body?.cancel();
+              return undefined;
+            }
+            return githubResult.parse(await response.json());
+          })
+          .catch(() => undefined);
+        if (!result) {
+          if (page === 1)
+            throw new ServiceUnavailableError(
+              'GitHub discovery could not complete. Check source access or retry later.',
+            );
+          partial = true;
+          break;
+        }
+
+        expectedTotal ??= result.total_count;
+        if (result.incomplete_results || result.total_count !== expectedTotal)
+          partial = true;
+        for (const repo of result.items) {
+          if (!repo.full_name.toLowerCase().startsWith(organizationPrefix)) {
+            partial = true;
+            continue;
+          }
+          const previous = candidates.get(repo.id);
+          if (previous) partial = true;
+          candidates.set(
+            repo.id,
+            previous && repositoryPublicFlag(previous) !== true
+              ? { ...repo, private: true }
+              : repo,
+          );
+        }
+
+        if (
+          result.items.length < githubSearchPageSize ||
+          result.total_count <= page * githubSearchPageSize
+        )
+          break;
+      }
+
+      partial ||= candidates.size !== expectedTotal;
       const now = new Date().toISOString();
-      const partial =
-        result.incomplete_results || result.total_count > result.items.length;
       const repos = new Map(
-        result.items.flatMap(repo => {
+        [...candidates.values()].map(repo => {
           const name = repo.full_name.toLowerCase();
-          if (!name.startsWith(`${config.organization.toLowerCase()}/`))
-            return [];
           return [
-            [
-              String(repo.id),
-              {
-                id: String(repo.id),
-                name,
-                topic: config.topic,
-                source_url: `https://github.com/${name}`,
-                description: repo.description ?? '',
-                first_seen: now,
-                last_seen: now,
-                is_public: repositoryPublicFlag(repo),
-                is_stale: false,
-              },
-            ] as const,
-          ];
+            String(repo.id),
+            {
+              id: String(repo.id),
+              name,
+              topic: config.topic,
+              source_url: `https://github.com/${name}`,
+              description: repo.description ?? '',
+              first_seen: now,
+              last_seen: now,
+              is_public: repositoryPublicFlag(repo),
+              is_stale: false,
+            },
+          ] as const;
         }),
       );
       const summary = { found: repos.size, partial };
