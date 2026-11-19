@@ -270,6 +270,12 @@ export function PortfolioReport({
   onUsagePreview: (preview: OutsideGatewayUsagePreview | undefined) => void;
 }) {
   const medianWorkingDays = reviewTurnaround?.medianWorkingDays;
+  const recordCoverage = canReview ? discoveries?.recordCoverage : undefined;
+  const completeRecords =
+    recordCoverage && 'complete' in recordCoverage ? recordCoverage : undefined;
+  const completeRecordShare =
+    completeRecords &&
+    formatDiscoveryCoverage(completeRecords.complete, completeRecords.eligible);
   const coverage = discoveries?.source
     ? discoveryCounts(discoveries.repositories)
     : undefined;
@@ -761,6 +767,18 @@ export function PortfolioReport({
                 ? ' · Latest scan failed'
                 : discoveries?.lastScan?.partial && ' · Partial scan results'}
             </small>
+            {completeRecords && (
+              <div>
+                <strong>Complete records</strong>
+                {' · '}
+                {completeRecordShare && `${completeRecordShare} · `}
+                {completeRecords.complete} of {completeRecords.eligible} tracked
+                repositories
+              </div>
+            )}
+            {recordCoverage && 'unavailable' in recordCoverage && (
+              <div role="status">Complete record coverage unavailable</div>
+            )}
             <div>
               <Link to={discoveryLink}>{discoveryLinkLabel}</Link>
             </div>

@@ -2142,16 +2142,83 @@ export const governancePlugin = createBackendPlugin({
           );
         });
 
+        async function githubRecordCoverage(
+          repositories: Array<{
+            appId: string | null;
+            sourceUrl: string;
+            dismissed: boolean | number;
+          }>,
+        ) {
+          const tracked = repositories.filter(
+            repo => repo.appId || !repo.dismissed,
+          );
+          const eligible = tracked.length;
+          const appIds = [
+            ...new Set(
+              tracked.flatMap(repo => (repo.appId ? [repo.appId] : [])),
+            ),
+          ];
+          const apps = new Map<string, AppInput>();
+          for (let offset = 0; offset < appIds.length; offset += 100) {
+            const rows = await db(table)
+              .whereIn('id', appIds.slice(offset, offset + 100))
+              .select<Array<{ id: string; payload: string }>>('id', 'payload');
+            for (const row of rows) {
+              let input: unknown;
+              try {
+                input = JSON.parse(row.payload);
+              } catch {
+                continue;
+              }
+              const parsed = appInput.safeParse(input);
+              if (!parsed.success || parsed.data.lifecycle === 'retired')
+                continue;
+              const app = parsed.data;
+              if (
+                evaluateTier(app) >= 2 &&
+                (!app.backupOwner || app.backupOwner === app.owner)
+              )
+                continue;
+              apps.set(row.id, app);
+            }
+          }
+          const linked = tracked.flatMap(repo => {
+            const app = repo.appId ? apps.get(repo.appId) : undefined;
+            return app &&
+              appSourceKey(app.sourceUrl) === appSourceKey(repo.sourceUrl)
+              ? [app]
+              : [];
+          });
+          let unavailable: Set<string>;
+          try {
+            unavailable = await unavailableOwners(
+              [...new Set(linked.flatMap(ownershipRefs))],
+              true,
+            );
+          } catch {
+            return { eligible, unavailable: true as const };
+          }
+          const complete = linked.filter(app =>
+            ownershipRefs(app).every(ref => !unavailable.has(ref)),
+          ).length;
+          return { eligible, complete };
+        }
+
         router.get('/discovery/github', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
           });
           const includePrivate = reviewers.includes(principal.userEntityRef);
+          const repositories = await github.list(includePrivate);
           res.set('Cache-Control', 'no-store').json({
             source: github.source ?? null,
             lastScan: await github.lastScan(includePrivate),
             intervalMinutes: github.intervalMinutes ?? null,
-            repositories: await github.list(includePrivate),
+            repositories,
+            ...(includePrivate &&
+              github.source && {
+                recordCoverage: await githubRecordCoverage(repositories),
+              }),
           });
         });
 

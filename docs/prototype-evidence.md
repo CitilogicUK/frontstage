@@ -24,7 +24,7 @@ The AI App Governance Platform spec describes four phases. Frontstage demonstrat
 
 | Spec metric | What the prototype measures |
 | --- | --- |
-| Catalog coverage | Registered, non-dismissed GitHub discoveries divided by tracked, non-dismissed GitHub discoveries. The spec’s complete-record measure also needs a definition of completeness and an inventory of the sources in scope. |
+| Catalog coverage | Tracked GitHub discoveries with a valid, source-matched, non-retired record and current Catalog ownership divided by non-dismissed tracked discoveries. The registered share is shown separately. A pilot needs to establish coverage of sources beyond GitHub. |
 | Gateway share | Estimated live gateway spend divided by that estimate plus manually supplied outside spend for the same window. A pilot measurement needs complete billing data for both amounts. |
 | Orphaned apps | Current accountable-owner gaps first observed more than 30 days ago. The first observation depends on the Catalog check schedule and missing observations are reported separately. |
 | Overdue reviews | Non-retired Tier 2 and Tier 3 apps with an overdue scheduled review or attestation divided by non-retired Tier 2 and Tier 3 apps. |

@@ -137,6 +137,14 @@ test('workspace screens share navigation and fit the viewport', async ({
   page,
 }, testInfo) => {
   let discoveryStatuses = ['registered', 'unowned', 'dismissed'];
+  let recordCoverageUnavailable = false;
+  await page.route('**/api/governance/apps', async route => {
+    const response = await route.fetch();
+    return route.fulfill({
+      response,
+      json: { ...(await response.json()), canReview: true },
+    });
+  });
   await page.route('**/api/governance/discovery/github', route =>
     route.fulfill({
       json: {
@@ -148,6 +156,13 @@ test('workspace screens share navigation and fit the viewport', async ({
           partial: true,
         },
         intervalMinutes: null,
+        recordCoverage: {
+          eligible: discoveryStatuses.filter(status => status !== 'dismissed')
+            .length,
+          ...(recordCoverageUnavailable
+            ? { unavailable: true }
+            : { complete: 0 }),
+        },
         repositories: discoveryStatuses.map(status => ({
           id: status,
           name: `${status} repository`,
@@ -222,16 +237,23 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(coverage).toContainText('50%');
   await expect(coverage).toContainText('Excludes dismissed repositories');
   await expect(coverage).toContainText('Partial scan results');
+  await expect(coverage).toContainText('0 of 2');
   await coverage
     .getByRole('link', { name: 'Review 1 unowned repository' })
     .click();
   await expect(
     page.getByText(/1 of 2 tracked repositories registered.*50% coverage/),
   ).toBeVisible();
+  await expect(
+    page.getByText('0 of 2 tracked repositories have complete app records'),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unowned 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dismissed 1' })).toBeVisible();
   discoveryStatuses = ['registered', 'dismissed'];
+  recordCoverageUnavailable = true;
   await page.goto('/?view=reports');
+  await expect(coverage).toContainText('Complete record coverage unavailable');
+  await expect(coverage).toContainText('100%');
   await coverage
     .getByRole('link', { name: 'View registered repositories' })
     .click();

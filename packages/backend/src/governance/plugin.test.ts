@@ -4044,6 +4044,152 @@ describe('governance record access', () => {
     expect(await db('governance_apps').pluck('id')).toEqual(['known']);
   });
 
+  it('reports complete GitHub records only to reviewers with Catalog availability', async () => {
+    const reviewer = 'user:default/reviewer';
+    const owner = 'user:default/owner';
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              discovery: { github: { organization: 'example', topic: 'llm' } },
+              tierPolicy: { classification: { public: 2 } },
+            },
+          },
+        }),
+      ],
+    });
+    const slugs = [
+      'public',
+      'private',
+      'incomplete',
+      'retired',
+      'unowned',
+      'dismissed',
+    ];
+    jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      Response.json({
+        total_count: 7,
+        incomplete_results: true,
+        items: slugs.map((slug, index) => ({
+          id: index + 100,
+          full_name: `example/${slug}`,
+          description: null,
+          private: slug === 'private',
+        })),
+      }),
+    );
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const path = '/api/governance/discovery/github';
+    await api
+      .post(`${path}/scan`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const register = async (slug: string, lifecycle = 'experimental') => {
+      const { body } = await api
+        .post('/api/governance/apps')
+        .set('Authorization', auth(owner))
+        .send({
+          name: slug,
+          purpose: 'Complete record coverage fixture.',
+          type: 'app',
+          platform: 'GitHub',
+          sourceUrl: `https://github.com/Example/${slug}.git/`,
+          owner,
+          team: 'group:default/platform',
+          lifecycle,
+          audience: 'personal',
+          classification: 'internal',
+          usesAiAtRuntime: false,
+        })
+        .expect(201);
+      return body;
+    };
+    const publicApp = await register('public');
+    await register('private');
+    const incomplete = await register('incomplete');
+    await register('retired', 'retired');
+    await db('governance_apps')
+      .where({ id: incomplete.id })
+      .update({
+        payload: JSON.stringify({ ...incomplete, classification: 'public' }),
+      });
+    await api
+      .post(`${path}/105/decision`)
+      .set('Authorization', auth(reviewer))
+      .send({ action: 'dismiss', reason: 'Not an app' })
+      .expect(200);
+
+    const read = (actor = reviewer) =>
+      api.get(path).set('Authorization', auth(actor)).expect(200);
+    catalog.mockClear();
+    const builder = await read(owner);
+    expect(builder.body).not.toHaveProperty('recordCoverage');
+    expect(builder.body.repositories).toHaveLength(5);
+    expect(catalog).not.toHaveBeenCalled();
+    const complete = await read();
+    expect(complete.body.recordCoverage).toEqual({ complete: 2, eligible: 5 });
+    expect(complete.body.lastScan.partial).toBe(true);
+    expect(complete.body.repositories).toHaveLength(6);
+    expect(catalog).toHaveBeenCalledTimes(1);
+    const lookup = catalog.getMockImplementation()!;
+    catalog.mockImplementationOnce(async (...args) => {
+      const result = await lookup(...args);
+      return {
+        items: result.items.map(entity =>
+          entity?.kind === 'User'
+            ? {
+                ...entity,
+                metadata: {
+                  ...entity.metadata,
+                  annotations: { 'governance.backstage.io/active': 'false' },
+                },
+              }
+            : entity,
+        ),
+      };
+    });
+    expect((await read()).body.recordCoverage).toEqual({
+      complete: 0,
+      eligible: 5,
+    });
+
+    await db('governance_apps')
+      .where({ id: publicApp.id })
+      .update({
+        payload: JSON.stringify({
+          ...publicApp,
+          sourceUrl: 'https://github.com/example/other-source',
+        }),
+      });
+    expect((await read()).body.recordCoverage).toEqual({
+      complete: 1,
+      eligible: 5,
+    });
+    catalog.mockRejectedValueOnce(new Error('Catalog unavailable'));
+    const degraded = await read();
+    expect(degraded.body.recordCoverage).toEqual({
+      eligible: 5,
+      unavailable: true,
+    });
+    expect(degraded.body.repositories).toHaveLength(6);
+    expect(degraded.body.lastScan.partial).toBe(true);
+  });
+
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
     const reviewer = 'user:default/reviewer';
     const owner = 'user:default/owner';
