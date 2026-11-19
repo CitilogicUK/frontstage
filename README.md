@@ -64,7 +64,13 @@ In a second terminal at the repository root, run `yarn demo:seed` after the back
 2. **Hand off a critical app for review.** Open **Restricted intake demo** from **Reviews**. Issue a key and attempt a synthetic call with `gpt-4.1-mini`. The pending review blocks it. Open **Edit review ticket**, enter `https://example.com/reviews/restricted-intake` as the **Ticket URL**, then save. The app’s details URL can be shared with a signed-in reviewer. Record an approval with sandbox-only scope in **Review notes**, set **Lifecycle** to active, and select **Update lifecycle**. Retry with the same key and model. The playground lists `gpt-4.1-nano` as unavailable for restricted data. See [Review evidence](#review-evidence) and [Separate critical sign-offs](#separate-critical-sign-offs).
 3. **Trace model impact.** In **Reports**, choose **Declared model** under **Group inventory by**, then select the count for `gpt-4.1-nano` to open the matching records. The count includes declarations even when a call is blocked or no call is recorded. Back in **Reports**, set **Group gateway usage** to **Model** to see the successful simulated calls under **Other calls**. **Gateway policy blocks** shows the denied attempts. Live estimated spend stays at zero. See [Portfolio reports](#portfolio-reports).
 
-To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace.
+To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace. To demonstrate the owner confirmation, stop the reviewer server and restart it against the same database with the owner identity:
+
+```sh
+APP_CONFIG_auth_providers_guest_userEntityRef=user:default/guest yarn start --config ../../app-config.reviewer.yaml
+```
+
+Sign in as Guest in a fresh private window. Open **Hosted workspace demo** and record the quarterly workspace attestation. The app details show the next due date.
 
 The gateway checks active catalog ownership before issuing or rotating keys and before forwarding calls. The simulation uses the same key, lifecycle, review, and model checks as the live adapter. Seeding again preserves existing records. Restart with a fresh temporary database to replay from the initial state.
 
@@ -139,6 +145,10 @@ The owner checks for use outside the gateway and records a reason for keeping or
 Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080 to schedule retirement review requests. For a daily check, use `1440`. The task applies the same eligibility criteria and 90-day cooldown after a keep decision, then assigns a review to the app owner. The app’s lifecycle and gateway key stay as they were when the task opens a review. Audit history records the Backstage governance service as the requester. Leave the setting unset for reviewer-initiated requests.
 
 **Median time to first Tier 3 decision** measures from the first pending submission to the first recorded overall approval or request for changes. It uses the available audit history across all reporting windows. The calculation includes elapsed time on UTC weekdays and excludes weekends. A partial sign-off or an app still waiting for a decision does not contribute to the median. Set `governance.firstDecisionTargetWeekdays` to a positive integer to flag pending reviews that reach your team’s target in Reports and the **Awaiting first decision** queue.
+
+## Hosted workspace attestation
+
+For provider-hosted apps where no admin API is available, the accountable owner can open the app details and confirm that the provider workspace, sharing, and data access match the declaration. Frontstage records who confirmed the settings and when in Audit history. The next confirmation is due in 90 days. Changing the owner or declared hosted settings clears the current confirmation. The scorecard highlights missing or overdue confirmations for follow-up.
 
 ## Discover and claim a GitHub repository
 
