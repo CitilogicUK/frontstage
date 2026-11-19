@@ -167,8 +167,14 @@ export function OutsideGatewayUsage({
   const preview = saved?.preview ?? livePreview;
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
   const unmatchedRows = preview?.rows.filter(row => !row.appId) ?? [];
+  const unmatchedCallCount = unmatchedRows.reduce(
+    (total, row) => total + row.calls,
+    0,
+  );
   const visibleRows =
-    matchFilter === 'unmatched' ? unmatchedRows : preview?.rows;
+    matchFilter === 'unmatched'
+      ? unmatchedRows.sort((first, second) => second.calls - first.calls)
+      : preview?.rows;
 
   async function loadOlder(before: string) {
     historyRequest.current?.abort();
@@ -527,7 +533,9 @@ export function OutsideGatewayUsage({
             {callCount?.toLocaleString()} reported{' '}
             {callCount === 1 ? 'call' : 'calls'} · {preview.rows.length}{' '}
             {preview.rows.length === 1 ? 'row' : 'rows'} ·{' '}
-            {unmatchedRows.length} unmatched
+            {unmatchedRows.length} unmatched (
+            {unmatchedCallCount.toLocaleString()}{' '}
+            {unmatchedCallCount === 1 ? 'call' : 'calls'})
           </p>
           <button
             type="button"

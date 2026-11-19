@@ -808,7 +808,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     report.getByRole('row', { name: /Hosted workspace demo/ }),
   ).toContainText('12');
   await expect(
-    report.getByText('15 reported calls · 2 rows · 1 unmatched'),
+    report.getByText('15 reported calls · 2 rows · 1 unmatched (3 calls)'),
   ).toBeVisible();
   const upload = report.getByLabel('Upload usage file');
   await usageJson.clear();
@@ -966,6 +966,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
 
   await matchFilters.getByRole('button', { name: /unmatched/i }).click();
   await expect(report.getByText('No unmatched usage rows.')).toBeVisible();
+  await expect(
+    report.getByText('15 reported calls · 2 rows · 0 unmatched (0 calls)'),
+  ).toBeVisible();
 
   currentMatchRemoved = true;
   await report
