@@ -1331,13 +1331,21 @@ describe('governance record access', () => {
     const owner = 'user:default/owner';
     const nextOwner = 'user:default/next';
     const reviewer = 'user:default/reviewer';
+    let ownerActive = true;
     jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
         items: entityRefs.map(ref => ({
           apiVersion: 'backstage.io/v1alpha1',
           kind: ref.startsWith('group:') ? 'Group' : 'User',
-          metadata: { name: ref.split('/')[1] },
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: {
+              'governance.backstage.io/active': String(
+                ref !== owner || ownerActive,
+              ),
+            },
+          },
         })),
       }));
     const db = await databases.init('SQLITE_3');
@@ -1420,6 +1428,10 @@ describe('governance record access', () => {
     };
     expect(await scorecard()).toMatchObject({ status: 'attention' });
     await attest(original).expect(409);
+    ownerActive = false;
+    await attest(active).expect(400);
+    expect(await scorecard()).toMatchObject({ status: 'attention' });
+    ownerActive = true;
     const { body: confirmed } = await attest(active)
       .expect('Cache-Control', 'no-store')
       .expect(200);
