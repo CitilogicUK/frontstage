@@ -497,22 +497,34 @@ function hashKey(key: string) {
   return createHash('sha256').update(key).digest('hex');
 }
 
+function validRetryAfter(value: string | null) {
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) {
+    const seconds = Number(value);
+    return Number.isSafeInteger(seconds) ? String(seconds) : undefined;
+  }
+  const date = new Date(value);
+  if (Number.isFinite(date.getTime()) && date.toUTCString() === value)
+    return value;
+  return undefined;
+}
+
 async function callOpenai(
   key: string,
   model: string,
   prompt: string,
   maxCompletionTokens: number,
   timeoutMs: number,
-  logFailure: (metadata: {
-    kind: string;
-    upstreamStatus?: number;
-    elapsedMs: number;
-  }) => void,
+  onFailure: (
+    metadata: { kind: string; upstreamStatus?: number; elapsedMs: number },
+    retryAfter?: string,
+  ) => void,
 ) {
   const startedAt = performance.now();
   const signal = AbortSignal.timeout(timeoutMs);
   let kind = 'transport';
   let upstreamStatus: number | undefined;
+  let retryAfter: string | undefined;
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -531,6 +543,8 @@ async function callOpenai(
     if (!response.ok) {
       kind = 'upstream-http';
       upstreamStatus = response.status;
+      if (upstreamStatus === 429 || upstreamStatus === 503)
+        retryAfter = validRetryAfter(response.headers.get('Retry-After'));
       await response.body?.cancel();
       throw new Error('Provider request was unsuccessful.');
     }
@@ -548,11 +562,14 @@ async function callOpenai(
       providerElapsedMs: performance.now() - startedAt,
     };
   } catch {
-    logFailure({
-      kind: signal.aborted ? 'timeout' : kind,
-      upstreamStatus,
-      elapsedMs: Math.round(performance.now() - startedAt),
-    });
+    onFailure(
+      {
+        kind: signal.aborted ? 'timeout' : kind,
+        upstreamStatus,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      },
+      signal.aborted ? undefined : retryAfter,
+    );
     throw new ServiceUnavailableError(
       'The configured model provider is temporarily unavailable.',
     );
@@ -1411,12 +1428,14 @@ export function registerGatewayRoutes(options: {
               prompt,
               policy.maxCompletionTokens,
               config.upstreamTimeoutMs,
-              failure =>
+              (failure, retryAfter) => {
+                if (retryAfter) res.set('Retry-After', retryAfter);
                 logger.warn('Model provider request failed', {
                   appId: record.id,
                   model,
                   ...failure,
-                }),
+                });
+              },
             )
           : simulate(model, prompt);
       await db(usageTable).insert({
