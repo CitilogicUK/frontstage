@@ -661,6 +661,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   };
   let registered = false;
   let previewCalls = 0;
+  let currentMatchRemoved = false;
   await page.route(/\/api\/governance\/apps(?:\?|$)/, route => {
     const request = route.request();
     if (request.method() === 'POST') {
@@ -693,7 +694,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
           ...snapshot,
           rows: [
             { ...snapshot.rows[0], appId: app.id, appName: app.name },
-            registered
+            registered && !currentMatchRemoved
               ? { ...snapshot.rows[1], appId: draft.id, appName: draft.name }
               : snapshot.rows[1],
           ],
@@ -874,6 +875,25 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     report.getByRole('row', { name: new RegExp(draft.name) }),
   ).toContainText('3');
   expect(previewCalls).toBe(3);
+
+  currentMatchRemoved = true;
+  await report
+    .getByRole('button', {
+      name: 'Recheck against current Inventory',
+    })
+    .click();
+  await expect(startRegistration).toBeVisible();
+  await expect(report.getByRole('link', { name: draft.name })).toHaveCount(0);
+  await expect(report.getByRole('link', { name: app.name })).toBeVisible();
+  expect(previewCalls).toBe(4);
+
+  await report
+    .getByRole('button', { name: /Open saved reconciliation/ })
+    .click();
+  await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
+  await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
+  await expect(startRegistration).toHaveCount(0);
+  expect(previewCalls).toBe(4);
 
   await page.getByRole('link', { name: 'Inventory', exact: true }).click();
   await page

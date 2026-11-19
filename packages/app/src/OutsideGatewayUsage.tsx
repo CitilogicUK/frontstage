@@ -28,6 +28,18 @@ type ReconciliationSummary = Omit<SavedReconciliation, 'preview'> & {
   rowCount: number;
 };
 
+function usageInput({ from, to, rows }: OutsideGatewayUsagePreview) {
+  return {
+    from,
+    to,
+    rows: rows.map(({ sourceUrl, model, calls }) => ({
+      sourceUrl,
+      model,
+      calls,
+    })),
+  };
+}
+
 export function OutsideGatewayUsage({
   appLink,
   onRegister,
@@ -86,6 +98,30 @@ export function OutsideGatewayUsage({
     clearPreview();
   }
 
+  async function requestPreview(payload: unknown, signal: AbortSignal) {
+    const base = await discovery.getBaseUrl('governance');
+    const response = await fetch(`${base}/reports/outside-gateway/preview`, {
+      signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (signal.aborted) return undefined;
+    if (response.status === 413) {
+      setError('The usage preview request must be 1 MB or smaller.');
+      return undefined;
+    }
+    if (response.status === 400) {
+      setError(
+        'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
+      );
+      return undefined;
+    }
+    if (!response.ok) throw new Error('Usage preview failed');
+    const result: OutsideGatewayUsagePreview = await response.json();
+    return signal.aborted ? undefined : result;
+  }
+
   async function loadPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearPreview();
@@ -116,31 +152,35 @@ export function OutsideGatewayUsage({
         return;
       }
 
-      const base = await discovery.getBaseUrl('governance');
-      const response = await fetch(`${base}/reports/outside-gateway/preview`, {
-        signal: controller.signal,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (response.status === 413) {
-        setError('The usage preview request must be 1 MB or smaller.');
-        return;
-      }
-      if (response.status === 400) {
-        setError(
-          'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
-        );
-        return;
-      }
-      if (!response.ok) throw new Error('Usage preview failed');
-      const result: OutsideGatewayUsagePreview = await response.json();
-      if (!controller.signal.aborted) onPreview(result);
+      const result = await requestPreview(payload, controller.signal);
+      if (result) onPreview(result);
     } catch {
       if (!controller.signal.aborted)
         setError('Outside-gateway usage could not be previewed.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function recheckSaved(reconciliation: SavedReconciliation) {
+    const controller = new AbortController();
+    request.current = controller;
+    setError(undefined);
+    setBusy(true);
+    try {
+      const result = await requestPreview(
+        usageInput(reconciliation.preview),
+        controller.signal,
+      );
+      if (result) {
+        setSaved(undefined);
+        onPreview(result);
+      }
+    } catch {
+      if (!controller.signal.aborted)
+        setError('The saved usage could not be rechecked against Inventory.');
+    } finally {
+      if (!controller.signal.aborted) setBusy(false);
     }
   }
 
@@ -159,20 +199,11 @@ export function OutsideGatewayUsage({
         );
       } else {
         if (!livePreview) return;
-        const { from, to, rows } = livePreview;
         response = await fetch(base + reconciliationPath, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
-          body: JSON.stringify({
-            from,
-            to,
-            rows: rows.map(({ sourceUrl, model, calls }) => ({
-              sourceUrl,
-              model,
-              calls,
-            })),
-          }),
+          body: JSON.stringify(usageInput(livePreview)),
         });
         if (response.status === 400) {
           setError(
@@ -283,19 +314,31 @@ export function OutsideGatewayUsage({
       {preview && (
         <>
           {saved ? (
-            <p role="status">
-              Saved reconciliation ·{' '}
-              <time dateTime={saved.confirmedAt}>{saved.confirmedAt}</time> ·{' '}
-              {saved.confirmedBy}. Matches reflect Inventory at save time.
-            </p>
+            <>
+              <p role="status">
+                Saved reconciliation ·{' '}
+                <time dateTime={saved.confirmedAt}>{saved.confirmedAt}</time> ·{' '}
+                {saved.confirmedBy}. Matches reflect Inventory at save time.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void recheckSaved(saved)}
+              >
+                Recheck against current Inventory
+              </button>
+            </>
           ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void accessReconciliation()}
-            >
-              Save reconciliation
-            </button>
+            <>
+              <p>Current Inventory matches</p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void accessReconciliation()}
+              >
+                Save reconciliation
+              </button>
+            </>
           )}
           <p>
             Reporting window <time dateTime={preview.from}>{preview.from}</time>
