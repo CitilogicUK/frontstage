@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { SchedulerService } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
@@ -13,6 +14,603 @@ import { governancePlugin } from './plugin';
 describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3'] });
   afterEach(() => jest.restoreAllMocks());
+
+  it('lists explicitly published apps with current launch approval and protects publication state', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    const teammate = 'user:default/teammate';
+    const inactive = new Set<string>();
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Approved workspace' },
+              ],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const directoryPath = '/api/governance/directory';
+    const collection = '/api/governance/apps';
+    const list = () =>
+      api.get(directoryPath).set('Authorization', auth(teammate));
+    const appInput = {
+      name: 'Staff assistant',
+      purpose: 'Help staff with a vetted workflow.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/source',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/operations',
+      lifecycle: 'experimental',
+      audience: 'external',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const { body: app } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `${collection}/${app.id}`;
+    const publishPath = `${path}/directory`;
+    const summary = 'Get help with the staff workflow.';
+    const url = 'https://tools.example.com/assistant?view=start#ready';
+    const listing = { summary, url };
+    const publish = (
+      expectedUpdatedAt: string,
+      actor = owner,
+      changes: { summary?: string; url?: string } = {},
+    ) =>
+      api
+        .put(publishPath)
+        .set('Authorization', auth(actor))
+        .send({ ...listing, ...changes, expectedUpdatedAt });
+    const unpublish = (expectedUpdatedAt: string, actor = owner) =>
+      api
+        .delete(publishPath)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt });
+    const review = (expectedUpdatedAt: string, status = 'approved') =>
+      api
+        .post(`${path}/reviews`)
+        .set('Authorization', auth(reviewer))
+        .send({ expectedUpdatedAt, status, notes: 'Reviewed for publication.' })
+        .expect(200);
+    const setLifecycle = (lifecycle: string, expectedUpdatedAt: string) =>
+      api
+        .patch(`${path}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle, expectedUpdatedAt })
+        .expect(200);
+
+    await api
+      .get(directoryPath)
+      .set('Authorization', mockCredentials.none.header())
+      .expect(401);
+    await api
+      .get(directoryPath)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
+    await list().expect('Cache-Control', 'no-store').expect(200, { apps: [] });
+    await publish(app.updatedAt).expect(400);
+
+    const approved = await review(app.updatedAt);
+    const activation = await setLifecycle('active', approved.body.updatedAt);
+    const before = activation.body.updatedAt;
+    await list().expect(200, { apps: [] });
+    await publish(before, backup).expect(403);
+    await publish(before, teammate).expect(403);
+    await publish(approved.body.updatedAt).expect(409);
+    for (const changes of [
+      { summary: '   ' },
+      { summary: 'x'.repeat(501) },
+      { url: 'http://tools.example.com/assistant' },
+      { url: `https://tools.example.com/${'x'.repeat(2048)}` },
+      { url: 'https://example:secret@tools.example.com/assistant' },
+    ]) {
+      await publish(before, owner, changes).expect(400);
+    }
+
+    const published = await publish(before, owner, {
+      summary: `  ${summary}  `,
+    }).expect(200);
+    expect(published.body.directoryListing).toEqual(listing);
+    expect(published.body.directoryLaunchEligible).toBe(true);
+    await list().expect(200, {
+      apps: [{ id: app.id, name: app.name, ...listing }],
+    });
+    for (const principal of [
+      mockCredentials.user.header(backup),
+      auth(teammate),
+      mockCredentials.service.header(),
+    ]) {
+      const { body } = await api
+        .get(path)
+        .set('Authorization', principal)
+        .expect(200);
+      expect(body).not.toHaveProperty('directoryListing');
+      expect(body).not.toHaveProperty('directoryLaunchEligible');
+    }
+    const { body: reviewerView } = await api
+      .get(path)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(reviewerView.directoryListing).toEqual(listing);
+
+    const {
+      body: { key },
+    } = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const edited = await publish(published.body.updatedAt, reviewer, {
+      summary: 'Revised launch instructions.',
+    }).expect(200);
+    expect(edited.body.directoryListing.summary).toBe(
+      'Revised launch instructions.',
+    );
+    await unpublish(edited.body.updatedAt, teammate).expect(403);
+    await unpublish(published.body.updatedAt).expect(409);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ model: 'test-model', prompt: 'Check access after publishing.' })
+      .expect(200);
+
+    const accessPath = `${path}/directory-requests`;
+    const { body: submitted } = await api
+      .post(accessPath)
+      .set('Authorization', auth(teammate))
+      .send({ message: 'Need access for staff support.' })
+      .expect(201);
+    const readQueue = () =>
+      api.get(accessPath).set('Authorization', auth(reviewer)).expect(200);
+    expect((await readQueue()).body.canApprove).toBe(true);
+
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(approved.body.nextReview));
+    expect((await readQueue()).body.canApprove).toBe(false);
+    await api
+      .patch(`${accessPath}/${submitted.id}`)
+      .set('Authorization', auth(reviewer))
+      .send({ status: 'approved' })
+      .expect(409);
+    await list().expect(200, { apps: [] });
+    await publish(edited.body.updatedAt).expect(400);
+    const removed = await unpublish(edited.body.updatedAt, reviewer).expect(
+      200,
+    );
+    expect(removed.body).not.toHaveProperty('directoryListing');
+
+    const renewed = await review(removed.body.updatedAt);
+    const republished = await publish(renewed.body.updatedAt).expect(200);
+    const paused = await setLifecycle('deprecated', republished.body.updatedAt);
+    expect(paused.body).not.toHaveProperty('directoryListing');
+    const restarted = await setLifecycle('active', paused.body.updatedAt);
+    await list().expect(200, { apps: [] });
+    const afterRestart = await publish(restarted.body.updatedAt).expect(200);
+    const rejected = await review(
+      afterRestart.body.updatedAt,
+      'changes needed',
+    );
+    expect(rejected.body.lifecycle).toBe('experimental');
+    expect(rejected.body).not.toHaveProperty('directoryListing');
+    await list().expect(200, { apps: [] });
+    clock.mockRestore();
+
+    const personalInput = {
+      ...appInput,
+      audience: 'personal',
+      lifecycle: 'active',
+      sourceUrl: 'https://example.com/personal-assistant',
+    };
+    const { body: personalApp } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(personalInput)
+      .expect(201);
+    const personalPath = `${collection}/${personalApp.id}`;
+    const publicPersonal = await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
+      .expect(200);
+    inactive.add(owner);
+    await list().expect(200, { apps: [] });
+    await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(reviewer))
+      .send({ ...listing, expectedUpdatedAt: publicPersonal.body.updatedAt })
+      .expect(400);
+    inactive.delete(owner);
+    await list().expect(200, {
+      apps: [{ id: personalApp.id, name: personalApp.name, ...listing }],
+    });
+    const personalQueue = `${personalPath}/directory-requests`;
+    const { body: pendingTransferRequest } = await api
+      .post(personalQueue)
+      .set('Authorization', auth(reviewer))
+      .send({ message: 'I need access for the review.' })
+      .expect(201);
+    const transferred = await api
+      .put(personalPath)
+      .set('Authorization', auth(owner))
+      .send({
+        ...personalInput,
+        owner: teammate,
+        expectedUpdatedAt: publicPersonal.body.updatedAt,
+      })
+      .expect(200);
+    expect(transferred.body.lifecycle).toBe('active');
+    expect(transferred.body).not.toHaveProperty('directoryListing');
+    await list().expect(200, { apps: [] });
+
+    await api.get(personalQueue).set('Authorization', auth(owner)).expect(403);
+    const { body: transferredQueue } = await api
+      .get(personalQueue)
+      .set('Authorization', auth(teammate))
+      .expect(200);
+    expect(transferredQueue).toMatchObject({
+      canApprove: false,
+      requests: [
+        {
+          id: pendingTransferRequest.id,
+          requester: reviewer,
+          status: 'pending',
+        },
+      ],
+    });
+    await api
+      .patch(`${personalQueue}/${pendingTransferRequest.id}`)
+      .set('Authorization', auth(teammate))
+      .send({ status: 'approved' })
+      .expect(409);
+
+    const { body: hosted } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        audience: 'personal',
+        type: 'provider-hosted app',
+        sourceUrl: 'https://example.com/hosted-assistant',
+        hosted: {
+          provider: 'Example AI',
+          workspace: 'Previously approved workspace',
+          sharing: 'private',
+          dataAccess: 'none',
+        },
+      })
+      .expect(201);
+    // Represent an existing publication whose workspace was removed from policy.
+    await db('governance_apps')
+      .where({ id: hosted.id })
+      .update({
+        payload: JSON.stringify({
+          ...hosted,
+          lifecycle: 'active',
+          directoryListing: listing,
+        }),
+      });
+    await list().expect(200, { apps: [] });
+    await api
+      .get(`${collection}/${hosted.id}`)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.directoryLaunchEligible).toBe(false);
+        expect(body.directoryListing).toEqual(listing);
+      });
+    await api
+      .put(`${collection}/${hosted.id}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ ...listing, expectedUpdatedAt: hosted.updatedAt })
+      .expect(400);
+    await api
+      .delete(`${collection}/${hosted.id}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: hosted.updatedAt })
+      .expect(200);
+
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = history.events.map((item: { event: string }) =>
+      JSON.parse(item.event),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'directory-published',
+          actor: owner,
+          record: expect.objectContaining({ directoryListing: listing }),
+        }),
+        expect.objectContaining({
+          action: 'directory-unpublished',
+          actor: reviewer,
+          record: expect.not.objectContaining({
+            directoryListing: expect.anything(),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('keeps durable directory access requests private and applies only permitted decisions', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    const requester = 'user:default/requester';
+    const otherRequester = 'user:default/other-requester';
+    const inactive = new Set<string>();
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const create = (name: string, sourceUrl: string) =>
+      api
+        .post(collection)
+        .set('Authorization', auth(owner))
+        .send({
+          name,
+          sourceUrl,
+          purpose: 'Assist with staff workflows.',
+          type: 'app',
+          platform: 'GitHub',
+          owner,
+          team: 'group:default/operations',
+          lifecycle: 'active',
+          audience: 'personal',
+          classification: 'internal',
+          usesAiAtRuntime: false,
+        })
+        .expect(201);
+    const { body: app } = await create(
+      'Staff tools',
+      'https://example.com/staff-tools',
+    );
+    const { body: anotherApp } = await create(
+      'Other app',
+      'https://example.com/other-app',
+    );
+    const path = `${collection}/${app.id}`;
+    const queue = `${path}/directory-requests`;
+    const listing = {
+      summary: 'Staff tools summary',
+      url: 'https://tools.example.com/staff',
+    };
+    const requestMessage = 'Need access for support.';
+    const createRequest = (user: string, message = requestMessage) =>
+      api.post(queue).set('Authorization', auth(user)).send({ message });
+    const feed = (user: string) =>
+      api.get('/api/governance/directory').set('Authorization', auth(user));
+    const publish = (expectedUpdatedAt: string) =>
+      api
+        .put(`${path}/directory`)
+        .set('Authorization', auth(owner))
+        .send({ ...listing, expectedUpdatedAt })
+        .expect(200);
+    const decide = (user: string, id: string, status: string) =>
+      api
+        .patch(`${queue}/${id}`)
+        .set('Authorization', auth(user))
+        .send({ status });
+
+    await createRequest(requester).expect(404);
+    const { body: published } = await publish(app.updatedAt);
+    await api
+      .post(queue)
+      .set('Authorization', mockCredentials.none.header())
+      .send({ message: requestMessage })
+      .expect(401);
+    await api
+      .post(queue)
+      .set('Authorization', mockCredentials.service.header())
+      .send({ message: requestMessage })
+      .expect(403);
+    await createRequest(requester, '   ').expect(400);
+    await createRequest(requester, 'x'.repeat(501)).expect(400);
+    const attempts = await Promise.all([
+      createRequest(requester, `  ${requestMessage}  `),
+      createRequest(requester),
+    ]);
+    expect(attempts.map(result => result.status).sort()).toEqual([201, 409]);
+    const created = attempts.find(result => result.status === 201)?.body;
+    expect(created).toEqual({ id: expect.any(String), status: 'pending' });
+    const { body: pending } = await createRequest(
+      otherRequester,
+      'Second private message.',
+    ).expect(201);
+
+    const entry = { id: app.id, name: app.name, ...listing };
+    await feed(requester)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, { apps: [{ ...entry, requestStatus: 'pending' }] });
+    await feed(reviewer).expect(200, { apps: [entry] });
+    await api.get(queue).set('Authorization', auth(requester)).expect(403);
+    const { body: reviewerQueue } = await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(reviewerQueue.requests).toEqual(
+      expect.arrayContaining([
+        {
+          id: created.id,
+          requester,
+          message: requestMessage,
+          status: 'pending',
+          requestedAt: expect.any(String),
+        },
+        {
+          id: pending.id,
+          requester: otherRequester,
+          message: 'Second private message.',
+          status: 'pending',
+          requestedAt: expect.any(String),
+        },
+      ]),
+    );
+    expect(reviewerQueue.requests).toHaveLength(2);
+    expect(reviewerQueue.canApprove).toBe(true);
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200, reviewerQueue);
+
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, {
+        ...reviewerQueue,
+        canApprove: false,
+        approvalCheckUnavailable: true,
+      });
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await decide(reviewer, created.id, 'approved').expect(503);
+
+    inactive.add(owner);
+    await feed(requester).expect(200, { apps: [] });
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, { ...reviewerQueue, canApprove: false });
+    await createRequest(reviewer).expect(404);
+    await decide(reviewer, created.id, 'approved').expect(409);
+    inactive.delete(owner);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, reviewerQueue);
+
+    await decide(requester, created.id, 'approved').expect(403);
+    await decide(owner, created.id, 'pending').expect(400);
+    await api
+      .patch(`${collection}/${anotherApp.id}/directory-requests/${created.id}`)
+      .set('Authorization', auth(owner))
+      .send({ status: 'declined' })
+      .expect(404);
+    const { body: approved } = await decide(
+      owner,
+      created.id,
+      'approved',
+    ).expect(200);
+    expect(approved).toEqual({
+      ...reviewerQueue.requests.find(
+        (row: { id: string }) => row.id === created.id,
+      ),
+      status: 'approved',
+      decidedBy: owner,
+      decidedAt: expect.any(String),
+    });
+    await decide(reviewer, created.id, 'declined').expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+
+    const { body: unpublished } = await api
+      .delete(`${path}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: published.updatedAt })
+      .expect(200);
+    await feed(requester).expect(200, { apps: [] });
+    await decide(reviewer, pending.id, 'approved').expect(409);
+    const { body: declined } = await decide(
+      reviewer,
+      pending.id,
+      'declined',
+    ).expect(200);
+    expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.requests).toEqual(
+          expect.arrayContaining([approved, declined]),
+        );
+        expect(body.canApprove).toBe(false);
+      });
+
+    await publish(unpublished.updatedAt);
+    await createRequest(requester).expect(409);
+    await createRequest(otherRequester).expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'declined' }],
+    });
+  });
 
   const approvedConnector = {
     id: 'catalog-lookup',
@@ -123,6 +721,10 @@ describe('governance record access', () => {
           ],
         })),
       }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
     const db = await databases.init('SQLITE_3');
     const { server } = await startTestBackend({
       features: [
@@ -130,9 +732,17 @@ describe('governance record access', () => {
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
           data: {
+            backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
               graduationGroups: [group],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
             },
           },
         }),
@@ -153,7 +763,7 @@ describe('governance record access', () => {
       lifecycle: 'experimental',
       audience: 'external',
       classification: 'internal',
-      usesAiAtRuntime: false,
+      models: ['test-model'],
       deliveryStage: 'pilot',
       evidence: { tests: 'https://example.com/limited-evidence' },
     };
@@ -217,19 +827,24 @@ describe('governance record access', () => {
     await nominate(engineer, before).expect(400);
     activeEngineer = true;
 
-    const cancel = (expectedUpdatedAt: string, actor = owner) =>
+    const removeHandoff = (
+      expectedUpdatedAt: string,
+      actor = owner,
+      reason?: string,
+    ) =>
       api
         .delete(route)
         .set('Authorization', auth(actor))
-        .send({ expectedUpdatedAt });
-    await cancel(before).expect(409);
+        .send({ expectedUpdatedAt, reason });
+    await removeHandoff(before).expect(409);
     const abandoned = await nominate(engineer, before).expect(200);
-    await cancel(before).expect(409);
-    await cancel(abandoned.body.updatedAt, engineer).expect(403);
+    await removeHandoff(before).expect(409);
+    await removeHandoff(abandoned.body.updatedAt, engineer).expect(403);
     activeEngineer = false;
-    const cancelled = await cancel(abandoned.body.updatedAt, reviewer).expect(
-      200,
-    );
+    const cancelled = await removeHandoff(
+      abandoned.body.updatedAt,
+      reviewer,
+    ).expect(200);
     expect(cancelled.body).not.toHaveProperty('graduation');
     expect((await getApp(engineer)).body).not.toHaveProperty('graduation');
     await decide('accept', cancelled.body.updatedAt).expect(403);
@@ -297,16 +912,75 @@ describe('governance record access', () => {
       },
     });
     await nominate(outside, accepted.body.updatedAt).expect(409);
-    await cancel(accepted.body.updatedAt).expect(409);
+    await removeHandoff(accepted.body.updatedAt).expect(400);
 
     const renamed = await edit(
       { name: 'Renamed workflow', deliveryStage: 'production' },
       accepted.body.updatedAt,
     ).expect(200);
     expect(renamed.body.graduation).toEqual(accepted.body.graduation);
+    const approved = await api
+      .post(`${appPath}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        expectedUpdatedAt: renamed.body.updatedAt,
+        notes: 'Production review completed.',
+      })
+      .expect(200);
+    const activated = await api
+      .patch(`${appPath}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: approved.body.updatedAt })
+      .expect(200);
+    const {
+      body: { key },
+    } = await api
+      .post(`${appPath}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const ending = 'Engineering coverage changed.';
+    await removeHandoff(activated.body.updatedAt, outside, ending).expect(403);
+    await removeHandoff(activated.body.updatedAt, engineer, ending).expect(403);
+    await removeHandoff(renamed.body.updatedAt, reviewer, ending).expect(409);
+    await removeHandoff(activated.body.updatedAt, reviewer, '   ').expect(400);
+    await removeHandoff(
+      activated.body.updatedAt,
+      reviewer,
+      'x'.repeat(501),
+    ).expect(400);
+    const ended = await removeHandoff(
+      activated.body.updatedAt,
+      reviewer,
+      `  ${ending}  `,
+    ).expect(200);
+    expect(ended.body).not.toHaveProperty('graduation');
+    expect(ended.body).toMatchObject({
+      owner,
+      tier: activated.body.tier,
+      lifecycle: 'active',
+      activeSince: activated.body.activeSince,
+      reviewStatus: 'approved',
+      lastReview: approved.body.lastReview,
+      nextReview: approved.body.nextReview,
+      reviewNotes: 'Production review completed.',
+    });
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ model: 'test-model', prompt: 'Check handoff continuity.' })
+      .expect(200);
+    const nextNomination = await nominate(
+      engineer,
+      ended.body.updatedAt,
+    ).expect(200);
+    expect(nextNomination.body.graduation).toMatchObject({
+      status: 'pending',
+      nominee: engineer,
+    });
     const reverted = await edit(
       { deliveryStage: 'pilot' },
-      renamed.body.updatedAt,
+      nextNomination.body.updatedAt,
     ).expect(200);
     expect(reverted.body).not.toHaveProperty('graduation');
     const productionAgain = await edit(
@@ -361,6 +1035,24 @@ describe('governance record access', () => {
     const events = history.events.map((item: { event: string }) =>
       JSON.parse(item.event),
     );
+    const endAudit = history.events.find(
+      (item: { event: string }) =>
+        JSON.parse(item.event).action === 'graduation-ended',
+    );
+    expect(JSON.parse(endAudit.event)).toMatchObject({
+      actor: reviewer,
+      graduationNominee: engineer,
+      graduationReason: ending,
+    });
+    expect(JSON.parse(endAudit.event).record).not.toHaveProperty('graduation');
+    expect(endAudit.digest).toBe(
+      createHash('sha256').update(endAudit.event).digest('hex'),
+    );
+    expect(
+      events.find(
+        (event: { action: string }) => event.action === 'graduation-cancelled',
+      ),
+    ).not.toHaveProperty('graduationReason');
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -419,6 +1111,14 @@ describe('governance record access', () => {
       })
       .expect(200);
     await api
+      .delete(`${secondPath}/graduation`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        expectedUpdatedAt: handoff.body.updatedAt,
+        reason: 'I want to end my handoff.',
+      })
+      .expect(403);
+    await api
       .post(`${secondPath}/reviews`)
       .set('Authorization', auth(reviewer))
       .send({
@@ -436,6 +1136,38 @@ describe('governance record access', () => {
         expectedUpdatedAt: handoff.body.updatedAt,
       })
       .expect(403);
+    await api
+      .patch(`${secondPath}/lifecycle`)
+      .set('Authorization', auth(reviewer))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: handoff.body.updatedAt })
+      .expect(403);
+    const editAsNominee = (changes: Record<string, unknown>) =>
+      api
+        .put(secondPath)
+        .set('Authorization', auth(reviewer))
+        .send({
+          ...appInput,
+          sourceUrl: second.body.sourceUrl,
+          deliveryStage: 'production',
+          expectedUpdatedAt: handoff.body.updatedAt,
+          ...changes,
+        });
+    await editAsNominee({ deliveryStage: 'pilot' }).expect(403);
+    await editAsNominee({ owner: outside }).expect(403);
+    await editAsNominee({ audience: 'team' }).expect(403);
+    const unrelated = await editAsNominee({
+      name: 'Updated handoff title',
+    }).expect(200);
+    expect(unrelated.body.graduation).toEqual(handoff.body.graduation);
+    const ownerEnded = await api
+      .delete(`${secondPath}/graduation`)
+      .set('Authorization', auth(owner))
+      .send({
+        expectedUpdatedAt: unrelated.body.updatedAt,
+        reason: 'The owner reassigned engineering coverage.',
+      })
+      .expect(200);
+    expect(ownerEnded.body).not.toHaveProperty('graduation');
   });
 
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
