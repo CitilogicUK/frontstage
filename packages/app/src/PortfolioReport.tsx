@@ -1022,7 +1022,7 @@ export function PortfolioReport({
                   className="gov-button"
                   onClick={() =>
                     downloadCsv(
-                      ownershipIssuesCsv(ownershipIssues),
+                      ownershipIssuesCsv(ownershipIssues, window.location.href),
                       'frontstage-ownership-issues.csv',
                     )
                   }

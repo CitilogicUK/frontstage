@@ -3083,6 +3083,11 @@ test('audit history shows production review and ownership handoff', async ({
     await (await uncoveredDownload).path(),
     'utf8',
   );
+  const [ownershipHeaders, uncoveredRow] = uncoveredCsv
+    .trimEnd()
+    .split(/\r?\n/);
+  expect(ownershipHeaders).toMatch(/,app_url$/);
+  expect(uncoveredRow).toContain(`"${workspaceUrl}/?app=${uncovered.appId}"`);
   expect(uncoveredCsv).toContain(uncovered.owner);
   expect(uncoveredCsv).not.toContain(handoff.owner);
   await ownershipRole.selectOption('backup');
