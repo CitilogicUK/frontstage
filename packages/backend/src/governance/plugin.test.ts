@@ -12,11 +12,41 @@ import type { Entity } from '@backstage/catalog-model';
 import { notificationService } from '@backstage/plugin-notifications-node';
 import request from 'supertest';
 import { stringify } from 'yaml';
+import {
+  directoryRequestFulfillmentMigration,
+  directoryRequestsMigration,
+  directoryRequestsTable,
+} from './directoryRequests';
 import { governancePlugin } from './plugin';
 
 describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3', 'POSTGRES_17'] });
   afterEach(() => jest.restoreAllMocks());
+
+  it('preserves existing directory requests when adding fulfillment tracking', async () => {
+    const db = await databases.init('SQLITE_3');
+    await db.schema.createTable('fixture_apps', table => {
+      table.string('id').primary();
+    });
+    await db('fixture_apps').insert({ id: 'app' });
+    await directoryRequestsMigration('fixture_apps').up(db);
+    const requestRow = {
+      id: 'request',
+      app_id: 'app',
+      requester: 'user:default/requester',
+      message: 'Existing request',
+      status: 'approved',
+      requested_at: '2026-01-01T00:00:00.000Z',
+      decided_at: '2026-01-02T00:00:00.000Z',
+      decided_by: 'user:default/owner',
+    };
+    await db(directoryRequestsTable).insert(requestRow);
+    await directoryRequestFulfillmentMigration().up(db);
+    expect(await db(directoryRequestsTable).first()).toEqual({
+      ...requestRow,
+      provisioned_at: null,
+    });
+  });
 
   it('lists explicitly published apps with current launch approval and protects publication state', async () => {
     const owner = 'user:default/owner';
@@ -2100,11 +2130,14 @@ describe('governance record access', () => {
     expect(lastEvent.event).not.toContain(withdrawable.id);
     expect(lastEvent.event).not.toContain(requestMessage);
 
-    await publish(withdrawnListing.updatedAt);
+    const { body: listedAgain } = await publish(withdrawnListing.updatedAt);
     const { body: resubmitted } = await createRequest(withdrawingUser).expect(
       201,
     );
     expect(resubmitted.id).not.toBe(withdrawable.id);
+    const fulfill = (actor: string, id: string) =>
+      api.patch(`${queue}/${id}/fulfillment`).set('Authorization', auth(actor));
+    await fulfill(owner, resubmitted.id).expect(409);
     const [withdrawal, decision] = await Promise.all([
       withdraw(withdrawingUser, resubmitted.id),
       decide(owner, resubmitted.id, 'declined'),
@@ -2113,6 +2146,75 @@ describe('governance record access', () => {
       [204, 404],
       [409, 200],
     ]).toContainEqual([withdrawal.status, decision.status]);
+
+    await fulfill(requester, created.id).expect(403);
+    await fulfill(reviewer, created.id).expect(403);
+    await fulfill(owner, 'missing').expect(404);
+    await fulfill(owner, pending.id).expect(409);
+    const { body: unlistedAgain } = await api
+      .delete(`${path}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: listedAgain.updatedAt })
+      .expect(200);
+    notifications.send.mockClear();
+    const { body: provisioned } = await fulfill(owner, created.id)
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(provisioned).toEqual({
+      ...approved,
+      provisionedAt: expect.any(String),
+    });
+    await fulfill(owner, created.id).expect(200, provisioned);
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    expect(notifications.send).toHaveBeenCalledWith({
+      recipients: { type: 'entity', entityRef: requester },
+      payload: {
+        title: 'Directory access marked provisioned',
+        description: 'View the update in Directory → My requests.',
+        link: 'https://portal.example.com/workspace?view=directory&directoryAccess=mine',
+        topic: 'AI App Governance',
+        scope: `governance-directory-fulfillment-${created.id}`,
+      },
+    });
+    const requesterStatus = {
+      requestId: created.id,
+      requestStatus: 'approved',
+      requestProvisionedAt: provisioned.provisionedAt,
+    };
+    await feed(requester).expect(200, {
+      apps: [],
+      unavailableRequests: [{ ...unavailableEntry, ...requesterStatus }],
+    });
+    await feed(reviewer).expect(200, { apps: [] });
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => expect(body.requests).toContainEqual(provisioned));
+    const { body: fulfilledAudit } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const fulfillmentEvents = (
+      fulfilledAudit.events as Array<{ event: string; digest: string }>
+    ).filter(
+      ({ event }) =>
+        JSON.parse(event).action === 'directory-access-provisioned',
+    );
+    expect(fulfillmentEvents).toHaveLength(1);
+    expect(fulfillmentEvents[0].digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.parse(fulfillmentEvents[0].event)).toMatchObject({
+      actor: owner,
+      at: provisioned.provisionedAt,
+      record: { id: app.id, updatedAt: unlistedAgain.updatedAt },
+    });
+    expect(fulfillmentEvents[0].event).not.toContain(created.id);
+    expect(fulfillmentEvents[0].event).not.toContain(requestMessage);
+    await publish(unlistedAgain.updatedAt);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, ...requesterStatus }],
+    });
+    await feed(reviewer).expect(200, { apps: [entry] });
   });
 
   it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {

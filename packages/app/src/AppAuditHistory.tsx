@@ -352,6 +352,8 @@ export function AppAuditHistory({
         action = 'Directory access approved';
       if (entry.action === 'directory-access-declined')
         action = 'Directory access declined';
+      if (entry.action === 'directory-access-provisioned')
+        action = 'Directory access provisioned';
       if (entry.action === 'directory-access-withdrawn')
         action = 'Directory access withdrawn';
       previous = record;

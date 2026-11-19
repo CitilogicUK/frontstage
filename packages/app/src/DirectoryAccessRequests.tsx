@@ -15,6 +15,7 @@ type AccessRequest = {
   requestedAt: string;
   decidedAt?: string;
   decidedBy?: string;
+  provisionedAt?: string;
 };
 
 type AccessRequestQueue = {
@@ -28,6 +29,15 @@ const statusLabels = {
   approved: 'Access request approved',
   declined: 'Access request declined',
 };
+
+function ProvisionedAccess({ at }: { at: string }) {
+  return (
+    <p role="status">
+      Access provisioned ·{' '}
+      <time dateTime={at}>{new Date(at).toLocaleString()}</time>
+    </p>
+  );
+}
 
 function useDirectoryRequestApi(appId: string) {
   const discovery = useApi(discoveryApiRef);
@@ -58,12 +68,14 @@ export function DirectoryRequestAction({
   appId,
   status,
   withdrawRequestId,
+  provisionedAt,
   onSaved,
   onWithdrawn,
 }: {
   appId: string;
   status?: DirectoryRequestStatus;
   withdrawRequestId?: string;
+  provisionedAt?: string;
   onSaved: (request: { id: string; status: DirectoryRequestStatus }) => void;
   onWithdrawn: () => void;
 }) {
@@ -119,7 +131,10 @@ export function DirectoryRequestAction({
       <div>
         <p role="status">{statusLabels[status]}</p>
         {status === 'approved' && (
-          <p>The app owner handles access in the destination app.</p>
+          <>
+            {provisionedAt && <ProvisionedAccess at={provisionedAt} />}
+            <p>The app owner handles access in the destination app.</p>
+          </>
         )}
         {status === 'pending' && withdrawRequestId && confirming && (
           <div>
@@ -172,12 +187,14 @@ export function DirectoryRequestQueue({
   appId,
   listingMeetsLaunchRequirements,
   appRevision,
+  canRecordFulfillment,
   onPendingChange,
   onDecisionSaved,
 }: {
   appId: string;
   listingMeetsLaunchRequirements: boolean;
   appRevision: string;
+  canRecordFulfillment: boolean;
   onPendingChange: (appId: string, hasPending: boolean) => void;
   onDecisionSaved: () => void;
 }) {
@@ -190,6 +207,7 @@ export function DirectoryRequestQueue({
     listingMeetsLaunchRequirements && queue?.canApprove === true;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [confirmProvisioning, setConfirmProvisioning] = useState<string>();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -242,6 +260,32 @@ export function DirectoryRequestQueue({
     }
   }
 
+  async function recordFulfillment(requestId: string) {
+    setSubmitting(true);
+    setError('');
+    try {
+      const saved = await api<AccessRequest>(
+        `/${encodeURIComponent(requestId)}/fulfillment`,
+        { method: 'PATCH' },
+      );
+      setQueue(
+        previous =>
+          previous && {
+            ...previous,
+            requests: previous.requests.map(item =>
+              item.id === requestId ? saved : item,
+            ),
+          },
+      );
+      setConfirmProvisioning(undefined);
+      onDecisionSaved();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <details
       className="gov-app-editor"
@@ -283,6 +327,50 @@ export function DirectoryRequestQueue({
                   <strong>{item.requester}</strong>
                   <p>{item.message}</p>
                   <p>{statusLabels[item.status]}</p>
+                  {item.provisionedAt && (
+                    <ProvisionedAccess at={item.provisionedAt} />
+                  )}
+                  {canRecordFulfillment &&
+                    item.status === 'approved' &&
+                    !item.provisionedAt && (
+                      <div>
+                        {confirmProvisioning === item.id ? (
+                          <>
+                            <p>
+                              Confirm you granted access in the destination app.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={submitting}
+                              onClick={() => void recordFulfillment(item.id)}
+                            >
+                              Confirm access provisioned
+                            </button>
+                            <button
+                              type="button"
+                              disabled={submitting}
+                              onClick={() => {
+                                setConfirmProvisioning(undefined);
+                                setError('');
+                              }}
+                            >
+                              Cancel provisioning confirmation
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => {
+                              setConfirmProvisioning(item.id);
+                              setError('');
+                            }}
+                          >
+                            Mark access provisioned
+                          </button>
+                        )}
+                      </div>
+                    )}
                   {item.status === 'pending' && (
                     <form onSubmit={event => decide(event, item.id)}>
                       <label>

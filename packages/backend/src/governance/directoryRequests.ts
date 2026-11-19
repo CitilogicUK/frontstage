@@ -13,6 +13,7 @@ export type DirectoryRequestRow = {
   requested_at: string;
   decided_at: string | null;
   decided_by: string | null;
+  provisioned_at: string | null;
 };
 
 export function directoryRequestView(row: DirectoryRequestRow) {
@@ -25,6 +26,22 @@ export function directoryRequestView(row: DirectoryRequestRow) {
     requestedAt: row.requested_at,
     decidedAt: row.decided_at ?? undefined,
     decidedBy: row.decided_by ?? undefined,
+    provisionedAt: row.provisioned_at ?? undefined,
+  };
+}
+
+export function directoryRequestFulfillmentMigration() {
+  return {
+    async up(db: Database) {
+      await db.schema.alterTable(directoryRequestsTable, table => {
+        table.string('provisioned_at', 24).nullable();
+      });
+    },
+    async down(db: Database) {
+      await db.schema.alterTable(directoryRequestsTable, table => {
+        table.dropColumn('provisioned_at');
+      });
+    },
   };
 }
 
