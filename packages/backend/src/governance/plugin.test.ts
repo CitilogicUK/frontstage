@@ -7,9 +7,12 @@ import {
   startTestBackend,
   TestDatabases,
 } from '@backstage/backend-test-utils';
+import { actionsRegistryServiceMock } from '@backstage/backend-test-utils/alpha';
 import { CatalogClient } from '@backstage/catalog-client';
 import type { Entity } from '@backstage/catalog-model';
+import notificationsPlugin from '@backstage/plugin-notifications-backend';
 import { notificationService } from '@backstage/plugin-notifications-node';
+import signalsPlugin from '@backstage/plugin-signals-backend';
 import request from 'supertest';
 import { stringify } from 'yaml';
 import {
@@ -6374,6 +6377,89 @@ describe('governance record access', () => {
       });
     },
   );
+
+  it('delivers a private Tier 3 review decision through Backstage Notifications', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        notificationsPlugin,
+        signalsPlugin,
+        actionsRegistryServiceMock.factory(),
+        mockServices.rootConfig.factory({
+          data: {
+            app: { baseUrl: 'https://portal.example.com/internal/' },
+            governance: { reviewers: [reviewer] },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const { body: app } = await api
+      .post(apps)
+      .set('Authorization', auth(owner))
+      .send({
+        name: 'External assistant',
+        purpose: 'Demonstrate private review notifications.',
+        type: 'assistant',
+        platform: 'GitHub',
+        sourceUrl: 'https://example.com/external-assistant',
+        owner,
+        backupOwner: backup,
+        team: 'group:default/platform',
+        lifecycle: 'experimental',
+        audience: 'external',
+        classification: 'internal',
+        models: ['test-model'],
+      })
+      .expect(201);
+    const notes = 'Private evidence: https://example.com/reviewer-notes';
+    const { body: approved } = await api
+      .post(`${apps}/${app.id}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({ status: 'approved', notes, expectedUpdatedAt: app.updatedAt })
+      .expect(200);
+    expect(approved.reviewStatus).toBe('approved');
+    const list = (user: string) =>
+      api
+        .get('/api/notifications')
+        .set('Authorization', auth(user))
+        .expect(200);
+    const { body: ownerInbox } = await list(owner);
+    expect(ownerInbox.totalCount).toBe(1);
+    expect(ownerInbox.notifications).toEqual([
+      expect.objectContaining({
+        origin: 'plugin:governance',
+        user: owner,
+        payload: expect.objectContaining({
+          title: 'Tier 3 review approved',
+          topic: 'AI App Governance',
+          link: `https://portal.example.com/internal/?app=${app.id}`,
+          scope: `review-decision:${app.id}:${approved.updatedAt}`,
+        }),
+      }),
+    ]);
+    expect(ownerInbox.notifications[0].payload.description).not.toContain(
+      'https://example.com/reviewer-notes',
+    );
+    for (const user of [backup, reviewer, 'user:default/unrelated']) {
+      const { body: inbox } = await list(user);
+      expect(inbox).toEqual({ totalCount: 0, notifications: [] });
+    }
+  });
 
   it('requires and audits human approval evidence for consequential-action approvals when enabled', async () => {
     const owner = 'user:default/owner';
