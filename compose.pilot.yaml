@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: ${FRONTSTAGE_PILOT_POSTGRES_ADMIN_PASSWORD:?Set a PostgreSQL administrator password}
+      FRONTSTAGE_PILOT_DB_PASSWORD: ${FRONTSTAGE_PILOT_DB_PASSWORD:?Set a URL-safe Frontstage database password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./scripts/init-pilot-postgres.sh
+        target: /docker-entrypoint-initdb.d/10-frontstage.sh
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres, -d, frontstage]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  frontstage:
+    image: ${FRONTSTAGE_PILOT_IMAGE:-frontstage:pilot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTSTAGE_PILOT_PORT:-7007}:7007"
+    environment:
+      FRONTSTAGE_POSTGRES_URL: postgresql://frontstage:${FRONTSTAGE_PILOT_DB_PASSWORD:?Set a URL-safe Frontstage database password}@postgres:5432/frontstage
+      FRONTSTAGE_GITHUB_CLIENT_ID: ${FRONTSTAGE_GITHUB_CLIENT_ID:?Set the GitHub OAuth client ID}
+      FRONTSTAGE_GITHUB_CLIENT_SECRET: ${FRONTSTAGE_GITHUB_CLIENT_SECRET:?Set the GitHub OAuth client secret}
+      APP_CONFIG_app_baseUrl: http://localhost:${FRONTSTAGE_PILOT_PORT:-7007}
+      APP_CONFIG_backend_baseUrl: http://localhost:${FRONTSTAGE_PILOT_PORT:-7007}
+      APP_CONFIG_backend_cors_origin: http://localhost:${FRONTSTAGE_PILOT_PORT:-7007}
+    volumes:
+      - type: bind
+        source: ${FRONTSTAGE_PILOT_IDENTITY_CONFIG:-./app-config.identity.local.yaml}
+        target: /app/app-config.identity.local.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${FRONTSTAGE_PILOT_IDENTITIES:-./pilot-identities.local.yaml}
+        target: /app/pilot-identities.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    command:
+      - --config
+      - app-config.yaml
+      - --config
+      - app-config.postgres.yaml
+      - --config
+      - app-config.github-signin.yaml
+      - --config
+      - app-config.identity.local.yaml
+
+volumes:
+  postgres-data:
