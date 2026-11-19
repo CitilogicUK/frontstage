@@ -3120,6 +3120,10 @@ describe('governance record access', () => {
           appId: created.body.id,
           name: 'Purchase order pilot',
           unavailable: [backup, owner],
+          unavailableDetails: [
+            { ref: backup, reason: 'inactive' },
+            { ref: owner, reason: 'missing' },
+          ],
         },
       ],
     });
@@ -3148,9 +3152,12 @@ describe('governance record access', () => {
         appId: created.body.id,
         name: 'Purchase order pilot',
         unavailable: [backup],
+        unavailableDetails: [{ ref: backup, reason: 'missing' }],
         availableBackupOwner: owner,
       },
     ]);
+    catalog.mockResolvedValueOnce({ items: [] });
+    await api.get(report).set('Authorization', auth(reviewer)).expect(503);
 
     const runtime = await api
       .post(apps)
