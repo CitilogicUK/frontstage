@@ -153,6 +153,7 @@ test('workspace screens share navigation and fit the viewport', async ({
       { timeout: 20_000 },
     )
     .toBe(200);
+  let discoveryStatuses = ['registered', 'unowned', 'dismissed'];
   await page.route('**/api/governance/discovery/github', route =>
     route.fulfill({
       json: {
@@ -164,7 +165,7 @@ test('workspace screens share navigation and fit the viewport', async ({
           partial: true,
         },
         intervalMinutes: null,
-        repositories: ['registered', 'unowned', 'dismissed'].map(status => ({
+        repositories: discoveryStatuses.map(status => ({
           id: status,
           name: `${status} repository`,
           description: '',
@@ -246,6 +247,24 @@ test('workspace screens share navigation and fit the viewport', async ({
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unowned 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dismissed 1' })).toBeVisible();
+  discoveryStatuses = ['registered', 'dismissed'];
+  await page.goto('/?view=reports');
+  await coverage
+    .getByRole('link', { name: 'View registered repositories' })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Registered 1', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+
+  discoveryStatuses = ['dismissed'];
+  await page.goto('/?view=reports');
+  await coverage
+    .getByRole('link', { name: 'View dismissed repositories' })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Dismissed 1', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+
   await page.route('**/api/governance/hosted-workspaces', route =>
     route.fulfill({
       json: {

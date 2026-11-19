@@ -272,9 +272,18 @@ export function PortfolioReport({
     : undefined;
   const unowned = coverage?.unowned ?? 0;
   let discoveryLinkLabel = 'View Discovery queue';
-  if (unowned === 1) discoveryLinkLabel = 'Review 1 unowned repository';
-  if (unowned > 1)
-    discoveryLinkLabel = `Review ${unowned} unowned repositories`;
+  let discoveryLink = '/?view=discovery';
+  if (unowned > 0) {
+    discoveryLinkLabel = `Review ${unowned} unowned ${
+      unowned === 1 ? 'repository' : 'repositories'
+    }`;
+  } else if (coverage?.registered) {
+    discoveryLinkLabel = 'View registered repositories';
+    discoveryLink += '&discoveryStatus=registered';
+  } else if (coverage?.dismissed) {
+    discoveryLinkLabel = 'View dismissed repositories';
+    discoveryLink += '&discoveryStatus=dismissed';
+  }
   const windowLabel = usageDays === 1 ? '24 hours' : `${usageDays} days`;
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
@@ -666,7 +675,7 @@ export function PortfolioReport({
                 : discoveries?.lastScan?.partial && ' · Partial scan results'}
             </small>
             <div>
-              <Link to="/?view=discovery">{discoveryLinkLabel}</Link>
+              <Link to={discoveryLink}>{discoveryLinkLabel}</Link>
             </div>
           </div>
         )}
