@@ -566,6 +566,7 @@ function simulate(model: string, prompt: string) {
     refused: false,
     inputTokens: Math.ceil(Buffer.byteLength(prompt) / 4),
     outputTokens: Math.ceil(Buffer.byteLength(output) / 4),
+    providerElapsedMs: undefined,
   };
 }
 
@@ -1432,8 +1433,7 @@ export function registerGatewayRoutes(options: {
         ),
         created_at: new Date(),
       });
-      const providerElapsedMs =
-        'providerElapsedMs' in result ? result.providerElapsedMs : undefined;
+      const { providerElapsedMs } = result;
       const frontstageElapsedMs = Math.round(
         performance.now() - startedAt - (providerElapsedMs ?? 0),
       );
