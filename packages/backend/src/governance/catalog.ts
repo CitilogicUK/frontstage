@@ -118,6 +118,7 @@ export const governanceCatalog = createBackendModule({
                         renewalException: undefined,
                         retirementReview: undefined,
                         graduation: undefined,
+                        directoryListing: undefined,
                         reviewTicketUrl: undefined,
                         evidence: undefined,
                         signoffs: undefined,
