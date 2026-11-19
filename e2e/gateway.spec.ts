@@ -1322,8 +1322,8 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       expect(registration.structuredContent).toMatchObject({
         app: { ...appSummary, id: expect.any(String) },
       });
-      const registeredApp = registration.structuredContent?.app as {
-        id: string;
+      const { app: registeredApp } = registration.structuredContent as {
+        app: { id: string };
       };
       const afterRegistration = await searchRegistered();
       expect(afterRegistration.isError).not.toBe(true);
