@@ -76,17 +76,19 @@ export function reviewCalendar(
   reminders: Array<{
     app: { id: string; name: string; tier: number };
     due: Date;
+    kind?: 'hosted-attestation';
   }>,
   baseUrl: string,
   now = new Date(),
 ) {
   const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, '');
-  const events = reminders.flatMap(({ app, due }) => {
-    const title = app.tier === 2 ? 'App attestation' : 'App review';
+  const events = reminders.flatMap(({ app, due, kind }) => {
+    let title = app.tier === 2 ? 'App attestation' : 'App review';
+    if (kind === 'hosted-attestation') title = 'Hosted workspace attestation';
     const recordUrl = appRecordUrl(baseUrl, app.id);
     return [
       'BEGIN:VEVENT',
-      `UID:${calendarText(app.id)}-review@${recordUrl.hostname}`,
+      `UID:${calendarText(app.id)}-${kind ?? 'review'}@${recordUrl.hostname}`,
       `DTSTAMP:${timestamp}`,
       `DTSTART;VALUE=DATE:${due.toISOString().slice(0, 10).replace(/-/g, '')}`,
       `SUMMARY:${calendarText(`${title}: ${app.name}`)}`,

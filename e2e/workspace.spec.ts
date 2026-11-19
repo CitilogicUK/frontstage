@@ -7,6 +7,7 @@ const catalogPath =
   '/catalog?filters%5Bkind%5D=component&filters%5Buser%5D=all&limit=20';
 const destinations = [
   { label: 'Inventory', heading: 'AI app inventory' },
+  { label: 'Directory', heading: 'App directory' },
   { label: 'Discovery', heading: 'App discovery' },
   { label: 'Reviews', heading: 'Critical app reviews' },
   { label: 'Reports', heading: 'Portfolio reports' },
@@ -26,6 +27,7 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
   ).toHaveCount(1);
   await expect(navigation.getByRole('link')).toHaveText([
     'Inventory',
+    'Directory',
     'Catalog',
     'Discovery',
     'Reviews',
@@ -102,6 +104,9 @@ test('workspace screens share navigation and fit the viewport', async ({
     page.getByRole('button', { name: 'Components', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
 
+  await page.route('**/api/governance/directory', route =>
+    route.fulfill({ json: { apps: [] } }),
+  );
   const navigation = page.getByRole('navigation', { name: 'AI governance' });
   for (const destination of destinations) {
     await navigation
@@ -277,6 +282,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
 }) => {
   const actor = 'user:default/demo-owner';
+  let viewer = actor;
   const base = {
     owner: actor,
     purpose: 'Synthetic inventory fixture',
@@ -290,14 +296,14 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   };
   const now = Date.now();
   await page.clock.setFixedTime(now);
-  const dateInDays = (days: number) =>
-    new Date(now + days * 86_400_000).toISOString();
+  const dateInDays = (days: number, offsetMs = 0) =>
+    new Date(now + days * 86_400_000 + offsetMs).toISOString();
   let includeRetirementDecision = false;
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
-        actor,
-        canReview: false,
+        actor: viewer,
+        canReview: viewer !== actor,
         gatewayEnabled: true,
         apps: [
           {
@@ -310,21 +316,21 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             deliveryStage: 'poc',
             usesAiAtRuntime: false,
             models: [],
-            nextReview: dateInDays(60),
+            nextReview: dateInDays(30, 1),
           },
           {
             ...base,
             id: 'soon',
             name: 'Due soon app',
             models: ['gpt-4.1-mini', 'gpt-4.1-mini'],
-            nextReview: dateInDays(15),
+            nextReview: dateInDays(30),
           },
           {
             ...base,
             id: 'overdue',
             name: 'Overdue app',
             deliveryStage: 'production',
-            nextReview: dateInDays(-1),
+            nextReview: dateInDays(0),
             retirementReview: includeRetirementDecision
               ? { status: 'pending', owner: actor, requestedAt: dateInDays(-1) }
               : undefined,
@@ -388,7 +394,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.nth(0)).toContainText('Attestation overdue');
   await expect(rows.nth(1)).toContainText('Attestation due soon');
   await expect(rows.nth(2)).toContainText('Attestation current');
-  await expect(rows.nth(0)).toContainText('1 day overdue');
+  await expect(rows.nth(0)).toContainText('Less than a day overdue');
   await expect(rows.nth(1)).not.toContainText('days overdue');
   const reviewStatus = page.getByRole('combobox', { name: 'Review status' });
   await page
@@ -399,6 +405,25 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('Attestation overdue');
   await expect(rows.nth(1)).toContainText('Attestation due soon');
+  await reviewStatus.selectOption('upcoming');
+  await expect(page).toHaveURL(/owner=me&review=upcoming$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  await page.reload();
+  await expect(reviewStatus).toHaveValue('upcoming');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  const upcomingDownload = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const upcomingCalendar = await readFile(
+    await (await upcomingDownload).path(),
+    'utf8',
+  );
+  expect(upcomingCalendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(upcomingCalendar).toContain('SUMMARY:App attestation: Due soon app');
+  expect(upcomingCalendar).toContain(`URL:${workspaceUrl}/?app=soon`);
   await reviewStatus.selectOption('');
   const lifecycle = page.getByRole('combobox', {
     name: 'Lifecycle',
@@ -438,6 +463,26 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(
     playground.getByRole('option', { name: 'gpt-4.1-mini' }),
   ).toHaveCount(1);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'Copy app link' }).click();
+  await expect(
+    page.getByText('App link copied.', { exact: true }),
+  ).toBeVisible();
+  const copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedLink).toBe(`${workspaceUrl}/?app=overdue`);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.reject(new Error('Clipboard permission denied')),
+    });
+  });
+  await page.getByRole('button', { name: 'Copy app link' }).click();
+  const manualLink = page.getByRole('textbox', { name: 'Copy this app link' });
+  await expect(manualLink).toHaveValue(copiedLink);
+  await expect(manualLink).toBeFocused();
+  await expect(manualLink).toHaveJSProperty('selectionStart', 0);
+  await expect(manualLink).toHaveJSProperty('selectionEnd', copiedLink.length);
+
   const reminderPending = page.waitForEvent('download');
   await page
     .getByRole('button', { name: 'Download calendar reminder' })
@@ -621,7 +666,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
   expect(columns).toMatch(/next_review_utc,days_overdue,app_url$/);
   expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other"`)).toBe(true);
-  expect(newest.endsWith(`,1,"${workspaceUrl}/?app=overdue"`)).toBe(true);
+  expect(newest.endsWith(`,0,"${workspaceUrl}/?app=overdue"`)).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
@@ -651,6 +696,15 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows).toHaveCount(4);
 
+  viewer = 'user:default/reviewer';
+  await page.goto(copiedLink);
+  const sharedApp = page.getByRole('dialog', { name: 'Overdue app' });
+  await expect(sharedApp).toBeVisible();
+  await expect(
+    sharedApp.getByRole('button', { name: 'Record attestation' }),
+  ).toHaveCount(0);
+
+  viewer = actor;
   includeRetirementDecision = true;
   await page.goto('/?owner=me&review=overdue');
   await expect(rows).toHaveCount(2);
@@ -775,6 +829,101 @@ test('reviewers can download the spreadsheet import sample', async ({
   await expect(
     page.getByRole('dialog', { name: descriptorApp.name }),
   ).toBeVisible();
+});
+
+test('reviewers can find required reviews without a linked ticket', async ({
+  page,
+}) => {
+  const app = {
+    id: 'missing-ticket',
+    name: 'Missing ticket app',
+    purpose: 'Synthetic critical review fixture',
+    owner: 'user:default/owner',
+    team: 'group:default/platform',
+    tier: 3,
+    lifecycle: 'experimental',
+    reviewStatus: 'pending',
+    nextReview: null,
+    classification: 'internal',
+    platform: 'GitHub',
+    models: [],
+  };
+  const overdueApp = {
+    ...app,
+    id: 'overdue-ticket',
+    name: 'Overdue renewal app',
+    lifecycle: 'active',
+    reviewStatus: 'approved',
+    nextReview: '2025-01-01T00:00:00.000Z',
+  };
+  let canReview = true;
+  let reviewTicketUrl: string | undefined;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        canReview,
+        actor: 'user:default/reviewer',
+        apps: [
+          { ...app, reviewTicketUrl },
+          { ...overdueApp, reviewTicketUrl },
+          {
+            ...app,
+            id: 'linked-ticket',
+            name: 'Linked ticket app',
+            reviewTicketUrl: 'https://tickets.example.com/reviews/linked',
+          },
+          { ...app, id: 'retired', name: 'Retired app', lifecycle: 'retired' },
+          {
+            ...app,
+            id: 'current',
+            name: 'Current review app',
+            lifecycle: 'active',
+            reviewStatus: 'approved',
+            nextReview: new Date(Date.now() + 10 * 86_400_000).toISOString(),
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?view=reports');
+  const queueLink = page.getByRole('link', {
+    name: '2 missing a review ticket',
+  });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(queueLink.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await queueLink.click();
+  await expect(page).toHaveURL(/view=reviews&review=missing-ticket$/);
+  const filter = page.getByRole('combobox', { name: 'Review status' });
+  await expect(filter).toHaveValue('missing-ticket');
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.filter({ hasText: app.name })).toHaveCount(1);
+  await expect(rows.filter({ hasText: overdueApp.name })).toHaveCount(1);
+
+  const search = page.getByRole('searchbox', { name: 'Search apps' });
+  await search.fill('no matching review tickets');
+  await expect(
+    page.getByRole('heading', { name: 'No matching apps' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'No missing review tickets' }),
+  ).toHaveCount(0);
+  await search.clear();
+  await expect(rows).toHaveCount(2);
+
+  reviewTicketUrl = 'https://tickets.example.com/reviews/assigned';
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'No missing review tickets' }),
+  ).toBeVisible();
+
+  canReview = false;
+  await page.reload();
+  await expect(filter).toHaveValue('attention');
+  await expect(
+    filter.getByRole('option', { name: 'Missing review ticket' }),
+  ).toHaveCount(0);
 });
 
 test('audit history shows production review and ownership handoff', async ({
@@ -1237,16 +1386,17 @@ test('audit history shows production review and ownership handoff', async ({
   ).toBeVisible();
 });
 
-test('a hosted app owner can correct the declared workspace', async ({
+test('a hosted app owner can correct and attest to the declared workspace', async ({
   page,
 }) => {
-  let app = {
+  const initialApp = {
     id: 'hosted-app',
     name: 'Hosted demo app',
     owner: 'user:default/demo-owner',
     team: 'group:default/platform',
     purpose: 'Synthetic demo',
     type: 'provider-hosted app',
+    hostedWorkspaceAllowed: false,
     platform: 'Hosted workspace & tools',
     classification: 'internal',
     lifecycle: 'experimental',
@@ -1262,15 +1412,41 @@ test('a hosted app owner can correct the declared workspace', async ({
       dataAccess: 'none',
     },
   };
-  const original = app;
+  let app: typeof initialApp & {
+    hostedAttestation?: { at: string; nextDue: string };
+  } = initialApp;
+  const overdueApp = {
+    ...app,
+    id: 'overdue-hosted-app',
+    name: 'Overdue hosted app',
+    hostedAttestation: {
+      at: '2025-01-01T00:00:00.000Z',
+      nextDue: '2025-04-01T00:00:00.000Z',
+    },
+  };
+  const retiredApp = {
+    ...initialApp,
+    id: 'retired-hosted-app',
+    name: 'Retired hosted app',
+    lifecycle: 'retired',
+  };
+  const regularApp = {
+    ...initialApp,
+    id: 'regular-app',
+    name: 'Regular app',
+    type: 'app',
+    hosted: undefined,
+  };
+  let canReviewHostedApps = true;
+  const history = [{ action: 'registered', record: app }];
   await page.route('**/api/governance/apps/hosted-app/history', route =>
     route.fulfill({
       json: {
         keyEvents: [],
-        events: [original, app].map((record, index) => ({
+        events: history.map(({ action, record }, index) => ({
           digest: String(index).padStart(64, '0'),
           event: JSON.stringify({
-            action: index === 0 ? 'registered' : 'updated',
+            action,
             actor: app.owner,
             record,
           }),
@@ -1283,8 +1459,8 @@ test('a hosted app owner can correct the declared workspace', async ({
       json: {
         actor: app.owner,
         gatewayEnabled: true,
-        canReview: true,
-        apps: [app],
+        canReview: canReviewHostedApps,
+        apps: [app, overdueApp, retiredApp, regularApp],
       },
     }),
   );
@@ -1315,10 +1491,33 @@ test('a hosted app owner can correct the declared workspace', async ({
     app = {
       ...app,
       hosted: update.hosted,
+      hostedWorkspaceAllowed: true,
       updatedAt: '2025-01-02T00:00:00.000Z',
     };
+    history.push({ action: 'updated', record: app });
     return route.fulfill({ json: app });
   });
+  await page.route(
+    '**/api/governance/apps/hosted-app/hosted-attestation',
+    route => {
+      expect(route.request().method()).toBe('POST');
+      expect(route.request().postDataJSON()).toEqual({
+        confirmed: true,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      const at = Date.now();
+      app = {
+        ...app,
+        updatedAt: new Date(at).toISOString(),
+        hostedAttestation: {
+          at: new Date(at).toISOString(),
+          nextDue: new Date(at + 90 * 86_400_000).toISOString(),
+        },
+      };
+      history.push({ action: 'hosted-attested', record: app });
+      return route.fulfill({ json: app });
+    },
+  );
   await page.route('**/api/governance/reports/hosted-workspaces', route =>
     route.fulfill({
       json: {
@@ -1345,10 +1544,30 @@ test('a hosted app owner can correct the declared workspace', async ({
   });
   await expect(hostedIssues.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  const attestationQueue = page.getByRole('region', {
+    name: 'Hosted workspace attestations',
+  });
+  const missing = attestationQueue.getByRole('link', { name: app.name });
+  await expect(missing).toHaveAttribute('href', /app=hosted-app/);
+  await expect(attestationQueue.getByRole('link')).toHaveText([
+    overdueApp.name,
+    app.name,
+  ]);
+  await expect(attestationQueue).toContainText('Confirmation missing');
+  await expect(attestationQueue).toContainText('Overdue since 2025-04-01 UTC');
+  await missing.click();
+  await expect(details).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
   await hostedIssues.getByRole('link', { name: app.name }).click();
   await expect(
     details.getByRole('link', { name: 'View approved workspaces (new tab)' }),
   ).toHaveAttribute('href', '/?view=guide#hosted-workspaces-title');
+
+  const attestation = details.getByRole('region', {
+    name: 'Hosted workspace attestation',
+  });
+  await expect(attestation).toContainText('Choose an approved workspace');
+  await expect(attestation.getByRole('checkbox')).toHaveCount(0);
 
   async function saveWorkspaceCorrection() {
     await details
@@ -1378,7 +1597,41 @@ test('a hosted app owner can correct the declared workspace', async ({
     details.getByRole('region', { name: 'Gateway playground' }),
   ).toHaveCount(0);
 
+  await expect(attestation).toContainText('Example AI · Company');
+  await expect(attestation).toContainText(
+    'Workspace settings have not been confirmed.',
+  );
+  await attestation.getByRole('checkbox').check();
+  await attestation
+    .getByRole('button', {
+      name: 'Record workspace attestation',
+    })
+    .click();
+  await expect(attestation).toContainText('Last confirmed');
+  await expect(attestation).toContainText('Next due');
+
+  const reminderPending = page.waitForEvent('download');
+  await attestation
+    .getByRole('button', { name: 'Download workspace reminder' })
+    .click();
+  const reminder = await reminderPending;
+  expect(reminder.suggestedFilename()).toBe(
+    'frontstage-workspace-attestation.ics',
+  );
+  const calendar = await readFile(await reminder.path(), 'utf8');
+  const dueDate = app.hostedAttestation?.nextDue.slice(0, 10).replace(/-/g, '');
+  expect(calendar).toContain(`DTSTART;VALUE=DATE:${dueDate}`);
+  expect(calendar).toContain('UID:hosted-app-hosted-attestation@');
+  expect(calendar).toContain(
+    'SUMMARY:Hosted workspace attestation: Hosted demo app',
+  );
+  expect(calendar).toContain(`URL:${workspaceUrl}/?app=hosted-app`);
+  expect(calendar).toContain('TRIGGER:-P7D');
+
   await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText(/Next workspace attestation due/),
+  ).toBeVisible();
   await expect(
     details.getByText(/Workspace changed from Personal to Company/),
   ).toBeVisible();
@@ -1390,6 +1643,16 @@ test('a hosted app owner can correct the declared workspace', async ({
   await expect(
     hostedIssues.getByText('No provider workspace issues found.'),
   ).toBeVisible();
+  await expect(missing).toHaveCount(0);
+  await expect(
+    attestationQueue.getByRole('link', { name: overdueApp.name }),
+  ).toBeVisible();
+  canReviewHostedApps = false;
+  await page.reload();
+  await expect(
+    page.getByText('Non-retired apps', { exact: true }),
+  ).toBeVisible();
+  await expect(attestationQueue).toHaveCount(0);
   await page.goto('/?view=register');
   await page.getByLabel('App type').selectOption('provider-hosted app');
   await expect(
@@ -2191,9 +2454,12 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
 }) => {
   const owner = 'user:default/owner';
   const nominee = 'user:default/engineering';
+  const reviewer = 'user:default/reviewer';
   const requestedAt = '2025-05-02T00:00:00.000Z';
   const decidedAt = '2025-05-03T00:00:00.000Z';
   const reason = 'I can support this production app.';
+  const endReason = 'The app is moving to a different engineering team.';
+  const endedAt = '2025-05-04T00:00:00.000Z';
   const app = {
     id: 'graduation-candidate',
     name: 'Production invoice assistant',
@@ -2226,7 +2492,9 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     route.fulfill({
       json: {
         actor,
-        canReview: false,
+        canReview:
+          actor === reviewer ||
+          (actor === nominee && current.graduation?.status === 'accepted'),
         gatewayEnabled: true,
         graduationEnabled: true,
         apps: [current],
@@ -2245,11 +2513,20 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
         });
         current = { ...app, updatedAt: requestedAt, graduation: pending };
       } else if (request.method() === 'DELETE') {
-        expect(actor).toBe(owner);
-        expect(request.postDataJSON()).toEqual({
-          expectedUpdatedAt: requestedAt,
-        });
-        current = { ...app, updatedAt: '2025-05-02T00:00:00.001Z' };
+        if (current.graduation?.status === 'accepted') {
+          expect(actor).toBe(reviewer);
+          expect(request.postDataJSON()).toEqual({
+            expectedUpdatedAt: decidedAt,
+            reason: endReason,
+          });
+          current = { ...app, updatedAt: endedAt };
+        } else {
+          expect(actor).toBe(owner);
+          expect(request.postDataJSON()).toEqual({
+            expectedUpdatedAt: requestedAt,
+          });
+          current = { ...app, updatedAt: '2025-05-02T00:00:00.001Z' };
+        }
       } else {
         expect(actor).toBe(nominee);
         expect(request.method()).toBe('PATCH');
@@ -2266,6 +2543,27 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
       }
       return route.fulfill({ json: current });
     },
+  );
+  await page.route(
+    '**/api/governance/apps/graduation-candidate/history',
+    route =>
+      route.fulfill({
+        json: {
+          keyEvents: [],
+          events: [
+            {
+              digest: 'd'.repeat(64),
+              event: JSON.stringify({
+                action: 'graduation-ended',
+                actor: reviewer,
+                graduationNominee: nominee,
+                graduationReason: endReason,
+                record: current,
+              }),
+            },
+          ],
+        },
+      }),
   );
   const details = page.getByRole('dialog', { name: app.name });
   const panel = details.getByRole('region', { name: 'Engineering co-owner' });
@@ -2334,6 +2632,60 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   ).toHaveCount(0);
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(notice).toHaveCount(0);
+
+  await page.goto('/?app=graduation-candidate');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    panel.getByText(`Accepted by ${nominee} on 2025-05-03.`),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Audit history', { exact: true }),
+  ).toBeVisible();
+  const end = panel.getByRole('button', { name: 'End engineering handoff' });
+  await expect(end).toHaveCount(0);
+  const lifecycle = details.getByRole('combobox', { name: 'Lifecycle' });
+  await expect(lifecycle).toBeVisible();
+  const retireOption = lifecycle.getByRole('option', { name: 'retired' });
+  await expect(retireOption).toHaveCount(0);
+  const editor = details.getByText('Edit app details', { exact: true });
+  const ownerInput = details.getByRole('textbox', {
+    name: 'Owner',
+    exact: true,
+  });
+  const stageInput = details.getByRole('combobox', { name: 'Delivery stage' });
+  await editor.click();
+  await expect(ownerInput).not.toBeEditable();
+  await expect(stageInput).toBeDisabled();
+
+  actor = reviewer;
+  await page.goto('/?app=graduation-candidate');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(retireOption).toHaveCount(1);
+  await editor.click();
+  await expect(ownerInput).toBeEditable();
+  await expect(stageInput).toBeEnabled();
+  await expect(
+    panel.getByText(
+      `Ending this handoff removes ${nominee} as engineering co-owner.`,
+    ),
+  ).toBeVisible();
+  const endingReason = panel.getByRole('textbox', {
+    name: 'Reason for ending the handoff',
+  });
+  await expect(endingReason).toHaveAttribute('required', '');
+  await endingReason.fill(endReason);
+  await end.click();
+  await expect(details.getByText('Engineering handoff ended.')).toBeVisible();
+  await expect(
+    panel.getByRole('textbox', { name: 'Co-owner nominee' }),
+  ).toBeVisible();
+  await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText('Graduation ended', { exact: true }),
+  ).toBeVisible();
+  await expect(details.getByText(endReason, { exact: false })).toBeVisible();
 });
 
 test('the playground clears a revealed key after ownership changes', async ({
@@ -2482,4 +2834,710 @@ test('the playground clears a revealed key after ownership changes', async ({
   await expect(
     playground.getByRole('button', { name: 'Send prompt' }),
   ).toBeDisabled();
+});
+
+test('an owner can publish a searchable directory listing and remove it', async ({
+  page,
+}) => {
+  const owner = 'user:default/owner';
+  const app = {
+    id: 'listed-app',
+    name: 'Inventory reconciliation',
+    purpose: 'Private implementation notes for the operations team.',
+    owner,
+    team: 'group:default/operations',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/private-source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    usesAiAtRuntime: false,
+    directoryLaunchEligible: true,
+    models: [],
+    reviewStatus: 'not required',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  const listing = {
+    summary: 'Reconcile stock discrepancies.',
+    url: 'https://example.com/launch/reconciliation',
+  };
+  let current: typeof app & { directoryListing?: typeof listing } = app;
+  let inventoryReads = 0;
+  await page.route('**/api/governance/apps', route => {
+    inventoryReads += 1;
+    if (inventoryReads === 1)
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Inventory temporarily unavailable.' } },
+      });
+    return route.fulfill({
+      json: { actor: owner, canReview: false, apps: [current] },
+    });
+  });
+  let directoryReads = 0;
+  await page.route('**/api/governance/directory', route => {
+    directoryReads += 1;
+    if (directoryReads === 1) return route.fulfill({ status: 503 });
+    return route.fulfill({
+      json: {
+        apps:
+          current.directoryLaunchEligible && current.directoryListing
+            ? [{ id: app.id, name: app.name, ...current.directoryListing }]
+            : [],
+      },
+    });
+  });
+  await page.route('**/api/governance/apps/listed-app/directory', route => {
+    const request = route.request();
+    if (request.method() === 'PUT') {
+      expect(request.postDataJSON()).toEqual({
+        ...listing,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      current = {
+        ...app,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+        directoryListing: listing,
+      };
+    } else {
+      expect(request.method()).toBe('DELETE');
+      expect(request.postDataJSON()).toEqual({
+        expectedUpdatedAt: '2025-05-02T00:00:00.000Z',
+      });
+      current = { ...app, updatedAt: '2025-05-03T00:00:00.000Z' };
+    }
+    return route.fulfill({ json: current });
+  });
+
+  const nav = page.getByRole('navigation', { name: 'AI governance' });
+  const directory = page.getByRole('region', { name: 'Directory apps' });
+  const empty = directory.getByRole('heading', {
+    name: 'No apps listed',
+  });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await page.goto('/?view=directory');
+  const directoryError = directory.getByRole('alert');
+  await expect(directoryError.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(directoryError).toHaveText('The app directory could not load.');
+  await directory
+    .getByRole('button', { name: 'Retry loading Directory' })
+    .click();
+  await expect(empty).toBeVisible();
+  expect(directoryReads).toBe(2);
+  expect(inventoryReads).toBe(0);
+
+  await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Error: Inventory temporarily unavailable.',
+  );
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  await expect(empty).toBeVisible();
+  expect(inventoryReads).toBe(1);
+
+  const details = page.getByRole('dialog', { name: app.name });
+  async function openPublisher() {
+    await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
+    await page.getByRole('button', { name: new RegExp(app.name) }).click();
+    await details.getByText('Directory listing', { exact: true }).click();
+  }
+  await openPublisher();
+  const summary = details.getByRole('textbox', { name: 'Directory summary' });
+  const url = details.getByRole('textbox', { name: 'Launch URL' });
+  await expect(summary).toHaveValue('');
+  await expect(url).toHaveValue('');
+  await summary.fill(listing.summary);
+  await url.fill(listing.url);
+  await details.getByRole('button', { name: 'Publish in Directory' }).click();
+  await expect(
+    details.getByRole('button', { name: 'Update directory listing' }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  const launch = directory
+    .locator('td[data-label="Launch"]')
+    .getByRole('link', { name: `Open ${app.name}` });
+  await expect(launch).toHaveAttribute('href', listing.url);
+  await expect(launch).toHaveAttribute('rel', 'noreferrer');
+  await expect(directory.getByText(app.purpose)).toHaveCount(0);
+  const search = directory.getByRole('searchbox', { name: 'Search directory' });
+  await search.fill('unmatched');
+  await expect(
+    directory.getByRole('heading', { name: 'No matching apps' }),
+  ).toBeVisible();
+  await search.fill('discrepancies');
+  await expect(launch).toBeVisible();
+  await assertWorkspace(page, 'App directory', 'Directory');
+
+  current = { ...current, directoryLaunchEligible: false };
+  await page.reload();
+  await expect(empty).toBeVisible();
+  await openPublisher();
+  await expect(
+    details.getByText(
+      'This listing is hidden until the app meets current launch requirements.',
+    ),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Update directory listing' }),
+  ).toBeDisabled();
+  await details
+    .getByRole('button', { name: 'Unpublish from Directory' })
+    .click();
+  await expect(details.getByText('Directory listing removed.')).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  await expect(empty).toBeVisible();
+  expect(inventoryReads).toBe(3);
+});
+
+test('a directory access request receives a recorded owner decision', async ({
+  page,
+}) => {
+  const requester = 'user:default/requester';
+  const owner = 'user:default/owner';
+  const summary = 'Reconcile stock discrepancies.';
+  const message = 'I reconcile the warehouse inventory each week.';
+  const listing = { summary, url: 'https://example.com/launch/reconciliation' };
+  const app = {
+    id: 'access-app',
+    name: 'Inventory reconciliation',
+    purpose: 'Private operations context.',
+    owner,
+    team: 'group:default/operations',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/private-source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'not required',
+    directoryListing: listing,
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  const seed = {
+    id: 'request-1',
+    requester,
+    message,
+    requestedAt: app.updatedAt,
+  };
+  let actor = requester;
+  let status: 'pending' | 'approved' | undefined;
+  let canApprove = true;
+  let approvalCheckUnavailable = true;
+  const conflictMessage =
+    'This app no longer has an eligible directory listing.';
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
+  );
+  await page.route('**/api/governance/apps/access-app/directory', route => {
+    expect(route.request().method()).toBe('PUT');
+    canApprove = true;
+    return route.fulfill({
+      json: {
+        ...app,
+        directoryLaunchEligible: true,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+      },
+    });
+  });
+  await page.route('**/api/governance/directory', route =>
+    route.fulfill({
+      json: {
+        apps: [
+          {
+            id: app.id,
+            name: app.name,
+            ...listing,
+            requestStatus: actor === requester ? status : undefined,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/access-app/directory-requests',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(actor).toBe(requester);
+        expect(request.postDataJSON()).toEqual({ message });
+        status = 'pending';
+        return route.fulfill({ status: 201, json: { id: seed.id, status } });
+      }
+      expect(actor).toBe(owner);
+      expect(request.method()).toBe('GET');
+      return route.fulfill({
+        json: {
+          requests: [{ ...seed, status }],
+          canApprove: canApprove && !approvalCheckUnavailable,
+          approvalCheckUnavailable,
+        },
+      });
+    },
+  );
+  await page.route(
+    '**/api/governance/apps/access-app/directory-requests/request-1',
+    route => {
+      expect(actor).toBe(owner);
+      expect(route.request().method()).toBe('PATCH');
+      expect(route.request().postDataJSON()).toEqual({ status: 'approved' });
+      if (!canApprove)
+        return route.fulfill({
+          status: 409,
+          json: { error: { message: conflictMessage } },
+        });
+      status = 'approved';
+      return route.fulfill({
+        json: { ...seed, status, decidedBy: owner, decidedAt: app.updatedAt },
+      });
+    },
+  );
+
+  const directory = page.getByRole('region', { name: 'Directory apps' });
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await page.goto('/?view=directory');
+  await expect(directory.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await directory
+    .locator('td[data-label="Access"]')
+    .getByText('Request access', { exact: true })
+    .click();
+  await directory
+    .getByRole('textbox', { name: 'Why do you need access?' })
+    .fill(message);
+  await directory.getByRole('button', { name: 'Send access request' }).click();
+  await expect(
+    directory.getByText('Access request pending', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    directory.getByText('Request access', { exact: true }),
+  ).toHaveCount(0);
+
+  actor = owner;
+  await page.goto('/?app=access-app');
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await details.getByText('Directory access requests', { exact: true }).click();
+  await expect(details.getByText(requester, { exact: true })).toBeVisible();
+  await expect(details.getByText(message, { exact: true })).toBeVisible();
+  await expect(
+    details.getByText(/grant approved access in the destination app/),
+  ).toBeVisible();
+  const approve = details.getByRole('option', { name: 'Approve' });
+  await expect(approve).toBeDisabled();
+  await expect(
+    details.getByText('Catalog ownership could not be verified.'),
+  ).toBeVisible();
+  await expect(details.getByRole('option', { name: 'Decline' })).toBeEnabled();
+  approvalCheckUnavailable = false;
+  await details.getByRole('button', { name: 'Retry ownership check' }).click();
+  await expect(approve).toBeEnabled();
+  canApprove = false;
+  await details
+    .getByRole('combobox', { name: 'Access decision' })
+    .selectOption('approved');
+  await details.getByRole('button', { name: 'Record access decision' }).click();
+  await expect(details.getByRole('alert')).toHaveText(conflictMessage);
+  await expect(approve).toBeDisabled();
+  await details.getByText('Directory listing', { exact: true }).click();
+  await details
+    .getByRole('button', { name: 'Update directory listing' })
+    .click();
+  await expect(approve).toBeEnabled();
+  await details
+    .getByRole('combobox', { name: 'Access decision' })
+    .selectOption('approved');
+  await details.getByRole('button', { name: 'Record access decision' }).click();
+  await expect(
+    details.getByText('Access request approved', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Record access decision' }),
+  ).toHaveCount(0);
+
+  actor = requester;
+  await page.goto('/?view=directory');
+  await expect(directory.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    directory.getByText('Access request approved', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    directory.getByText('The app owner handles access in the destination app.'),
+  ).toBeVisible();
+  await expect(directory.getByText(message, { exact: true })).toHaveCount(0);
+  await assertWorkspace(page, 'App directory', 'Directory');
+});
+
+test('pending sign-offs CSV follows assigned tracks, review independence, and filters', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/security-reviewer';
+  const owner = 'user:default/owner';
+  const team = 'group:default/operations';
+  const base = {
+    purpose: 'Support a critical production workflow.',
+    owner,
+    backupOwner: 'user:default/backup',
+    team,
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    tier: 3,
+    deliveryStage: 'pilot',
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'pending',
+    nextReview: null,
+  };
+  const apps = [
+    { ...base, id: 'matching-pilot', name: 'Matching pilot' },
+    { ...base, id: 'other-pilot', name: 'Stock count pilot' },
+    {
+      ...base,
+      id: 'matching-production',
+      name: 'Matching production',
+      deliveryStage: 'production',
+    },
+    {
+      ...base,
+      id: 'signed',
+      name: 'Matching security signed',
+      signoffs: { security: { status: 'approved' } },
+    },
+    {
+      ...base,
+      id: 'owner-conflict',
+      name: 'Matching owner conflict',
+      owner: reviewer,
+    },
+    {
+      ...base,
+      id: 'backup-conflict',
+      name: 'Matching backup owner conflict',
+      backupOwner: reviewer,
+    },
+    {
+      ...base,
+      id: 'engineering-conflict',
+      name: 'Matching engineering conflict',
+      graduation: { nominee: reviewer, status: 'accepted' },
+    },
+  ];
+  let canReview = true;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: canReview ? reviewer : 'user:default/viewer',
+        canReview,
+        reviewTracks: ['security', 'dataProtection'],
+        reviewerTracks: ['security'],
+        apps,
+      },
+    }),
+  );
+
+  const reviews = page.getByRole('region', { name: 'Critical app reviews' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  const exportButton = reviews.getByRole('button', {
+    name: 'Download pending sign-offs CSV',
+  });
+  const reviewFilter = reviews.getByRole('combobox', { name: 'Review status' });
+  async function openReviews() {
+    await page.goto('/?view=reviews&review=mine');
+    await expect(reviews.or(guest)).toBeVisible();
+    if (await guest.isVisible()) await guest.click();
+  }
+  await openReviews();
+  await expect(reviewFilter).toHaveValue('mine');
+  await expect(
+    reviews.getByRole('row').filter({
+      hasText: /Matching pilot|Stock count pilot|Matching production/,
+    }),
+  ).toHaveCount(3);
+  await expect(
+    reviews.getByRole('row').filter({
+      hasText: /security signed|owner conflict|engineering conflict/,
+    }),
+  ).toHaveCount(0);
+
+  await reviews
+    .getByRole('combobox', { name: 'Delivery stage' })
+    .selectOption('pilot');
+  await expect(
+    reviews.getByRole('row').filter({ hasText: 'Matching production' }),
+  ).toHaveCount(0);
+  const search = reviews.getByRole('searchbox', { name: 'Search apps' });
+  await search.fill('Matching');
+  await expect(
+    reviews.getByRole('row').filter({ hasText: 'Stock count pilot' }),
+  ).toHaveCount(0);
+
+  const downloadPromise = page.waitForEvent('download');
+  await exportButton.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('frontstage-pending-signoffs.csv');
+  const csv = await readFile(await download.path(), 'utf8');
+  expect(
+    csv
+      .replace(/^\uFEFF/, '')
+      .trimEnd()
+      .split(/\r?\n/),
+  ).toEqual([
+    'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url',
+    `"matching-pilot","Matching pilot","${owner}","${team}","Security","","${workspaceUrl}/?app=matching-pilot"`,
+  ]);
+
+  await search.fill('no matching records');
+  await expect(exportButton).toHaveCount(0);
+
+  const exportedAppUrl = csv.match(/"(https?:[^"]+)"\r?\n$/)?.[1];
+  if (!exportedAppUrl) throw new Error('Export did not include an app URL');
+  await page.goto(exportedAppUrl);
+  await expect(
+    page.getByRole('dialog', { name: 'Matching pilot' }),
+  ).toBeVisible();
+
+  canReview = false;
+  await openReviews();
+  await expect(reviewFilter).toHaveValue('attention');
+  await expect(
+    reviewFilter.getByRole('option', { name: 'My pending sign-offs' }),
+  ).toHaveCount(0);
+  await expect(exportButton).toHaveCount(0);
+});
+
+test('the focused review ticket form saves and removes the link without reopening review', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/reviewer';
+  const owner = 'user:default/owner';
+  const ticket = 'https://tickets.example.com/reviews/123';
+  const replacement = 'https://tickets.example.com/reviews/456';
+  const app = {
+    id: 'quick-ticket',
+    name: 'Critical app with its review ticket',
+    owner,
+    backupOwner: 'user:default/backup',
+    team: 'group:default/operations',
+    purpose: 'Assist with priority operations decisions.',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 3,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'approved',
+    nextReview: '2099-01-01T00:00:00.000Z',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  let current: typeof app & { reviewTicketUrl?: string } = app;
+  const events = [
+    {
+      digest: 'a'.repeat(64),
+      event: JSON.stringify({
+        action: 'registered',
+        actor: owner,
+        record: app,
+      }),
+    },
+  ];
+
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { actor: reviewer, canReview: true, apps: [current] },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/quick-ticket/review-ticket',
+    route => {
+      const request = route.request();
+      const url = [ticket, replacement, null][events.length - 1];
+      expect(request.method()).toBe('PATCH');
+      expect(request.postDataJSON()).toEqual({
+        url,
+        expectedUpdatedAt: current.updatedAt,
+      });
+      current = {
+        ...app,
+        reviewTicketUrl: url ?? undefined,
+        updatedAt: new Date(Date.parse(current.updatedAt) + 1000).toISOString(),
+      };
+      events.push({
+        digest: String(events.length).repeat(64),
+        event: JSON.stringify({
+          action: 'review-ticket-updated',
+          actor: reviewer,
+          record: current,
+        }),
+      });
+      return route.fulfill({ json: current });
+    },
+  );
+  await page.route('**/api/governance/apps/quick-ticket/history', route =>
+    route.fulfill({ json: { events, keyEvents: [] } }),
+  );
+
+  await page.goto('/?app=quick-ticket');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await details.getByText('Edit review ticket', { exact: true }).click();
+  const url = details.getByRole('textbox', { name: 'Ticket URL', exact: true });
+  const save = details.getByRole('button', { name: 'Save review ticket' });
+  const open = details.getByRole('link', { name: 'Open review ticket' });
+
+  await expect(url).toHaveValue('');
+  await url.fill(ticket);
+  await save.click();
+  await expect(open).toHaveAttribute('href', ticket);
+  await expect(details.getByText('Review ticket saved.')).toBeVisible();
+  await details.getByText('Edit app details', { exact: true }).click();
+  await expect(
+    details.getByRole('textbox', { name: 'Review ticket URL', exact: true }),
+  ).toHaveValue(ticket);
+
+  await expect(save).toBeDisabled();
+  await details.getByText('Edit app details', { exact: true }).click();
+  await expect(save).toBeEnabled();
+  await url.fill(replacement);
+  await save.click();
+  await expect(open).toHaveAttribute('href', replacement);
+  await url.clear();
+  await save.click();
+  await expect(open).toHaveCount(0);
+  await expect(details.getByText('Review ticket removed.')).toBeVisible();
+  await expect(
+    details.getByRole('combobox', { name: 'Lifecycle' }),
+  ).toHaveValue('active');
+
+  await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText('Review ticket linked', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Review ticket link updated', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Review ticket link removed', { exact: true }),
+  ).toBeVisible();
+});
+
+test('a backup owner can confirm handover when the app is eligible', async ({
+  page,
+}) => {
+  const actor = 'user:default/backup';
+  const replacement = 'user:default/replacement';
+  const app = {
+    id: 'backup-handover-app',
+    name: 'Shared fulfilment app',
+    owner: 'user:default/owner',
+    backupOwner: actor,
+    team: 'group:default/operations',
+    purpose: 'Support fulfilment decisions.',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 2,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'not required',
+    nextReview: '2099-01-01T00:00:00.000Z',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  let current = app;
+  let available = false;
+  let catalogUnavailable = true;
+
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [current] } }),
+  );
+  await page.route(
+    '**/api/governance/apps/backup-handover-app/backup-handover',
+    route => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        if (catalogUnavailable) return route.fulfill({ status: 503 });
+        return route.fulfill({ json: { available, backupRequired: true } });
+      }
+      expect(available).toBe(true);
+      expect(request.method()).toBe('POST');
+      expect(request.postDataJSON()).toEqual({
+        backupOwner: replacement,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      current = {
+        ...app,
+        owner: actor,
+        backupOwner: replacement,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+        nextReview: '2025-05-02T00:00:00.000Z',
+      };
+      return route.fulfill({ json: current });
+    },
+  );
+
+  await page.goto('/?app=backup-handover-app');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const handover = details.getByText('Backup owner handover', { exact: true });
+  const take = details.getByRole('button', { name: 'Take ownership' });
+  const unavailable = details.getByText(
+    'Backup handover is unavailable for this app.',
+  );
+  await handover.click();
+  await expect(details.getByRole('alert')).toHaveText(
+    'Handover availability could not load.',
+  );
+  await expect(take).toHaveCount(0);
+  catalogUnavailable = false;
+  await details.getByRole('button', { name: 'Retry handover check' }).click();
+  await expect(unavailable).toBeVisible();
+  await expect(take).toHaveCount(0);
+  await handover.click();
+  await expect(unavailable).toHaveCount(0);
+  available = true;
+  await handover.click();
+
+  await expect(
+    details.getByText(/Any existing gateway key will be revoked/),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Your first owner attestation will be due immediately.'),
+  ).toBeVisible();
+  await expect(take).toBeDisabled();
+  const backup = details.getByRole('textbox', {
+    name: /Replacement backup owner/,
+  });
+  await expect(backup).toHaveAttribute('required', '');
+  await backup.fill(replacement);
+  await details
+    .getByRole('checkbox', { name: 'I accept responsibility for this app.' })
+    .check();
+  await take.click();
+  await expect(
+    details.getByText('You are now the accountable owner.'),
+  ).toBeVisible();
+  await expect(handover).toHaveCount(0);
+  await expect(
+    details.getByText('Edit app details', { exact: true }),
+  ).toBeVisible();
+  await expect(details.getByText('Next review due 2025-05-02.')).toBeVisible();
+
+  await page.reload();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(handover).toHaveCount(0);
+  await expect(
+    details.getByRole('button', { name: 'Record attestation' }),
+  ).toBeVisible();
 });
