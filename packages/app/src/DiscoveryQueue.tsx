@@ -74,7 +74,7 @@ function manifestSummary(manifest: SdkEvidenceResult['manifests'][number]) {
     : 'No recognized AI SDK dependencies.';
 }
 
-function RepositorySdkEvidence({
+export function RepositorySdkEvidence({
   load,
 }: {
   load: () => Promise<SdkEvidenceResult>;

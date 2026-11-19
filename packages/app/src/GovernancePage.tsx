@@ -18,6 +18,7 @@ import CloseIcon from '@material-ui/icons/Close';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   DiscoveryQueue,
+  RepositorySdkEvidence,
   discoveryRouteParams,
   type DiscoveryResult,
 } from './DiscoveryQueue';
@@ -838,6 +839,9 @@ export function GovernancePage() {
     },
     [discovery, fetch],
   );
+
+  const checkRepositorySdkEvidence = (id: string) =>
+    api(`/discovery/github/${encodeURIComponent(id)}/sdk-evidence`);
 
   const pendingRetirementAppId =
     selected?.retirementReview?.status === 'pending' ? selected.id : undefined;
@@ -3732,9 +3736,7 @@ export function GovernancePage() {
             busy={busy}
             onScan={scanGithub}
             onDecision={decideDiscovery}
-            onCheckSdkEvidence={id =>
-              api(`/discovery/github/${encodeURIComponent(id)}/sdk-evidence`)
-            }
+            onCheckSdkEvidence={checkRepositorySdkEvidence}
           />
         ))}
       {view === 'Register' && repositoryId && !candidate && (
@@ -4002,6 +4004,12 @@ export function GovernancePage() {
                 }
                 apply={applyRepositoryDescriptor}
                 applied={!!descriptor}
+              />
+            )}
+            {candidate && (
+              <RepositorySdkEvidence
+                key={`sdk-${candidate.id}`}
+                load={() => checkRepositorySdkEvidence(candidate.id)}
               />
             )}
             {hostedRegistration &&
