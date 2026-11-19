@@ -59,6 +59,7 @@ type AppSummary = {
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
   reviewTicketUrl?: string;
+  missingCriticalReviewEvidence?: Array<'tests' | 'dataFlow' | 'incidentPlan'>;
   renewalException?: RenewalException;
   nextReview: string | null;
 };
@@ -560,6 +561,9 @@ export function PortfolioReport({
   const missingTickets = canReview
     ? critical.filter(app => !app.reviewTicketUrl).length
     : 0;
+  const missingEvidence = canReview
+    ? critical.filter(app => app.missingCriticalReviewEvidence?.length).length
+    : 0;
   const liveCost = report?.usage.reduce(
     (sum, row) => sum + (row.mode === 'openai' ? row.estimatedCostUsd : 0),
     0,
@@ -776,6 +780,13 @@ export function PortfolioReport({
             <div>
               <Link to="/?view=reviews&review=missing-ticket">
                 {missingTickets} missing a review ticket
+              </Link>
+            </div>
+          )}
+          {missingEvidence > 0 && (
+            <div>
+              <Link to="/?view=reviews&review=missing-evidence">
+                {missingEvidence} missing required evidence
               </Link>
             </div>
           )}
