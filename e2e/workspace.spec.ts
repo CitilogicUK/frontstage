@@ -3164,6 +3164,9 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
     name: 'Hosted notes',
     provider: 'Example AI',
     workspace: 'Enterprise',
+    sharing: 'named people',
+    dataAccess: 'reads connected data',
+    dataClassification: 'confidential',
     sourceUrl: 'https://example.com/apps/notes',
   };
   const known = {
@@ -3190,6 +3193,9 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
         hosted: {
           provider: candidate.provider,
           workspace: candidate.workspace,
+          sharing: candidate.sharing,
+          dataAccess: candidate.dataAccess,
+          dataClassification: candidate.dataClassification,
         },
       });
       registered = true;
@@ -3245,9 +3251,11 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
       },
     });
   });
-  await page.route('**/api/governance/tier-preview', route =>
-    route.fulfill({ json: { tier: 1, reasons: [] } }),
-  );
+  const tierPreviewInputs: unknown[] = [];
+  await page.route('**/api/governance/tier-preview', route => {
+    tierPreviewInputs.push(route.request().postDataJSON());
+    return route.fulfill({ json: { tier: 1, reasons: [] } });
+  });
 
   await page.goto('/?view=discovery');
   const heading = page.getByRole('heading', { name: 'App discovery' });
@@ -3318,6 +3326,29 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(form.getByLabel('Enterprise workspace')).toHaveValue(
     candidate.workspace,
   );
+  const sharing = form.getByLabel('Sharing scope');
+  await expect(sharing).toHaveValue(candidate.sharing);
+  await expect(
+    form.getByRole('combobox', { name: 'Data access', exact: true }),
+  ).toHaveValue(candidate.dataAccess);
+  await expect(
+    form.getByRole('combobox', { name: 'Highest hosted data classification' }),
+  ).toHaveValue(candidate.dataClassification);
+  await expect
+    .poll(() => tierPreviewInputs)
+    .toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hosted: {
+            sharing: candidate.sharing,
+            dataClassification: candidate.dataClassification,
+          },
+        }),
+      ]),
+    );
+  await sharing.selectOption('private');
+  await expect(sharing).toHaveValue('private');
+  await sharing.selectOption(candidate.sharing);
   await expect(page).not.toHaveURL(/example\.com|Enterprise/);
   expect(registered).toBe(false);
   await form.getByLabel('Purpose').fill('Summarizes synthetic meeting notes.');

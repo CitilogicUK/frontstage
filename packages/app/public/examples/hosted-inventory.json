@@ -18,7 +18,10 @@
       "name": "Hosted meeting notes demo",
       "provider": "Example AI",
       "workspace": "Company sandbox",
-      "sourceUrl": "https://example.com/frontstage-demo/hosted-meeting-notes"
+      "sourceUrl": "https://example.com/frontstage-demo/hosted-meeting-notes",
+      "sharing": "named people",
+      "dataAccess": "reads connected data",
+      "dataClassification": "internal"
     }
   ]
 }
