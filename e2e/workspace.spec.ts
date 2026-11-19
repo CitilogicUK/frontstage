@@ -287,6 +287,9 @@ test('workspace screens share navigation and fit the viewport', async ({
     .getByRole('link', { name: 'Review incomplete records' })
     .click();
   await expect(page).toHaveURL(/discoveryStatus=incomplete$/);
+  await expect(
+    page.getByText(/Some repositories may be missing from this scan/),
+  ).toBeVisible();
   const incompleteRow = page.getByRole('row', {
     name: /registered repository/,
   });
