@@ -186,6 +186,9 @@ test('workspace screens share navigation and fit the viewport', async ({
     const brief = strFromU8(files[`${id}/PROJECT_BRIEF.md`]);
     expect(brief).toContain('Delivery stage: Proof of concept');
     expect(brief).toContain(
+      'Record whether the evidence supports the hypothesis.',
+    );
+    expect(brief).toContain(
       usesAi
         ? 'calls models through the gateway'
         : 'No runtime model calls are planned',
@@ -232,6 +235,22 @@ test('workspace screens share navigation and fit the viewport', async ({
     .getByRole('link', { name: 'Templates', exact: true })
     .click();
 
+  for (const [stage, exitCriterion] of [
+    ['trial', 'decide whether to stop or propose a proof of concept'],
+    ['pilot', 'thresholds for expanding, pausing, or rolling back the pilot'],
+    ['production', 'which checks must pass before rollout'],
+  ]) {
+    await page.getByLabel('Delivery stage').selectOption(stage);
+    const pending = page.waitForEvent('download');
+    await page
+      .getByRole('button', { name: 'Download AI-assisted software starter' })
+      .click();
+    const download = await pending;
+    const files = unzipSync(await readFile(await download.path()));
+    const brief = strFromU8(files['ai-assisted-software/PROJECT_BRIEF.md']);
+    expect(brief).toContain('## Exit criteria');
+    expect(brief).toContain(exitCriterion);
+  }
   await page.getByLabel('Delivery stage').selectOption('pilot');
   await page
     .getByRole('combobox', { name: 'Approved model' })

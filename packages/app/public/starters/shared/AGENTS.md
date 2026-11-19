@@ -1,6 +1,6 @@
 # Instructions for coding agents
 
-Read the existing code, local instructions, and `PROJECT_BRIEF.md` if present before editing. Confirm the user, intended use, data, integrations, and delivery stage. Record consequential assumptions briefly. Preserve the repo’s established components, conventions, and normal entry points.
+Read the existing code, local instructions, and `PROJECT_BRIEF.md` if present before editing. Confirm the user, intended use, data, integrations, and delivery stage. Record consequential assumptions briefly. Use the brief’s exit criteria to report what was achieved and what needs an owner’s decision before expanding scope. Preserve the repo’s established components, conventions, and normal entry points.
 
 ## Every change
 
