@@ -2378,6 +2378,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@backstage/plugin-auth-backend-module-github-provider@npm:^0.5.9":
+  version: 0.5.9
+  resolution: "@backstage/plugin-auth-backend-module-github-provider@npm:0.5.9"
+  dependencies:
+    "@backstage/backend-plugin-api": "npm:^1.12.0"
+    "@backstage/catalog-model": "npm:^1.10.3"
+    "@backstage/errors": "npm:^1.4.0"
+    "@backstage/plugin-auth-node": "npm:^0.7.8"
+    "@backstage/plugin-catalog-node": "npm:^3.0.0"
+    passport-github2: "npm:^0.1.12"
+    zod: "npm:^3.25.76 || ^4.0.0"
+  checksum: 10c0/31fe316514f2d80ae5266c0a5f2c3b56de876e6cfba8f282fd47ec2afae655bacf98151130def8525a059115da94d8e3b35844a382f46538bbda0e43684b64f4
+  languageName: node
+  linkType: hard
+
 "@backstage/plugin-auth-backend-module-guest-provider@npm:^0.2.25":
   version: 0.2.25
   resolution: "@backstage/plugin-auth-backend-module-guest-provider@npm:0.2.25"
@@ -8615,6 +8630,7 @@ __metadata:
   resolution: "app@workspace:packages/app"
   dependencies:
     "@backstage/cli": "npm:^0.36.8"
+    "@backstage/core-components": "npm:^0.18.16"
     "@backstage/core-plugin-api": "npm:^1.13.0"
     "@backstage/frontend-defaults": "npm:^0.5.8"
     "@backstage/frontend-plugin-api": "npm:^1.0.0"
@@ -9143,6 +9159,7 @@ __metadata:
     "@backstage/errors": "npm:^1"
     "@backstage/plugin-app-backend": "npm:^0.5.20"
     "@backstage/plugin-auth-backend": "npm:^0.31.0"
+    "@backstage/plugin-auth-backend-module-github-provider": "npm:^0.5.9"
     "@backstage/plugin-auth-backend-module-guest-provider": "npm:^0.2.25"
     "@backstage/plugin-catalog-backend": "npm:^4.0.3"
     "@backstage/plugin-catalog-node": "npm:^3"
@@ -18946,7 +18963,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"passport-oauth2@npm:^1.7.0":
+"passport-github2@npm:^0.1.12":
+  version: 0.1.12
+  resolution: "passport-github2@npm:0.1.12"
+  dependencies:
+    passport-oauth2: "npm:1.x.x"
+  checksum: 10c0/70c763f40392f15509373d43014f4c32af8f4fa0a290c74f4b0125208c7aff5a0d55c16ead5663a964653622c759fa70adbc58e417577b206deb9a5a255b528c
+  languageName: node
+  linkType: hard
+
+"passport-oauth2@npm:1.x.x, passport-oauth2@npm:^1.7.0":
   version: 1.8.0
   resolution: "passport-oauth2@npm:1.8.0"
   dependencies:

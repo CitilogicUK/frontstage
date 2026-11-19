@@ -315,6 +315,14 @@ The dev server uses seed identities and SQLite. Before deployment, configure com
 
 The prototype evidence guide covers demo scenarios, metric scope, and checks that need a pilot environment. [Prototype evidence](docs/prototype-evidence.md)
 
+### GitHub sign-in for a pilot
+
+The base app offers GitHub sign-in. The development and reviewer profiles use Guest, and the GitHub overlay disables Guest if those profiles are also loaded.
+
+Register a GitHub OAuth app with the Frontstage frontend URL and the callback `<backend-base-url>/api/auth/github/handler/frame`. Set `FRONTSTAGE_GITHUB_CLIENT_ID` and `FRONTSTAGE_GITHUB_CLIENT_SECRET` in the backend environment. Load [the GitHub sign-in overlay](app-config.github-signin.yaml) after the base configuration. For a local trial, run `yarn start --config ../../app-config.github-signin.yaml` after setting the OAuth values and providing the mapped Catalog users.
+
+Each allowed user needs a managed Backstage User entity with the `github.com/user-id` annotation set to their GitHub GraphQL node ID. For example, look up the ID with `gh api users/LOGIN --jq .node_id`. Use administrator-managed Catalog providers or locations for identity mappings. The overlay disables Catalog API writes, including location registration. Frontstage app registration remains available through its governance API. Start the pilot Catalog with trusted sources only. Frontstage resolves the signed-in account to that entity, and reviewer permissions still come from the mapped Backstage user references in `governance.reviewers`. Use your company’s approved identity provider if GitHub identities are outside the pilot’s scope.
+
 ## Verify changes in a worktree
 
 Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, unit tests, the starter projects’ offline tests, and the audit verifier tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing. If Playwright's Chromium build is unavailable on your development host, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium executable.

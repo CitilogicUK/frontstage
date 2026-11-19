@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@backstage/cli": "^0.36.8",
+    "@backstage/core-components": "^0.18.16",
     "@backstage/core-plugin-api": "^1.13.0",
     "@backstage/frontend-defaults": "^0.5.8",
     "@backstage/frontend-plugin-api": "^1.0.0",
