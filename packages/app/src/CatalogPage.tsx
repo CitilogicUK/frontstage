@@ -7,6 +7,7 @@ import {
   useStarredEntities,
 } from '@backstage/plugin-catalog-react';
 import CategoryIcon from '@material-ui/icons/Category';
+import { appRecordPath } from './appRecordPath';
 import {
   WorkspaceEmptyState,
   WorkspaceFilterTabs,
@@ -22,6 +23,22 @@ type CatalogEntity = Parameters<
 function specString(entity: CatalogEntity, field: string) {
   const value = entity.spec?.[field];
   return typeof value === 'string' ? value : undefined;
+}
+
+function governanceSearchFields(entity: CatalogEntity) {
+  if (entity.kind.toLowerCase() !== 'aiapp') return [];
+
+  const tier = entity.spec?.tier;
+  const models = entity.spec?.models;
+  return [
+    typeof tier === 'number' ? `Tier ${tier}` : undefined,
+    specString(entity, 'effectiveClassification') ??
+      specString(entity, 'classification'),
+    specString(entity, 'platform'),
+    ...(Array.isArray(models)
+      ? models.filter((model): model is string => typeof model === 'string')
+      : []),
+  ];
 }
 
 const kindNames = new Map([
@@ -57,6 +74,7 @@ export function CatalogPage() {
     kind,
     ...entities.map(entity => entity.kind.toLowerCase()),
   ]);
+  const search = query.trim().toLowerCase();
   const matches = entities.filter(
     entity =>
       entity.kind.toLowerCase() === kind &&
@@ -67,9 +85,8 @@ export function CatalogPage() {
         entity.metadata.title,
         entity.metadata.description,
         specString(entity, 'owner'),
-      ].some(value =>
-        value?.toLowerCase().includes(query.trim().toLowerCase()),
-      ),
+        ...governanceSearchFields(entity),
+      ].some(value => value?.toLowerCase().includes(search)),
   );
   const pageCount = Math.max(1, Math.ceil(matches.length / limit));
   const currentPage = Math.min(page, pageCount - 1);
@@ -104,7 +121,11 @@ export function CatalogPage() {
       <section className="gov-panel" aria-label={kindNames.get(kind) ?? kind}>
         <WorkspaceSearch
           label="Search catalog"
-          placeholder="Search names, descriptions, or owners…"
+          placeholder={
+            kind === 'aiapp'
+              ? 'Search apps, owners, tiers, data classes, models, or platforms…'
+              : 'Search names, descriptions, or owners…'
+          }
           value={query}
           onChange={value => {
             setQuery(value);
@@ -210,7 +231,7 @@ export function CatalogPage() {
                         'backstage.io/managed-by-location'
                       ] === 'governance:inventory';
                     const destination = isGovernanceApp
-                      ? `/?${new URLSearchParams({ app: name })}`
+                      ? appRecordPath(name)
                       : `/catalog/${path}`;
                     return (
                       <tr key={path}>
