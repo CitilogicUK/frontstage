@@ -202,13 +202,20 @@ export function CatalogPage() {
                     const path = [namespace, kind, name]
                       .map(encodeURIComponent)
                       .join('/');
+                    const isGovernanceApp =
+                      entity.kind === 'AIApp' &&
+                      entity.apiVersion ===
+                        'governance.backstage.io/v1alpha1' &&
+                      entity.metadata.annotations?.[
+                        'backstage.io/managed-by-location'
+                      ] === 'governance:inventory';
+                    const destination = isGovernanceApp
+                      ? `/?${new URLSearchParams({ app: name })}`
+                      : `/catalog/${path}`;
                     return (
                       <tr key={path}>
                         <td className="gov-app-cell">
-                          <Link
-                            className="gov-app-link"
-                            to={`/catalog/${path}`}
-                          >
+                          <Link className="gov-app-link" to={destination}>
                             <WorkspaceRecordTitle
                               title={title ?? name}
                               description={description}
