@@ -4,7 +4,7 @@ Read the existing code, local instructions, and `PROJECT_BRIEF.md` if present be
 
 ## Every change
 
-- Keep credentials out of source files, prompts, fixtures, and logs. Use synthetic data for development unless the project authorizes other data.
+- Keep credentials out of source files, prompts, fixtures, and logs. Keep any committed `.env.example` limited to placeholder values. Use synthetic data for development unless the project authorizes other data.
 - Validate input at trust boundaries. Enforce permissions on the server where access matters. Reuse reviewed libraries and keep dependency changes deliberate.
 - Follow existing project conventions for formatting, dependencies, and CI. Run the affected checks and record any that could not run.
 - For apps that call models, treat model output as untrusted data. Validate structured output, keep credentials server-side, and bound retries and call costs. Require authorization before model output can trigger consequential actions.

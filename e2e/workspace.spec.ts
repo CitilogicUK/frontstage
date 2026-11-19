@@ -181,6 +181,8 @@ test('workspace screens share navigation and fit the viewport', async ({
     const path = await download.path();
     if (!path) throw new Error('Starter download has no local path');
     const files = unzipSync(await readFile(path));
+    const ignore = strFromU8(files[`${id}/.gitignore`]).trim().split('\n');
+    expect(ignore.slice(1)).toEqual(['.env', '.env.*', '!.env.example']);
     expect(strFromU8(files[`${id}/CLAUDE.md`]).trim()).toBe('@AGENTS.md');
     expect(strFromU8(files[`${id}/AGENTS.md`])).toContain('Proof of concept');
     const brief = strFromU8(files[`${id}/PROJECT_BRIEF.md`]);
