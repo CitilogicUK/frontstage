@@ -135,24 +135,7 @@ test('Catalog finds and opens managed apps by governance fields', async ({
 
 test('workspace screens share navigation and fit the viewport', async ({
   page,
-  request,
 }, testInfo) => {
-  await expect
-    .poll(
-      async () => {
-        const health = await request
-          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
-            timeout: 2_000,
-          })
-          .catch(() => undefined);
-        if (!health) return 0;
-        const status = health.status();
-        await health.dispose();
-        return status;
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(200);
   let discoveryStatuses = ['registered', 'unowned', 'dismissed'];
   await page.route('**/api/governance/discovery/github', route =>
     route.fulfill({
@@ -1082,25 +1065,8 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
-  request,
 }) => {
   test.setTimeout(60_000);
-  await expect
-    .poll(
-      async () => {
-        const response = await request
-          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
-            timeout: 2_000,
-          })
-          .catch(() => undefined);
-        if (!response) return 0;
-        const status = response.status();
-        await response.dispose();
-        return status;
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(200);
   const actor = 'user:default/demo-owner';
   let viewer = actor;
   const base = {
@@ -2005,24 +1971,7 @@ test('reviewers can download the spreadsheet import sample', async ({
 
 test('critical reviews can request changes while required evidence is missing', async ({
   page,
-  request,
 }) => {
-  await expect
-    .poll(
-      async () => {
-        const health = await request
-          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
-            timeout: 2_000,
-          })
-          .catch(() => undefined);
-        if (!health) return 0;
-        const status = health.status();
-        await health.dispose();
-        return status;
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(200);
   const app = {
     id: 'critical-evidence',
     name: 'Critical evidence demo',
@@ -4756,29 +4705,7 @@ test('an independent reviewer can grant and revoke a renewal exception', async (
 
 test('a connector alert opens the owner’s Connected systems editor after sign-in', async ({
   page,
-  request,
 }) => {
-  await expect
-    .poll(
-      async () => {
-        const response = await request
-          .get(`${workspaceBackendUrl}/api/auth/guest/refresh`, {
-            headers: {
-              Origin: workspaceUrl,
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            timeout: 2_000,
-          })
-          .catch(() => undefined);
-        if (!response) return 0;
-        const status = response.status();
-        await response.dispose();
-        return status;
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(200);
-
   const owner = 'user:default/demo-owner';
   const app = {
     id: 'connector-alert-app',
@@ -5454,28 +5381,7 @@ test('resumed live gateway activity leaves only the keep decision available', as
 
 test('an engineering co-owner nominee can accept without gaining app controls', async ({
   page,
-  request,
 }) => {
-  await expect
-    .poll(
-      async () => {
-        const health = await request
-          .get(`${workspaceBackendUrl}/api/auth/guest/refresh`, {
-            headers: {
-              Origin: workspaceUrl,
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            timeout: 2_000,
-          })
-          .catch(() => undefined);
-        if (!health) return 0;
-        const status = health.status();
-        await health.dispose();
-        return status;
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(200);
   const owner = 'user:default/owner';
   const nominee = 'user:default/engineering';
   const reviewer = 'user:default/reviewer';

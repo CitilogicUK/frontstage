@@ -7,6 +7,7 @@ import {
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/workspaceSetup.ts',
   use: {
     baseURL: workspaceUrl,
     reducedMotion: 'reduce',
