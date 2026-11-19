@@ -195,6 +195,8 @@ FRONTSTAGE_PROBE_URL=http://localhost:7007 \
 
 The probe sends sequential synthetic sandbox calls and prints JSON with nearest-rank p50, p95 and maximum durations in milliseconds. Client duration includes connection and response parsing. Frontstage duration comes from the gateway's `Server-Timing` header. Save the output with the deployment revision, date and probe location for comparisons. Use a fresh test app or stay within its rate limit because samples appear in sandbox usage. The probe accepts 1–30 samples and stops on the first failure without retrying. It requires HTTPS for remote origins and never follows redirects. Sandbox results measure simulated gateway latency. Measure live provider latency and availability separately in the target deployment.
 
+To check an agreed sandbox target, set `FRONTSTAGE_PROBE_MAX_CLIENT_P95_MS`, `FRONTSTAGE_PROBE_MAX_FRONTSTAGE_P95_MS`, or both to positive integers. The JSON includes the configured limits and whether they passed. A completed run over a configured limit exits with status 2 and still prints the full summary. Configuration, request and response failures exit with status 1. With no limits set, the probe only reports measurements.
+
 ## Separate critical sign-offs
 
 To require two independent sign-offs, configure `governance.reviewTracks.security` and `governance.reviewTracks.dataProtection` as disjoint lists of Backstage user references. Reviewers can record a decision only for their assigned track. Both approvals must be current before launch. The default local demo uses a combined reviewer decision.
