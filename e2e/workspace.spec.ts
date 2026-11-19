@@ -6487,6 +6487,12 @@ test('a directory access request receives a recorded owner decision', async ({
   });
   await fulfillmentQueue.click();
   await expect(page).toHaveURL(/review=fulfillment/);
+  await page
+    .getByRole('combobox', { name: 'Ownership', exact: true })
+    .selectOption('backup');
+  await expect(page).toHaveURL(/owner=backup$/);
+  await fulfillmentQueue.click();
+  await expect(page).toHaveURL(/owner=me&review=fulfillment/);
   await page.getByRole('button', { name: app.name }).click();
   await details.getByText('Directory access requests', { exact: true }).click();
 

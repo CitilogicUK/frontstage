@@ -1833,11 +1833,9 @@ describe('governance record access', () => {
         .set('Authorization', credentials)
         .expect(200);
       expect(body).not.toHaveProperty('appsWithPendingAccessRequests');
-      if (credentials === mockCredentials.service.header()) {
-        expect(body).not.toHaveProperty('appsAwaitingAccessFulfillment');
-      } else {
-        expect(body.appsAwaitingAccessFulfillment).toEqual([]);
-      }
+      expect(body.appsAwaitingAccessFulfillment).toEqual(
+        credentials === mockCredentials.service.header() ? undefined : [],
+      );
     }
     expect(reviewerQueue.requests).toHaveLength(2);
     expect(reviewerQueue.canApprove).toBe(true);

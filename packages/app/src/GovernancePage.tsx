@@ -430,6 +430,7 @@ export function GovernancePage() {
         value !== 'me' &&
         (review === 'workspace' ||
           review === 'scorecard' ||
+          review === 'fulfillment' ||
           (review === 'reassess' && !canReview))
       )
         next.delete('review');
