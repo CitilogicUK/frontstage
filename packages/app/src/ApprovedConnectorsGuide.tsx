@@ -260,7 +260,9 @@ export function ConnectorDiscrepancies({
       aria-labelledby="connector-discrepancies-title"
     >
       <div className="gov-report-heading">
-        <h2 id="connector-discrepancies-title">Connector discrepancies</h2>
+        <h2 id="connector-discrepancies-title" tabIndex={-1}>
+          Connector discrepancies
+        </h2>
         {failed && <p role="alert">The connector registry could not load.</p>}
         {!failed && !registry && (
           <p role="status">Loading approved connectors…</p>

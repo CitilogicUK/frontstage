@@ -685,6 +685,7 @@ export function GovernancePage() {
 
   const reviewStatusSelect = useRef<HTMLSelectElement>(null);
   const restoreReviewFilterFocus = useRef(false);
+  const restoreConnectorReportFocus = useRef(false);
   const ticketEditorRequested =
     view === 'Reviews' && reviewFilter === 'missing-ticket' && canReview;
 
@@ -692,6 +693,8 @@ export function GovernancePage() {
     restoreReviewFilterFocus.current = Boolean(
       ticketEditorRequested && selected?.reviewTicketUrl,
     );
+    restoreConnectorReportFocus.current =
+      view === 'Reports' && connectionsEditorRequested;
     setReviewDecision(undefined);
     setRegistrationFeedback(undefined);
     setAppEditorToggle(undefined);
@@ -727,6 +730,11 @@ export function GovernancePage() {
       if (restoreReviewFilterFocus.current) {
         restoreReviewFilterFocus.current = false;
         reviewStatusSelect.current?.focus();
+      }
+      if (restoreConnectorReportFocus.current) {
+        restoreConnectorReportFocus.current = false;
+        if (document.activeElement === document.body)
+          document.getElementById('connector-discrepancies-title')?.focus();
       }
     }
   }, [
