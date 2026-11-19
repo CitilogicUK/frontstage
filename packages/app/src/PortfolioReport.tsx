@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   appClassifications,
@@ -412,6 +412,19 @@ export function PortfolioReport({
   }
   const now = Date.now();
   const ownerObservationCutoff = now - 30 * 86_400_000;
+  const ownershipHeading = useRef<HTMLHeadingElement>(null);
+  const ownerObservations =
+    ownership?.issues.flatMap(issue => {
+      const observedAt = Date.parse(issue.ownerUnavailableObservedSince ?? '');
+      return Number.isFinite(observedAt)
+        ? [{ appId: issue.appId, observedAt }]
+        : [];
+    }) ?? [];
+  const longRunningOwnerGaps = new Set(
+    ownerObservations
+      .filter(observation => observation.observedAt < ownerObservationCutoff)
+      .map(observation => observation.appId),
+  );
   const requestedOwnershipRole = params.get('ownershipRole');
   const uncoveredOnly = requestedOwnershipRole === 'uncovered';
   const longRunningOwnersOnly = requestedOwnershipRole === 'owner-over-30-days';
@@ -459,14 +472,7 @@ export function PortfolioReport({
           },
         );
         if (unavailable.length === 0) return [];
-        if (
-          longRunningOwnersOnly &&
-          !unavailable.some(
-            ({ observedSince }) =>
-              observedSince &&
-              Date.parse(observedSince) < ownerObservationCutoff,
-          )
-        )
+        if (longRunningOwnersOnly && !longRunningOwnerGaps.has(issue.appId))
           return [];
         const lacksOwnerCoverage =
           !issue.availableBackupOwner &&
@@ -686,6 +692,26 @@ export function PortfolioReport({
           <dt>Non-retired apps</dt>
           <dd>{inventory.length}</dd>
         </div>
+        {canReview && ownerObservations.length > 0 && (
+          <div className="gov-panel">
+            <dt>Owner gaps observed over 30 days ago</dt>
+            <dd>{longRunningOwnerGaps.size}</dd>
+            <small>Based on recorded Catalog checks</small>
+            {longRunningOwnerGaps.size > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportFilter('ownershipRole', 'owner-over-30-days');
+                    ownershipHeading.current?.focus();
+                  }}
+                >
+                  View long-running owner gaps
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {discoveryUnavailable && (
           <div className="gov-panel">
             <dt>GitHub discovery coverage</dt>
@@ -997,7 +1023,9 @@ export function PortfolioReport({
           aria-labelledby="portfolio-ownership"
         >
           <div className="gov-report-heading">
-            <h2 id="portfolio-ownership">Ownership issues</h2>
+            <h2 id="portfolio-ownership" ref={ownershipHeading} tabIndex={-1}>
+              Ownership issues
+            </h2>
             <p>
               Non-retired apps with an inactive or missing catalog owner, backup
               owner, or team.
