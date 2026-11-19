@@ -101,6 +101,10 @@ test('Catalog opens a managed app in its governance record', async ({
     route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
   );
   await page.goto(catalogPath);
+  const heading = page.getByRole('heading', { name: 'Software catalog' });
+  const guest = page.getByRole('button', { name: 'Enter', exact: true });
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
   await expect(
     page.getByRole('link', { name: 'Sample service' }),
   ).toHaveAttribute('href', '/catalog/default/component/sample-service');
