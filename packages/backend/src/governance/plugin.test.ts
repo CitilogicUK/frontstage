@@ -664,10 +664,11 @@ describe('governance record access', () => {
     const editHosted = async (
       record: { updatedAt: string },
       changes: object,
+      editor = owner,
     ) => {
       const { body } = await api
         .put(path)
-        .set('Authorization', ownerAuth)
+        .set('Authorization', mockCredentials.user.header(editor))
         .send({ ...record, ...changes, expectedUpdatedAt: record.updatedAt })
         .expect(200);
       return body;
@@ -696,7 +697,7 @@ describe('governance record access', () => {
       recipients: { type: 'entity', entityRef: owner },
       payload: {
         description:
-          'Workspace settings changed for New hosted app. Confirm the updated workspace and sharing settings.',
+          'Confirm the current workspace and sharing settings for New hosted app.',
         link: `https://portal.example.com/internal/?app=${initialHosted.id}`,
       },
     });
@@ -713,9 +714,37 @@ describe('governance record access', () => {
       hosted: { ...reconfirmed.hosted, workspace: 'Company' },
     });
     expect(invalidatedAgain.hostedReconfirmationAt).not.toBe(reconfirmationAt);
-    await confirmHosted(invalidatedAgain.updatedAt);
+    const confirmedAgain = await confirmHosted(invalidatedAgain.updatedAt);
     await run();
     expect(reconfirmations()).toHaveLength(1);
+    expect(initialMessages()).toHaveLength(4);
+
+    const transferred = await editHosted(confirmedAgain, { owner: nextOwner });
+    expect(transferred).not.toHaveProperty('hostedAttestation');
+    expect(transferred.hostedReconfirmationAt).toBe(transferred.updatedAt);
+    await run();
+    expect(reconfirmations()).toHaveLength(2);
+    expect(reconfirmations()[1].recipients).toEqual({
+      type: 'entity',
+      entityRef: nextOwner,
+    });
+
+    const returned = await editHosted(transferred, { owner }, nextOwner);
+    expect(returned.hostedReconfirmationAt).toBe(returned.updatedAt);
+    expect(returned.hostedReconfirmationAt).not.toBe(
+      transferred.hostedReconfirmationAt,
+    );
+    await run();
+    expect(reconfirmations()).toHaveLength(3);
+    expect(reconfirmations()[2].recipients).toEqual({
+      type: 'entity',
+      entityRef: owner,
+    });
+    expect(reconfirmations()[2].payload.scope).not.toBe(
+      reconfirmations()[0].payload.scope,
+    );
+    await run();
+    expect(reconfirmations()).toHaveLength(3);
     expect(initialMessages()).toHaveLength(4);
   });
 
