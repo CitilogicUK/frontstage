@@ -214,6 +214,8 @@ Set `governance.reviewGatewayPauseDays` to opt in to pausing Tier 2 gateway requ
 
 When Backstage marks an accountable owner inactive or no longer has their user record, the registered backup owner can open the app from **Inventory → Apps I back up** and confirm the handover. Tier 2 and Tier 3 apps need a different active backup owner. Frontstage checks the catalog and the current app revision before transferring ownership.
 
+Set `governance.notifyBackupOwnersOnOwnershipGap` to true with `governance.ownershipObservationIntervalMinutes` to notify active backup owners privately when an accountable owner becomes unavailable. The Backstage notification opens the existing handover flow, where the backup verifies and confirms the transfer. Frontstage sends one notification per app, owner, backup, and observed gap, and retries failed deliveries on a later scan.
+
 A handover revokes the old gateway key and appears in Audit history. Tier 2 apps need an attestation from the new owner. Tier 3 apps return to review before they can go live again.
 
 ## App scorecards

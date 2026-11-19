@@ -25,6 +25,48 @@ export function reviewRemindersMigration() {
   };
 }
 
+export function readReminderDeliveries(
+  db: Knex,
+  keys: string[],
+  scanTime: Date,
+) {
+  return db(remindersTable)
+    .whereIn('reminder_key', keys)
+    .select<
+      {
+        reminder_key: string;
+        sent_at: string | Date | number | null;
+        can_retry: boolean | number;
+      }[]
+    >(
+      'reminder_key',
+      'sent_at',
+      db.raw('sent_at is null and retry_after <= ? as can_retry', [scanTime]),
+    );
+}
+
+export async function claimReminderDelivery(
+  db: Knex,
+  key: string,
+  scanTime: Date,
+) {
+  const retryAfter = new Date(scanTime.getTime() + retryDelayMs);
+  const claimed = await db(remindersTable)
+    .insert({ reminder_key: key, retry_after: retryAfter })
+    .onConflict('reminder_key')
+    .merge({ retry_after: retryAfter })
+    .whereNull(`${remindersTable}.sent_at`)
+    .andWhere(`${remindersTable}.retry_after`, '<=', scanTime)
+    .returning('reminder_key');
+  return claimed.length > 0;
+}
+
+export async function markReminderDelivered(db: Knex, key: string) {
+  await db(remindersTable)
+    .where({ reminder_key: key })
+    .update({ sent_at: new Date() });
+}
+
 type ReminderKind =
   | 'risk-renewal'
   | 'manager-risk-renewal'
@@ -214,25 +256,17 @@ export async function sendReviewReminders(options: {
   ) {
     if (signal.aborted) return;
     const batch = candidates.slice(offset, offset + reminderBatchSize);
-    const ledger = await db(remindersTable)
-      .whereIn('reminder_key', [
+    const ledger = await readReminderDeliveries(
+      db,
+      [
         ...new Set(
           batch.flatMap(({ key, ownerReminderKey }) =>
             ownerReminderKey ? [key, ownerReminderKey] : [key],
           ),
         ),
-      ])
-      .select<
-        {
-          reminder_key: string;
-          sent_at: string | Date | number | null;
-          can_retry: boolean | number;
-        }[]
-      >(
-        'reminder_key',
-        'sent_at',
-        db.raw('sent_at is null and retry_after <= ? as can_retry', [scanTime]),
-      );
+      ],
+      scanTime,
+    );
     const byKey = new Map(ledger.map(row => [row.reminder_key, row]));
     for (const reminder of batch) {
       if (
@@ -312,15 +346,8 @@ export async function sendReviewReminders(options: {
         if (due)
           description = `${record.name} is due on ${due.slice(0, 10)} UTC.`;
         if (managerReminder) description = 'An app renewal needs attention.';
-        const retryAfter = new Date(now + retryDelayMs);
-        const claimed = await db(remindersTable)
-          .insert({ reminder_key: key, retry_after: retryAfter })
-          .onConflict('reminder_key')
-          .merge({ retry_after: retryAfter })
-          .whereNull(`${remindersTable}.sent_at`)
-          .andWhere(`${remindersTable}.retry_after`, '<=', scanTime)
-          .returning('reminder_key');
-        if (!claimed.length || signal.aborted) continue;
+        const claimed = await claimReminderDelivery(db, key, scanTime);
+        if (!claimed || signal.aborted) continue;
         attempts += 1;
         await notifications.send({
           recipients: { type: 'entity', entityRef: recipient },
@@ -332,9 +359,7 @@ export async function sendReviewReminders(options: {
             scope: `governance-review-reminder-${key}`,
           },
         });
-        await db(remindersTable)
-          .where({ reminder_key: key })
-          .update({ sent_at: new Date() });
+        await markReminderDelivered(db, key);
       } catch {
         logger.warn('Could not deliver governance review reminder', {
           appId,
