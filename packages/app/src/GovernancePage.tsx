@@ -3184,7 +3184,9 @@ export function GovernancePage() {
                 const registered: App = await api(endpoint, {
                   name: value('name'),
                   purpose: value('purpose'),
-                  type: value('type'),
+                  type: hostedRegistration
+                    ? 'provider-hosted app'
+                    : value('type'),
                   platform: value('platform'),
                   sourceUrl: candidate?.sourceUrl ?? value('sourceUrl'),
                   owner: value('owner'),
@@ -3317,6 +3319,7 @@ export function GovernancePage() {
                   <select
                     name="type"
                     defaultValue={descriptor?.type ?? registerType}
+                    disabled={!!hostedRegistration}
                   >
                     {options([
                       'assistant',

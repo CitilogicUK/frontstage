@@ -2699,6 +2699,7 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   const form = page.getByRole('region', { name: 'App registration' });
   await expect(form.getByLabel('App name')).toHaveValue(candidate.name);
   await expect(form.getByLabel('App type')).toHaveValue('provider-hosted app');
+  await expect(form.getByLabel('App type')).toBeDisabled();
   await expect(form.getByLabel('Built on')).toHaveValue(candidate.provider);
   await expect(form.getByLabel('Source URL')).toHaveValue(candidate.sourceUrl);
   await expect(form.getByLabel('Provider', { exact: true })).toHaveValue(
