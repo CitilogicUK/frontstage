@@ -37,30 +37,33 @@ it('exports recorded token totals and their coverage', () => {
 });
 
 it('exports pending sign-off labels with spreadsheet-safe names and a blank unknown due date', () => {
-  const output = pendingSignoffsCsv([
-    {
-      id: 'app-one',
-      name: ' =SUM(1,2)',
-      owner: 'user:default/dana',
-      team: 'Team "North"',
-      missingTracks: ['security', 'dataProtection'],
-      nextReview: null,
-    },
-    {
-      id: 'app-two',
-      name: '＋Example app',
-      owner: 'user:default/taylor',
-      team: 'group:default/engineering',
-      missingTracks: ['security'],
-      nextReview: '2026-12-01T00:00:00.000Z',
-    },
-  ]);
+  const output = pendingSignoffsCsv(
+    [
+      {
+        id: 'app-one',
+        name: ' =SUM(1,2)',
+        owner: 'user:default/dana',
+        team: 'Team "North"',
+        missingTracks: ['security', 'dataProtection'],
+        nextReview: null,
+      },
+      {
+        id: 'app-two',
+        name: '＋Example app',
+        owner: 'user:default/taylor',
+        team: 'group:default/engineering',
+        missingTracks: ['security'],
+        nextReview: '2026-12-01T00:00:00.000Z',
+      },
+    ],
+    'https://frontstage.example.com/tools/?view=reviews#queue',
+  );
 
   expect(output).toBe(
     [
-      'app_id,app_name,owner,team,pending_sign_offs,next_review_utc',
-      `"app-one","' =SUM(1,2)","user:default/dana","Team ""North""","Security | Data Protection",""`,
-      `"app-two","'＋Example app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z"`,
+      'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url',
+      `"app-one","' =SUM(1,2)","user:default/dana","Team ""North""","Security | Data Protection","","https://frontstage.example.com/tools/?app=app-one"`,
+      `"app-two","'＋Example app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z","https://frontstage.example.com/tools/?app=app-two"`,
       '',
     ].join('\r\n'),
   );

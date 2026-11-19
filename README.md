@@ -85,7 +85,7 @@ The gateway stores app key hashes and usage metadata. The app panel shows input 
 
 To require two independent sign-offs, configure `governance.reviewTracks.security` and `governance.reviewTracks.dataProtection` as disjoint lists of Backstage user references. Reviewers can record a decision only for their assigned track. Both approvals must be current before launch. The default local demo uses a combined reviewer decision.
 
-With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision. The filtered queue can be downloaded as CSV, with the app, owner, team, pending sign-offs assigned to you, and the scheduled review date when available.
+With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision. The filtered queue can be downloaded as CSV, with the app, owner, team, pending sign-offs assigned to you, the scheduled review date when available, and a direct link to each app.
 
 ## Tier 3 renewal exceptions
 

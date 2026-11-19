@@ -2540,18 +2540,14 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
   await openReviews();
   await expect(reviewFilter).toHaveValue('mine');
   await expect(
-    reviews
-      .getByRole('row')
-      .filter({
-        hasText: /Matching pilot|Stock count pilot|Matching production/,
-      }),
+    reviews.getByRole('row').filter({
+      hasText: /Matching pilot|Stock count pilot|Matching production/,
+    }),
   ).toHaveCount(3);
   await expect(
-    reviews
-      .getByRole('row')
-      .filter({
-        hasText: /security signed|owner conflict|engineering conflict/,
-      }),
+    reviews.getByRole('row').filter({
+      hasText: /security signed|owner conflict|engineering conflict/,
+    }),
   ).toHaveCount(0);
 
   await reviews
@@ -2577,8 +2573,8 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
       .trimEnd()
       .split(/\r?\n/),
   ).toEqual([
-    'app_id,app_name,owner,team,pending_sign_offs,next_review_utc',
-    `"matching-pilot","Matching pilot","${owner}","${team}","Security",""`,
+    'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url',
+    `"matching-pilot","Matching pilot","${owner}","${team}","Security","","${workspaceUrl}/?app=matching-pilot"`,
   ]);
 
   await search.fill('no matching records');

@@ -1,3 +1,4 @@
+import { appRecordUrl } from './reviewDue';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 
 const usageColumns = [
@@ -188,6 +189,7 @@ export function pendingSignoffsCsv(
     missingTracks: ReviewTrack[];
     nextReview: string | null;
   }>,
+  baseUrl: string,
 ) {
   return encodeCsv(
     [
@@ -197,6 +199,7 @@ export function pendingSignoffsCsv(
       'team',
       'pending_sign_offs',
       'next_review_utc',
+      'app_url',
     ],
     apps.map(app => [
       app.id,
@@ -205,6 +208,7 @@ export function pendingSignoffsCsv(
       app.team,
       app.missingTracks.map(track => reviewTrackLabels[track]).join(' | '),
       app.nextReview ?? '',
+      appRecordUrl(baseUrl, app.id).href,
     ]),
   );
 }
