@@ -919,6 +919,10 @@ test('owners can find active apps with failed scorecard checks', async ({
           json: { key: 'synthetic-gateway-key' },
         });
       }
+      if (route.request().method() === 'DELETE') {
+        keyIssued = false;
+        return route.fulfill({ status: 204 });
+      }
       return route.fulfill({ json: { issued: keyIssued } });
     },
   );
@@ -928,8 +932,10 @@ test('owners can find active apps with failed scorecard checks', async ({
         checks: [
           {
             name: 'Gateway key',
-            status: 'attention',
-            detail: 'Issue a key to enable eligible calls.',
+            status: keyIssued ? 'pass' : 'attention',
+            detail: keyIssued
+              ? 'A gateway key is issued for this app.'
+              : 'Issue a key to enable eligible calls.',
           },
         ],
       },
@@ -965,6 +971,13 @@ test('owners can find active apps with failed scorecard checks', async ({
   await expect(
     details.getByRole('button', { name: 'Rotate key' }),
   ).toBeVisible();
+  await expect(details.getByText('Gateway key · Pass')).toBeVisible();
+  await details.getByRole('button', { name: 'Revoke gateway key' }).click();
+  await expect(
+    details.getByText('Gateway key · Needs attention'),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Issue gateway key' }).click();
+  await expect(details.getByText('Gateway key · Pass')).toBeVisible();
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(page).toHaveURL(/owner=me&review=scorecard$/);
   await expect(

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   discoveryApiRef,
   fetchApiRef,
@@ -17,43 +17,53 @@ const labels = {
   'not-applicable': 'Not applicable',
 };
 
-export function AppScorecard({ appId }: { appId: string }) {
+export function AppScorecard({
+  appId,
+  refreshVersion,
+}: {
+  appId: string;
+  refreshVersion: number;
+}) {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
-  const [checks, setChecks] = useState<Check[]>();
-  const [error, setError] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [checks, setChecks] = useState<Check[] | null>();
 
-  async function load() {
+  useEffect(() => {
+    if (!open) return undefined;
+    const controller = new AbortController();
     setChecks(undefined);
-    setError(false);
-    try {
-      const base = await discovery.getBaseUrl('governance');
-      const response = await fetch(
-        `${base}/apps/${encodeURIComponent(appId)}/scorecard`,
-      );
-      if (!response.ok) throw new Error('Could not load scorecard');
-      const data: { checks: Check[] } = await response.json();
-      setChecks(data.checks);
-    } catch {
-      setError(true);
-    }
-  }
+    discovery
+      .getBaseUrl('governance')
+      .then(base =>
+        fetch(`${base}/apps/${encodeURIComponent(appId)}/scorecard`, {
+          signal: controller.signal,
+        }),
+      )
+      .then(async response => {
+        if (!response.ok) throw new Error('Could not load scorecard');
+        const data: { checks: Check[] } = await response.json();
+        if (!controller.signal.aborted) setChecks(data.checks);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setChecks(null);
+      });
+    return () => controller.abort();
+  }, [appId, discovery, fetch, open, refreshVersion]);
 
   return (
     <details
       className="gov-app-editor"
-      onToggle={event => {
-        if (event.currentTarget.open) void load();
-      }}
+      onToggle={event => setOpen(event.currentTarget.open)}
     >
       <summary>App scorecard</summary>
-      {error && (
+      {open && checks === null && (
         <p role="alert">
           The scorecard could not load. Close and reopen to retry.
         </p>
       )}
-      {!error && !checks && <p role="status">Checking this app…</p>}
-      {checks && (
+      {open && checks === undefined && <p role="status">Checking this app…</p>}
+      {open && checks && (
         <ul className="gov-audit-events">
           {checks.map(check => (
             <li key={check.name}>
