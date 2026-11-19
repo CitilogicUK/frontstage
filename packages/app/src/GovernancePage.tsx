@@ -661,10 +661,12 @@ export function GovernancePage() {
         if (current) setDiscoveries(result);
       })
       .catch(reason => {
-        if (current)
+        if (current) {
+          if (view === 'Reports') setDiscoveries(undefined);
           setDiscoveryError(
             reason instanceof Error ? reason.message : String(reason),
           );
+        }
       });
     return () => {
       current = false;
@@ -2860,7 +2862,11 @@ export function GovernancePage() {
       {view === 'Reports' && (
         <PortfolioReport
           apps={apps}
-          discoveries={discoveryError ? undefined : discoveries}
+          discoveries={discoveries}
+          discoveryUnavailable={Boolean(discoveryError)}
+          onRetryDiscovery={() =>
+            setDiscoveryLoadAttempt(attempt => attempt + 1)
+          }
           report={
             usageReport?.days === usageDays ? usageReport.data : undefined
           }
