@@ -3328,11 +3328,11 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   );
   const sharing = form.getByLabel('Sharing scope');
   await expect(sharing).toHaveValue(candidate.sharing);
-  await expect(form.getByLabel('Data access', { exact: true })).toHaveValue(
-    candidate.dataAccess,
-  );
   await expect(
-    form.getByLabel('Highest hosted data classification'),
+    form.getByRole('combobox', { name: 'Data access', exact: true }),
+  ).toHaveValue(candidate.dataAccess);
+  await expect(
+    form.getByRole('combobox', { name: 'Highest hosted data classification' }),
   ).toHaveValue(candidate.dataClassification);
   await expect
     .poll(() => tierPreviewInputs)
