@@ -895,6 +895,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   ).toBeVisible();
   await expect(openOriginal).toBeVisible();
   await expect(loadOlder).toHaveCount(0);
+  await expect(
+    report.getByRole('heading', { name: 'Saved reconciliations' }),
+  ).toBeFocused();
   await openOriginal.click();
   await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
   await expect(

@@ -74,6 +74,8 @@ export function OutsideGatewayUsage({
   const [olderError, setOlderError] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
+  const historyHeading = useRef<HTMLHeadingElement>(null);
+  const loadOlderButton = useRef<HTMLButtonElement>(null);
   const request = useRef<AbortController>();
   const historyRequest = useRef<AbortController>();
   useEffect(() => () => request.current?.abort(), []);
@@ -121,6 +123,12 @@ export function OutsideGatewayUsage({
     try {
       const result = await readHistory(controller.signal, before);
       if (!controller.signal.aborted) {
+        if (
+          !result.nextCursor &&
+          (document.activeElement === loadOlderButton.current ||
+            document.activeElement === document.body)
+        )
+          historyHeading.current?.focus();
         setHistory(previous => ({
           ...result,
           reconciliations: [
@@ -338,7 +346,9 @@ export function OutsideGatewayUsage({
       </form>
       {busy && <p role="status">Working on outside-gateway usage…</p>}
       {error && <p role="alert">{error}</p>}
-      <h3>Saved reconciliations</h3>
+      <h3 ref={historyHeading} tabIndex={-1}>
+        Saved reconciliations
+      </h3>
       {history === undefined && (
         <p role="status">Loading saved reconciliations…</p>
       )}
@@ -364,6 +374,7 @@ export function OutsideGatewayUsage({
       )}
       {history?.nextCursor && (
         <button
+          ref={loadOlderButton}
           type="button"
           disabled={loadingOlder}
           onClick={() => {
