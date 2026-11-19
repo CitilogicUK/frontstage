@@ -357,6 +357,8 @@ docker run --rm -p 127.0.0.1:7007:7007 \
 
 The image uses the PostgreSQL and GitHub pilot profiles by default. Docker health checks use Backstage readiness at `/.backstage/health/v1/readiness` on the container’s backend port. The check uses `APP_CONFIG_backend_listen_port` when set, and 7007 otherwise.
 
+Run `yarn test:pilot-image` after building `frontstage:pilot`. Pass an image tag as an argument to check another local build. The check uses a disposable PostgreSQL 17 container and placeholder OAuth credentials, and verifies readiness, the packaged UI, and the GitHub redirect without contacting GitHub.
+
 ## Verify changes in a worktree
 
 Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, unit tests, the starter projects’ offline tests, and the audit verifier tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing. If Playwright's Chromium build is unavailable on your development host, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium executable.
