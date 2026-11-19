@@ -11,21 +11,39 @@ const appPort = localPort('FRONTSTAGE_DEMO_APP_PORT', 3000);
 const backendPort = localPort('FRONTSTAGE_DEMO_BACKEND_PORT', 7007);
 const origin = `http://localhost:${appPort}`;
 const backend = `http://localhost:${backendPort}`;
-const governance = `${backend}/api/governance`;
 const demoOwner = 'user:default/guest';
 
-const identity = await fetch(`${backend}/api/auth/guest/refresh`, {
+async function demoFetch(path, options) {
+  try {
+    return await fetch(`${backend}${path}`, {
+      ...options,
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (cause) {
+    throw new Error(
+      `Could not reach ${backend}${path}. Check the demo backend port and that Backstage is ready.`,
+      { cause },
+    );
+  }
+}
+
+const identity = await demoFetch('/api/auth/guest/refresh', {
   headers: { Origin: origin, 'X-Requested-With': 'XMLHttpRequest' },
 });
-if (!identity.ok)
-  throw new Error('Start Backstage with the local reviewer profile first.');
+if (
+  !identity.ok ||
+  !identity.headers.get('content-type')?.includes('application/json')
+)
+  throw new Error(
+    `Could not sign in at ${backend} from ${origin}. Check the local reviewer profile and both demo ports.`,
+  );
 const { backstageIdentity } = await identity.json();
 const token = backstageIdentity?.token;
 if (!token)
   throw new Error('Backstage did not return local reviewer credentials.');
 
 async function request(path, body) {
-  const response = await fetch(`${governance}${path}`, {
+  const response = await demoFetch(`/api/governance${path}`, {
     method: body ? 'POST' : 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -54,13 +72,9 @@ async function waitForDemoCatalog() {
   while (true) {
     const pending = [];
     for (const ref of refs) {
-      const response = await fetch(
-        `${backend}/api/catalog/entities/by-name/${ref}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(3_000),
-        },
-      );
+      const response = await demoFetch(`/api/catalog/entities/by-name/${ref}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       await response.body?.cancel();
       if (response.status === 404) pending.push(ref);
       else if (!response.ok)
