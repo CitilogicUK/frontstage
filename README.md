@@ -217,6 +217,25 @@ Signed-in builders can browse and claim repositories verified as public by Disco
 
 Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. A scan reads up to three pages of 100 matches, starting with the newest repositories. A complete scan removes missing unclaimed candidates from the queue and preserves their decision history. A partial scan keeps unseen candidates, including when a later page fails or the search exceeds 300 matches. Reviewers see whether a scan returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
 
+## Reconcile a hosted provider inventory
+
+A reviewer can open **Discovery → Hosted inventory snapshot** and paste a JSON export containing up to 100 entries. Each entry needs an app name, provider, enterprise workspace and a distinct HTTPS source URL without credentials.
+
+```json
+{
+  "apps": [
+    {
+      "name": "Hosted notes",
+      "provider": "Example AI",
+      "workspace": "Enterprise",
+      "sourceUrl": "https://example.com/apps/notes"
+    }
+  ]
+}
+```
+
+Preview matches the source URLs against Inventory. Open the record for a match or prefill registration for an unmatched entry. Complete ownership, model and risk details before submitting. Preview does not save the snapshot or create records. This prototype uses an offline snapshot supplied by the reviewer.
+
 ## App directory
 
 The **Directory** lets signed-in teammates find apps that their owners or reviewers have published. Open an active app in Inventory, enter a summary suitable for the directory and its HTTPS launch URL, then publish it. The listing shows the app name, summary, and launch link. The destination app handles access.

@@ -2616,6 +2616,115 @@ test('registration explains the highest matching tier and clears outdated reason
   await expect(reasons).toHaveCount(0);
 });
 
+test('reviewers reconcile a hosted snapshot and register an unmatched app', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/reviewer';
+  const candidate = {
+    name: 'Hosted notes',
+    provider: 'Example AI',
+    workspace: 'Enterprise',
+    sourceUrl: 'https://example.com/apps/notes',
+  };
+  const known = {
+    ...candidate,
+    name: 'Hosted review',
+    sourceUrl: 'https://example.com/apps/review',
+  };
+  const snapshot = { apps: [known, candidate] };
+  let registered = false;
+  await page.route('**/api/governance/apps', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({
+        name: candidate.name,
+        sourceUrl: candidate.sourceUrl,
+        type: 'provider-hosted app',
+        platform: candidate.provider,
+        hosted: {
+          provider: candidate.provider,
+          workspace: candidate.workspace,
+        },
+      });
+      registered = true;
+      return route.fulfill({
+        status: 201,
+        json: {
+          ...body,
+          id: 'new-hosted-app',
+          tier: 1,
+          reviewStatus: 'not required',
+          updatedAt: '2026-11-01T00:00:00.000Z',
+        },
+      });
+    }
+    return route.fulfill({
+      json: { actor: reviewer, canReview: true, apps: [] },
+    });
+  });
+  await page.route('**/api/governance/discovery/github', route =>
+    route.fulfill({
+      json: {
+        source: null,
+        lastScan: null,
+        intervalMinutes: null,
+        repositories: [],
+      },
+    }),
+  );
+  await page.route('**/api/governance/discovery/hosted/preview', route => {
+    expect(route.request().postDataJSON()).toEqual(snapshot);
+    return route.fulfill({
+      json: { apps: [{ ...known, appId: 'known-hosted-app' }, candidate] },
+    });
+  });
+  await page.route('**/api/governance/tier-preview', route =>
+    route.fulfill({ json: { tier: 1, reasons: [] } }),
+  );
+
+  await page.goto('/?view=discovery');
+  const heading = page.getByRole('heading', { name: 'App discovery' });
+  const guest = page.getByRole('button', { name: 'Enter', exact: true });
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await page
+    .getByRole('textbox', { name: 'Snapshot JSON' })
+    .fill(JSON.stringify(snapshot));
+  await page.getByRole('button', { name: 'Preview hosted snapshot' }).click();
+  await expect(
+    page.getByRole('link', { name: 'View app record' }),
+  ).toHaveAttribute('href', /app=known-hosted-app/);
+  await page.getByRole('button', { name: 'Register app', exact: true }).click();
+
+  const form = page.getByRole('region', { name: 'App registration' });
+  await expect(form.getByLabel('App name')).toHaveValue(candidate.name);
+  await expect(form.getByLabel('App type')).toHaveValue('provider-hosted app');
+  await expect(form.getByLabel('App type')).toBeDisabled();
+  await expect(form.getByLabel('Built on')).toHaveValue(candidate.provider);
+  await expect(form.getByLabel('Source URL')).toHaveValue(candidate.sourceUrl);
+  await expect(form.getByLabel('Provider', { exact: true })).toHaveValue(
+    candidate.provider,
+  );
+  await expect(form.getByLabel('Enterprise workspace')).toHaveValue(
+    candidate.workspace,
+  );
+  await expect(page).not.toHaveURL(/example\.com|Enterprise/);
+  expect(registered).toBe(false);
+  await form.getByLabel('Purpose').fill('Summarizes synthetic meeting notes.');
+  await form.getByLabel('Models', { exact: true }).fill('example-model');
+  await form.getByLabel('Owning team').fill('group:default/platform');
+  await form.getByRole('button', { name: 'Register app', exact: true }).click();
+  const record = page.getByRole('dialog', { name: candidate.name });
+  await expect(record).toBeVisible();
+  await record.getByRole('button', { name: 'Close app details' }).click();
+  await expect(
+    page.getByRole('row', { name: /Hosted notes/ }).getByRole('link', {
+      name: 'View app record',
+    }),
+  ).toHaveAttribute('href', /app=new-hosted-app/);
+  expect(registered).toBe(true);
+});
+
 test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   let registered = false;
   let discoveryUnavailable = true;

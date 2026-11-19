@@ -65,6 +65,10 @@ import {
 } from './AppRenewalException';
 import { ApprovedConnectorsGuide } from './ApprovedConnectorsGuide';
 import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
+import {
+  HostedSnapshotPreview,
+  type HostedSnapshotApp,
+} from './HostedSnapshotPreview';
 import { GatewayModelGuide, useGatewayModelPolicy } from './GatewayModelGuide';
 import { GatewayPlayground } from './GatewayPlayground';
 import {
@@ -433,9 +437,25 @@ export function GovernancePage() {
   const candidate = discoveries?.repositories.find(
     item => item.id === repositoryId && !item.appId && !item.dismissed,
   );
+  const [hostedSnapshot, setHostedSnapshot] = useState<HostedSnapshotApp[]>();
+  const [hostedSnapshotSelection, setHostedSnapshotSelection] =
+    useState<HostedSnapshotApp>();
+  const hostedRegistration =
+    view === 'Register' &&
+    canReview &&
+    params.get('source') === 'hosted-snapshot'
+      ? hostedSnapshotSelection
+      : undefined;
+  useEffect(() => {
+    if (view !== 'Register' || !canReview)
+      setHostedSnapshotSelection(undefined);
+    if ((view !== 'Discovery' && view !== 'Register') || !canReview)
+      setHostedSnapshot(undefined);
+  }, [view, canReview]);
   const registrationFormKey =
     view === 'Register' && (!repositoryId || candidate)
       ? repositoryId ??
+        (hostedRegistration ? 'hosted-snapshot' : undefined) ??
         (starter ? `${starter.id}:${params.get('stage')}` : 'register')
       : undefined;
   const registrationStartedAt = useRef<number>();
@@ -632,14 +652,20 @@ export function GovernancePage() {
   }, [detailOpen, reassessmentEditorRequested]);
 
   const api = useCallback(
-    async (path: string, body?: unknown, method = 'POST') => {
+    async (
+      path: string,
+      body?: unknown,
+      method = 'POST',
+      signal?: AbortSignal,
+    ) => {
       const base = await discovery.getBaseUrl('governance');
       const response = await fetch(
         base + path,
         body === undefined
-          ? undefined
+          ? { signal }
           : {
               method,
+              signal,
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             },
@@ -959,7 +985,10 @@ export function GovernancePage() {
 
   const additionalConnections = descriptor?.connections.slice(1) ?? [];
   const runtimeDefault = starter?.runtime === false ? 'no' : 'yes';
-  const hosted = draft.type === 'provider-hosted app';
+  const registerType = hostedRegistration
+    ? 'provider-hosted app'
+    : starter?.type;
+  const hosted = (draft.type ?? registerType) === 'provider-hosted app';
   const usesAiAtRuntime =
     hosted || (draft.usesAiAtRuntime ?? runtimeDefault) === 'yes';
   const initialModels = starter?.runtime
@@ -3027,6 +3056,25 @@ export function GovernancePage() {
         />
       )}
       {view === 'Directory' && <AppDirectory />}
+      {view === 'Discovery' && canReview && (
+        <HostedSnapshotPreview
+          apps={hostedSnapshot}
+          onPreview={async (snapshot, signal) => {
+            const result: { apps: HostedSnapshotApp[] } = await api(
+              '/discovery/hosted/preview',
+              snapshot,
+              'POST',
+              signal,
+            );
+            if (!signal.aborted) setHostedSnapshot(result.apps);
+          }}
+          onRegister={app => {
+            resetView();
+            setHostedSnapshotSelection(app);
+            setParams({ view: 'register', source: 'hosted-snapshot' });
+          }}
+        />
+      )}
       {view === 'Discovery' &&
         (discoveryError ? (
           <div className="gov-notice">
@@ -3136,7 +3184,9 @@ export function GovernancePage() {
                 const registered: App = await api(endpoint, {
                   name: value('name'),
                   purpose: value('purpose'),
-                  type: value('type'),
+                  type: hostedRegistration
+                    ? 'provider-hosted app'
+                    : value('type'),
                   platform: value('platform'),
                   sourceUrl: candidate?.sourceUrl ?? value('sourceUrl'),
                   owner: value('owner'),
@@ -3176,7 +3226,7 @@ export function GovernancePage() {
                     : undefined,
                 });
                 let source: 'intake' | 'discovery' | 'template' = 'intake';
-                if (candidate) source = 'discovery';
+                if (candidate || hostedRegistration) source = 'discovery';
                 else if (starter) source = 'template';
                 analytics.captureEvent('register-app', 'governance-app', {
                   value:
@@ -3191,11 +3241,20 @@ export function GovernancePage() {
                   },
                 });
                 mergeSavedApps([registered]);
-                if (candidate) {
+                if (hostedRegistration) {
+                  setHostedSnapshot(previous =>
+                    previous?.map(app =>
+                      app.sourceUrl === registered.sourceUrl
+                        ? { ...app, appId: registered.id }
+                        : app,
+                    ),
+                  );
+                }
+                if (candidate || hostedRegistration) {
                   resetView();
                   setParams({
                     view: 'discovery',
-                    discoveryStatus: 'registered',
+                    ...(candidate && { discoveryStatus: 'registered' }),
                     app: registered.id,
                   });
                 } else {
@@ -3204,7 +3263,8 @@ export function GovernancePage() {
                 setRegistrationFeedback({
                   source,
                   tier: registered.tier,
-                  detailId: candidate ? registered.id : undefined,
+                  detailId:
+                    candidate || hostedRegistration ? registered.id : undefined,
                 });
                 setMessage(
                   candidate
@@ -3238,6 +3298,7 @@ export function GovernancePage() {
                   maxLength={100}
                   defaultValue={
                     descriptor?.name ??
+                    hostedRegistration?.name ??
                     candidate?.name.slice(0, 100) ??
                     starter?.name
                   }
@@ -3257,7 +3318,8 @@ export function GovernancePage() {
                   App type
                   <select
                     name="type"
-                    defaultValue={descriptor?.type ?? starter?.type}
+                    defaultValue={descriptor?.type ?? registerType}
+                    disabled={!!hostedRegistration}
                   >
                     {options([
                       'assistant',
@@ -3275,9 +3337,10 @@ export function GovernancePage() {
                     required
                     name="platform"
                     defaultValue={
-                      candidate || starter
+                      hostedRegistration?.provider ??
+                      (candidate || starter
                         ? starterDefaults.platform
-                        : undefined
+                        : undefined)
                     }
                     readOnly={!!candidate}
                     placeholder="Code repo, Copilot Studio, Claude…"
@@ -3289,8 +3352,10 @@ export function GovernancePage() {
                     required
                     name="sourceUrl"
                     type="url"
-                    defaultValue={candidate?.sourceUrl}
-                    readOnly={!!candidate}
+                    defaultValue={
+                      candidate?.sourceUrl ?? hostedRegistration?.sourceUrl
+                    }
+                    readOnly={!!candidate || !!hostedRegistration}
                   />
                 </label>
                 <label>
@@ -3474,7 +3539,10 @@ export function GovernancePage() {
                       <input
                         required
                         name="provider"
-                        defaultValue={descriptor?.hosted?.provider}
+                        defaultValue={
+                          descriptor?.hosted?.provider ??
+                          hostedRegistration?.provider
+                        }
                       />
                     </label>
                     <label>
@@ -3482,7 +3550,10 @@ export function GovernancePage() {
                       <input
                         required
                         name="workspace"
-                        defaultValue={descriptor?.hosted?.workspace}
+                        defaultValue={
+                          descriptor?.hosted?.workspace ??
+                          hostedRegistration?.workspace
+                        }
                       />
                     </label>
                     <Link
@@ -3572,7 +3643,11 @@ export function GovernancePage() {
             <div className="gov-form-actions">
               <button
                 type="button"
-                onClick={() => navigate(candidate ? 'Discovery' : 'Inventory')}
+                onClick={() =>
+                  navigate(
+                    candidate || hostedRegistration ? 'Discovery' : 'Inventory',
+                  )
+                }
               >
                 Cancel
               </button>
