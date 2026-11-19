@@ -222,6 +222,7 @@ export function pendingSignoffsCsv(
     team: string;
     missingTracks: ReviewTrack[];
     nextReview: string | null;
+    firstDecisionWait?: number;
   }>,
   baseUrl: string,
 ) {
@@ -234,6 +235,7 @@ export function pendingSignoffsCsv(
       'pending_sign_offs',
       'next_review_utc',
       'app_url',
+      'first_decision_wait_weekdays',
     ],
     apps.map(app => [
       app.id,
@@ -243,6 +245,7 @@ export function pendingSignoffsCsv(
       app.missingTracks.map(track => reviewTrackLabels[track]).join(' | '),
       app.nextReview ?? '',
       appRecordUrl(baseUrl, app.id).href,
+      app.firstDecisionWait ?? '',
     ]),
   );
 }

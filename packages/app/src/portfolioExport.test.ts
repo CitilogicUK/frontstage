@@ -54,6 +54,7 @@ it('exports pending sign-off labels with spreadsheet-safe names and a blank unkn
         team: 'group:default/engineering',
         missingTracks: ['security'],
         nextReview: '2026-12-01T00:00:00.000Z',
+        firstDecisionWait: 0,
       },
     ],
     'https://frontstage.example.com/tools/?view=reviews#queue',
@@ -61,9 +62,9 @@ it('exports pending sign-off labels with spreadsheet-safe names and a blank unkn
 
   expect(output).toBe(
     [
-      'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url',
-      `"app-one","' =SUM(1,2)","user:default/dana","Team ""North""","Security | Data Protection","","https://frontstage.example.com/tools/?app=app-one"`,
-      `"app-two","'＋Example app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z","https://frontstage.example.com/tools/?app=app-two"`,
+      'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url,first_decision_wait_weekdays',
+      `"app-one","' =SUM(1,2)","user:default/dana","Team ""North""","Security | Data Protection","","https://frontstage.example.com/tools/?app=app-one",""`,
+      `"app-two","'＋Example app","user:default/taylor","group:default/engineering","Security","2026-12-01T00:00:00.000Z","https://frontstage.example.com/tools/?app=app-two",0`,
       '',
     ].join('\r\n'),
   );

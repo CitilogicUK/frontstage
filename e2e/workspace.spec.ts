@@ -4681,14 +4681,14 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
       .trimEnd()
       .split(/\r?\n/),
   ).toEqual([
-    'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url',
-    `"matching-pilot","Matching pilot","${owner}","${team}","Security","","${workspaceUrl}/?app=matching-pilot"`,
+    'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url,first_decision_wait_weekdays',
+    `"matching-pilot","Matching pilot","${owner}","${team}","Security","","${workspaceUrl}/?app=matching-pilot",6.5`,
   ]);
 
   await search.fill('no matching records');
   await expect(exportButton).toHaveCount(0);
 
-  const exportedAppUrl = csv.match(/"(https?:[^"]+)"\r?\n$/)?.[1];
+  const exportedAppUrl = csv.match(/"(https?:[^"]+)",/)?.[1];
   if (!exportedAppUrl) throw new Error('Export did not include an app URL');
   await page.goto(exportedAppUrl);
   const record = page.getByRole('dialog', { name: 'Matching pilot' });
