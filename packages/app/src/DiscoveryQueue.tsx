@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { appRecordPath } from './appRecordPath';
+import { formatDiscoveryCoverage } from './discoveryCoverage';
 import SearchIcon from '@material-ui/icons/Search';
 import {
   WorkspaceEmptyState,
@@ -214,7 +215,7 @@ export function DiscoveryQueue({
                 {counts.registered} of {eligible} tracked repositories
                 registered
                 {' · '}
-                {Math.round((counts.registered / eligible) * 100)}% coverage
+                {formatDiscoveryCoverage(counts.registered, eligible)} coverage
                 {counts.dismissed > 0 && ' · Excludes dismissed repositories'}
               </p>
             )}

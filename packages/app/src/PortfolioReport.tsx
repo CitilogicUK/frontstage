@@ -30,6 +30,7 @@ import {
 } from './gatewayBlockReasons';
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
+import { formatDiscoveryCoverage } from './discoveryCoverage';
 import { NoLiveCallsSinceActivation } from './AppRetirementReview';
 import { OutsideGatewayUsage } from './OutsideGatewayUsage';
 import { ManagerEscalations } from './ManagerEscalations';
@@ -651,11 +652,10 @@ export function PortfolioReport({
           <div className="gov-panel">
             <dt>GitHub discovery coverage</dt>
             <dd>
-              {coverage.eligible
-                ? `${Math.round(
-                    (coverage.registered / coverage.eligible) * 100,
-                  )}%`
-                : '—'}
+              {formatDiscoveryCoverage(
+                coverage.registered,
+                coverage.eligible,
+              ) ?? '—'}
             </dd>
             <small>
               {coverage.registered} of {coverage.eligible} tracked repositories
