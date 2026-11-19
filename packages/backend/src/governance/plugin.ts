@@ -204,6 +204,7 @@ export type GovernanceRecord = AppInput & {
   reviewNotes?: string;
   signoffs?: Signoffs;
   hostedAttestation?: { at: string; nextDue: string };
+  hostedReconfirmationAt?: string;
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
@@ -1948,6 +1949,9 @@ export const governancePlugin = createBackendPlugin({
             graduation: retire ? undefined : record.graduation,
             directoryListing: retire ? undefined : record.directoryListing,
             hostedAttestation: retire ? undefined : record.hostedAttestation,
+            hostedReconfirmationAt: retire
+              ? undefined
+              : record.hostedReconfirmationAt,
             renewalException: retire ? undefined : record.renewalException,
             retirementReview: {
               ...review,
@@ -2008,6 +2012,10 @@ export const governancePlugin = createBackendPlugin({
               lifecycle.data === 'retired'
                 ? undefined
                 : record.hostedAttestation,
+            hostedReconfirmationAt:
+              lifecycle.data === 'retired'
+                ? undefined
+                : record.hostedReconfirmationAt,
             renewalException:
               record.lifecycle === 'active' && lifecycle.data === 'active'
                 ? record.renewalException
@@ -2102,13 +2110,24 @@ export const governancePlugin = createBackendPlugin({
           updated.graduation = graduationAfterEdit(record, updated, principal);
           updated.directoryListing = directoryListingAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
-          updated.hostedAttestation =
-            !ownerChanged &&
+          const remainsHosted =
             updated.lifecycle !== 'retired' &&
-            updated.type === 'provider-hosted app' &&
-            JSON.stringify(previousInput.hosted) === JSON.stringify(app.hosted)
+            updated.type === 'provider-hosted app';
+          const hostedSettingsChanged =
+            JSON.stringify(previousInput.hosted) !== JSON.stringify(app.hosted);
+          updated.hostedAttestation =
+            remainsHosted && !ownerChanged && !hostedSettingsChanged
               ? record.hostedAttestation
               : undefined;
+          updated.hostedReconfirmationAt = remainsHosted
+            ? record.hostedReconfirmationAt
+            : undefined;
+          if (
+            remainsHosted &&
+            hostedSettingsChanged &&
+            record.hostedAttestation
+          )
+            updated.hostedReconfirmationAt = updated.updatedAt;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
             updated.nextReview = updated.updatedAt;
@@ -2541,6 +2560,7 @@ export const governancePlugin = createBackendPlugin({
           const updated: GovernanceRecord = {
             ...record,
             updatedAt: at,
+            hostedReconfirmationAt: undefined,
             hostedAttestation: {
               at,
               nextDue: new Date(

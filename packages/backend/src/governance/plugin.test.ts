@@ -422,6 +422,7 @@ describe('governance record access', () => {
               reviewReminderIntervalMinutes: 15,
               approvedHostedWorkspaces: [
                 { provider: 'Example AI', workspace: 'Company' },
+                { provider: 'Example AI', workspace: 'Company 2' },
               ],
               reviewers: [reviewer],
             },
@@ -646,6 +647,75 @@ describe('governance record access', () => {
       hostedAttestation: { at: dueAt(0), nextDue: dueAt(90) },
     });
     await run();
+    expect(initialMessages()).toHaveLength(4);
+
+    const path = `/api/governance/apps/${initialHosted.id}`;
+    const ownerAuth = mockCredentials.user.header(owner);
+    const confirmHosted = async (expectedUpdatedAt: string) => {
+      const { body } = await api
+        .post(`${path}/hosted-attestation`)
+        .set('Authorization', ownerAuth)
+        .send({ confirmed: true, expectedUpdatedAt })
+        .expect(200);
+      expect(body.hostedAttestation).toBeDefined();
+      expect(body).not.toHaveProperty('hostedReconfirmationAt');
+      return body;
+    };
+    const editHosted = async (
+      record: { updatedAt: string },
+      changes: object,
+    ) => {
+      const { body } = await api
+        .put(path)
+        .set('Authorization', ownerAuth)
+        .send({ ...record, ...changes, expectedUpdatedAt: record.updatedAt })
+        .expect(200);
+      return body;
+    };
+    const { body: currentHosted } = await api
+      .get(path)
+      .set('Authorization', ownerAuth)
+      .expect(200);
+    const confirmed = await confirmHosted(currentHosted.updatedAt);
+    const invalidated = await editHosted(confirmed, {
+      hosted: { ...confirmed.hosted, workspace: 'Company 2' },
+    });
+    expect(invalidated).not.toHaveProperty('hostedAttestation');
+    const reconfirmationAt = invalidated.updatedAt;
+    const beforeReminder = await editHosted(invalidated, {
+      purpose: 'Updated purpose before the scheduled job.',
+    });
+    expect(beforeReminder.hostedReconfirmationAt).toBe(reconfirmationAt);
+    const reconfirmations = () =>
+      messages().filter(
+        message => message.payload.title === 'Reconfirm your hosted workspace',
+      );
+    await run();
+    expect(reconfirmations()).toHaveLength(1);
+    expect(reconfirmations()[0]).toMatchObject({
+      recipients: { type: 'entity', entityRef: owner },
+      payload: {
+        description:
+          'Workspace settings changed for New hosted app. Confirm the updated workspace and sharing settings.',
+        link: `https://portal.example.com/internal/?app=${initialHosted.id}`,
+      },
+    });
+    const afterReminder = await editHosted(beforeReminder, {
+      purpose: 'Updated purpose after reminder delivery.',
+    });
+    expect(afterReminder.hostedReconfirmationAt).toBe(reconfirmationAt);
+    await run();
+    expect(reconfirmations()).toHaveLength(1);
+    expect(initialMessages()).toHaveLength(4);
+
+    const reconfirmed = await confirmHosted(afterReminder.updatedAt);
+    const invalidatedAgain = await editHosted(reconfirmed, {
+      hosted: { ...reconfirmed.hosted, workspace: 'Company' },
+    });
+    expect(invalidatedAgain.hostedReconfirmationAt).not.toBe(reconfirmationAt);
+    await confirmHosted(invalidatedAgain.updatedAt);
+    await run();
+    expect(reconfirmations()).toHaveLength(1);
     expect(initialMessages()).toHaveLength(4);
   });
 
