@@ -106,6 +106,21 @@ From another terminal in that worktree, seed the same port pair and open the app
 FRONTSTAGE_DEMO_APP_PORT=3414 FRONTSTAGE_DEMO_BACKEND_PORT=7414 yarn demo:seed
 ```
 
+### Reassess an app after a policy change
+
+Start with the seeded reviewer demo above. Stop the dev server, then restart from the same shell so it uses the same database and ports. Raise the minimum tier for internal data in this local demo:
+
+```sh
+APP_CONFIG_governance_tierPolicy_classification_internal=2 yarn start --config ../../app-config.reviewer.yaml
+```
+
+1. Sign in as the reviewer and open **Reports**. Select **View apps needing reassessment**.
+2. In Inventory, find **Stock count proof of concept**. Its saved tier is 1 and its current policy tier is 2. Open the record and expand **Current risk assessment** to see the policy reason.
+3. Close the record and select **Reassess** on its row. Enter `user:default/backup` as **Backup owner**, then select **Save app details**. The app moves to Tier 2 and receives an attestation due date.
+4. Open **Audit history** and check the Tier 1 to Tier 2 transition. Close the record to return to the queue, where the stock count app has cleared.
+
+Use a fresh demo database to replay from the original tiers.
+
 ### Live OpenAI call
 
 Set `OPENAI_API_KEY` in your shell, then start with the live adapter overlay. Use **Meeting summary demo** for the live call. The live overlay permits only public and internal data. The restricted scenario is intended for the simulation.
