@@ -2481,11 +2481,12 @@ test('a backup owner can confirm handover when the app is eligible', async ({
     nextReview: '2099-01-01T00:00:00.000Z',
     updatedAt: '2025-05-01T00:00:00.000Z',
   };
+  let current = app;
   let available = false;
   let catalogUnavailable = true;
 
   await page.route('**/api/governance/apps', route =>
-    route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
+    route.fulfill({ json: { actor, canReview: false, apps: [current] } }),
   );
   await page.route(
     '**/api/governance/apps/backup-handover-app/backup-handover',
@@ -2501,15 +2502,14 @@ test('a backup owner can confirm handover when the app is eligible', async ({
         backupOwner: replacement,
         expectedUpdatedAt: app.updatedAt,
       });
-      return route.fulfill({
-        json: {
-          ...app,
-          owner: actor,
-          backupOwner: replacement,
-          updatedAt: '2025-05-02T00:00:00.000Z',
-          nextReview: '2025-05-02T00:00:00.000Z',
-        },
-      });
+      current = {
+        ...app,
+        owner: actor,
+        backupOwner: replacement,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+        nextReview: '2025-05-02T00:00:00.000Z',
+      };
+      return route.fulfill({ json: current });
     },
   );
 
@@ -2561,4 +2561,12 @@ test('a backup owner can confirm handover when the app is eligible', async ({
     details.getByText('Edit app details', { exact: true }),
   ).toBeVisible();
   await expect(details.getByText('Next review due 2025-05-02.')).toBeVisible();
+
+  await page.reload();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(handover).toHaveCount(0);
+  await expect(
+    details.getByRole('button', { name: 'Record attestation' }),
+  ).toBeVisible();
 });
