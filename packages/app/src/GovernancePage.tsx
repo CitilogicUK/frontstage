@@ -524,7 +524,8 @@ export function GovernancePage() {
     reviewParam === 'required' ||
     ((reviewParam === 'first' ||
       reviewParam === 'first-target' ||
-      reviewParam === 'missing-ticket') &&
+      reviewParam === 'missing-ticket' ||
+      reviewParam === 'missing-evidence') &&
       canReview) ||
     (reviewParam === 'mine' && canReview && reviewerTracks.length > 0)
       ? reviewParam
@@ -1460,6 +1461,11 @@ export function GovernancePage() {
     if (reviewFilter === 'required') return requiresCriticalReview(app, now);
     if (reviewFilter === 'missing-ticket')
       return !app.reviewTicketUrl && requiresCriticalReview(app, now);
+    if (reviewFilter === 'missing-evidence')
+      return (
+        !!app.missingCriticalReviewEvidence?.length &&
+        requiresCriticalReview(app, now)
+      );
     if (firstDecisionQueue) {
       if (!pendingFirstDecisions.has(app.id)) return false;
       if (!firstDecisionTargetQueue) return true;
@@ -1586,6 +1592,11 @@ export function GovernancePage() {
       emptyTitle = 'No missing review tickets';
       emptyMessage =
         'Every app that currently requires review has a linked ticket.';
+    }
+    if (reviewFilter === 'missing-evidence') {
+      emptyTitle = 'No missing required evidence';
+      emptyMessage =
+        'No apps currently requiring review are missing required evidence.';
     }
     if (reviewFilter === 'mine') {
       emptyTitle = 'No pending sign-offs for you';
@@ -1990,6 +2001,11 @@ export function GovernancePage() {
                     {canReview && (
                       <option value="missing-ticket">
                         Missing review ticket
+                      </option>
+                    )}
+                    {canReview && (
+                      <option value="missing-evidence">
+                        Missing required evidence
                       </option>
                     )}
                     {canReview &&
