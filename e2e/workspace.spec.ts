@@ -471,6 +471,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   expect(csv).toContain('delivery_stage,uses_ai_at_runtime');
   expect(csv).toContain('"Current app"');
   expect(csv).toContain('"poc","No"');
+  expect(csv.trimEnd()).toMatch(/,""$/);
   expect(csv).not.toContain('Overdue app');
 
   await page.getByLabel('Delivery stage').selectOption('unset');
@@ -607,6 +608,14 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.first()).toContainText('Another owner’s app');
   await expect(rows.first()).toContainText('5 days overdue');
   await expect(rows.last()).toContainText('Overdue app');
+  const overdueCsvPending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const overdueDownload = await overdueCsvPending;
+  const overdueCsv = await readFile(await overdueDownload.path(), 'utf8');
+  const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
+  expect(columns).toMatch(/next_review_utc,days_overdue$/);
+  expect(oldest).toMatch(/,5$/);
+  expect(newest).toMatch(/,1$/);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();

@@ -55,6 +55,16 @@ export function scheduledReviewDate(app: {
   return Number.isFinite(due.getTime()) ? due : undefined;
 }
 
+export function reviewDaysOverdue(
+  app: Parameters<typeof scheduledReviewDate>[0],
+  now: number,
+) {
+  const due = scheduledReviewDate(app)?.getTime();
+  return due !== undefined && due <= now
+    ? Math.floor((now - due) / 86_400_000)
+    : undefined;
+}
+
 export function reviewCalendar(
   reminders: Array<{
     app: { id: string; name: string; tier: number };

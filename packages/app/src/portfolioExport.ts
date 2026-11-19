@@ -1,3 +1,5 @@
+import { reviewDaysOverdue } from './reviewDue';
+
 const usageColumns = [
   'window_start_utc',
   'app_id',
@@ -107,6 +109,7 @@ const inventoryColumns = [
   'models',
   'review_status',
   'next_review_utc',
+  'days_overdue',
 ];
 
 export function inventoryCsv(
@@ -126,6 +129,7 @@ export function inventoryCsv(
     reviewStatus: string;
     nextReview: string | null;
   }>,
+  now: number,
 ) {
   return encodeCsv(
     inventoryColumns,
@@ -143,6 +147,7 @@ export function inventoryCsv(
       app.models.join(' | '),
       app.reviewStatus,
       app.nextReview ?? '',
+      reviewDaysOverdue(app, now) ?? '',
     ]),
   );
 }

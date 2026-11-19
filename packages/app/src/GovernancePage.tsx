@@ -32,6 +32,7 @@ import {
   isReviewOverdue,
   requiresCriticalReview,
   reviewCalendar,
+  reviewDaysOverdue,
   scheduledReviewDate,
 } from './reviewDue';
 import {
@@ -1243,7 +1244,7 @@ export function GovernancePage() {
                     type="button"
                     onClick={() =>
                       downloadCsv(
-                        inventoryCsv(matching),
+                        inventoryCsv(matching, now),
                         'frontstage-inventory.csv',
                       )
                     }
@@ -1386,11 +1387,7 @@ export function GovernancePage() {
                         app.deliveryStage ?? null,
                       );
                       const review = appReview(app, now);
-                      const due = scheduledReviewDate(app);
-                      const daysOverdue =
-                        due && due.getTime() <= now
-                          ? Math.floor((now - due.getTime()) / 86_400_000)
-                          : undefined;
+                      const daysOverdue = reviewDaysOverdue(app, now);
                       const waitingDays = firstDecisionQueue
                         ? firstDecisionWait.get(app.id)
                         : undefined;
