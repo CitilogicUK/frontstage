@@ -331,6 +331,32 @@ Register a GitHub OAuth app with the Frontstage frontend URL and the callback `<
 
 Each allowed user needs a managed Backstage User entity with the `github.com/user-id` annotation set to their GitHub GraphQL node ID. For example, look up the ID with `gh api users/LOGIN --jq .node_id`. Use administrator-managed Catalog providers or locations for identity mappings. The overlay disables Catalog API writes, including location registration. Frontstage app registration remains available through its governance API. Start the pilot Catalog with trusted sources only. At sign-in and session refresh, Frontstage issues an identity only for a matching Catalog user whose `governance.backstage.io/active` annotation is absent or set to a value other than `false`. Reviewer permissions come from the mapped Backstage user references in `governance.reviewers`. Use your company’s approved identity provider if GitHub identities are outside the pilot’s scope.
 
+### Build and run the pilot image
+
+Build the Backstage frontend and backend on the same Node 24 version used by the image. Build the image from the repository root.
+
+```sh
+yarn install --immutable
+yarn build:all
+docker build -f packages/backend/Dockerfile -t frontstage:pilot .
+```
+
+Supply `FRONTSTAGE_POSTGRES_URL`, `FRONTSTAGE_GITHUB_CLIENT_ID`, and `FRONTSTAGE_GITHUB_CLIENT_SECRET` through the runtime environment. Mount an operator-managed Catalog configuration with the mapped User and Group sources and `governance.reviewers`. Use the public HTTPS URL of the reverse proxy for both frontend and backend so the container serves the UI and APIs from one origin.
+
+```sh
+docker run --rm -p 127.0.0.1:7007:7007 \
+  -e FRONTSTAGE_POSTGRES_URL -e FRONTSTAGE_GITHUB_CLIENT_ID -e FRONTSTAGE_GITHUB_CLIENT_SECRET \
+  -e APP_CONFIG_app_baseUrl=https://frontstage.example.com \
+  -e APP_CONFIG_backend_baseUrl=https://frontstage.example.com \
+  -e APP_CONFIG_backend_cors_origin=https://frontstage.example.com \
+  -v "$PWD/app-config.identity.local.yaml:/app/app-config.identity.local.yaml:ro" \
+  frontstage:pilot \
+  --config app-config.yaml --config app-config.postgres.yaml \
+  --config app-config.github-signin.yaml --config app-config.identity.local.yaml
+```
+
+The image uses the PostgreSQL and GitHub pilot profiles by default. Check readiness at `/.backstage/health/v1/readiness`.
+
 ## Verify changes in a worktree
 
 Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, unit tests, the starter projects’ offline tests, and the audit verifier tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing. If Playwright's Chromium build is unavailable on your development host, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium executable.
