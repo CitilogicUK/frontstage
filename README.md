@@ -140,6 +140,14 @@ APP_CONFIG_governance_tierPolicy_classification_internal=2 yarn start --config .
 
 Use a fresh demo database to replay from the original tiers.
 
+### Require evidence for a critical review
+
+Start with a fresh seeded reviewer demo and set `APP_CONFIG_governance_requiredCriticalReviewEvidence='["dataFlow"]'` in the shell that starts Backstage. This enables the evidence requirement for this run. Use **Restricted intake demo** to try the workflow with synthetic data.
+
+1. Select **Missing required evidence** under **Reviews → Review status**. Open **Restricted intake demo** and check that **Review evidence** lists the missing **Data-flow diagram**. You can request changes while approval is disabled.
+2. Open **Edit app details**, add `https://example.com/evidence/restricted-data-flow` as the **Data-flow diagram** link, and save.
+3. Close the record and confirm it has left the filtered list. Switch to **Review required now**, reopen the app, and record an approval. The evidence link remains on the app record.
+
 ### Live OpenAI call
 
 Set `OPENAI_API_KEY` in your shell, then start with the live adapter overlay. Use **Meeting summary demo** for the live call. In its gateway panel, select **Production** and issue a key explicitly. The live overlay permits only public and internal data. The restricted scenario is intended for the simulation.

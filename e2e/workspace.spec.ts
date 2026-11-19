@@ -2007,6 +2007,14 @@ test('critical reviews can request changes while required evidence is missing', 
           evidenceMissing
             ? { ...app, missingCriticalReviewEvidence: ['dataFlow'] }
             : { ...app, evidence: { dataFlow: 'https://example.com/flow' } },
+          {
+            ...app,
+            id: 'current-approval',
+            name: 'App with a current approval',
+            reviewStatus: 'approved',
+            nextReview: '2099-01-01T00:00:00.000Z',
+            missingCriticalReviewEvidence: ['dataFlow'],
+          },
         ],
         actor: 'user:default/reviewer',
         canReview: true,
@@ -2023,11 +2031,16 @@ test('critical reviews can request changes while required evidence is missing', 
       },
     }),
   );
-  await page.goto('/?app=critical-evidence');
-  const details = page.getByRole('dialog', { name: app.name });
+  await page.goto('/?view=reviews&review=missing-evidence');
+  const filter = page.getByRole('combobox', { name: 'Review status' });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
-  await expect(details.or(guest)).toBeVisible();
+  await expect(filter.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await expect(filter).toHaveValue('missing-evidence');
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(1);
+  await rows.getByRole('button', { name: app.name }).click();
+  const details = page.getByRole('dialog', { name: app.name });
 
   const decision = details.getByRole('combobox', { name: 'Decision' });
   const approval = decision.locator('option[value="approved"]');
@@ -2053,6 +2066,9 @@ test('critical reviews can request changes while required evidence is missing', 
   evidenceMissing = false;
   await page.reload();
   await expect(approval).toBeEnabled();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/view=reviews&review=missing-evidence$/);
+  await expect(rows).toHaveCount(0);
 });
 
 test('consequential action reviews ask for human approval evidence', async ({
