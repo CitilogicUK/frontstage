@@ -5362,7 +5362,11 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     .poll(
       async () => {
         const health = await request
-          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
+          .get(`${workspaceBackendUrl}/api/auth/guest/refresh`, {
+            headers: {
+              Origin: workspaceUrl,
+              'X-Requested-With': 'XMLHttpRequest',
+            },
             timeout: 2_000,
           })
           .catch(() => undefined);
