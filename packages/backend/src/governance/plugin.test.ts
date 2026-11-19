@@ -3097,6 +3097,10 @@ describe('governance record access', () => {
     const owner = 'user:default/owner';
     const inactiveOwner = 'user:default/inactive';
     const reviewer = 'user:default/reviewer';
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
     const catalog = jest.spyOn(CatalogClient.prototype, 'getEntitiesByRefs');
     const entities = (refs: string[], unavailable?: string) => ({
       items: refs.map(ref =>
@@ -3118,10 +3122,12 @@ describe('governance record access', () => {
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        notifications.factory,
         mockServices.database.factory({ knex: db }),
         mockServices.scheduler.mock({ scheduleTask }).factory,
         mockServices.rootConfig.factory({
           data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
             governance: {
               reviewers: [reviewer],
               retirementReviewIntervalMinutes: 15,
@@ -3235,6 +3241,23 @@ describe('governance record access', () => {
       })
       .expect(200);
 
+    const notice = (id: string, requestedAt: string) => ({
+      recipients: { type: 'entity', entityRef: owner },
+      payload: {
+        title: 'Retirement review requested',
+        description:
+          'Review the app in Inventory → Retirement decision requested.',
+        link: 'https://portal.example.com/workspace?owner=me&review=retirement',
+        topic: 'AI App Governance',
+        scope: `governance-retirement-review-${id}-${requestedAt}`,
+      },
+    });
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    expect(notifications.send).toHaveBeenCalledWith(
+      notice(kept.id, pending.body.retirementReview.requestedAt),
+    );
+    notifications.send.mockClear();
+
     const readReviews = async () => {
       const { body } = await api
         .get('/api/governance/apps')
@@ -3243,8 +3266,13 @@ describe('governance record access', () => {
       return new Map<
         string,
         {
+          id: string;
           lifecycle: string;
-          retirementReview?: { status: string; requestedBy: string };
+          retirementReview?: {
+            status: string;
+            requestedBy: string;
+            requestedAt: string;
+          };
         }
       >(body.apps.map((app: { name: string }) => [app.name, app]));
     };
@@ -3257,6 +3285,7 @@ describe('governance record access', () => {
 
     await task.fn(AbortSignal.abort());
     expect(openedBySchedule(await readReviews())).toHaveLength(0);
+    expect(notifications.send).not.toHaveBeenCalled();
 
     catalog.mockImplementation(async ({ entityRefs }) =>
       entities(entityRefs, inactiveOwner),
@@ -3265,12 +3294,22 @@ describe('governance record access', () => {
       await db('governance_gateway_usage').insert(usage(resumed, now));
       return entities(entityRefs, inactiveOwner);
     });
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notifications unavailable'),
+    );
     await task.fn(new AbortController().signal);
     expect(openedBySchedule(await readReviews())).toHaveLength(50);
+    expect(notifications.send).toHaveBeenCalledTimes(50);
     await task.fn(new AbortController().signal);
     const reviews = await readReviews();
     const opened = openedBySchedule(reviews);
     expect(opened).toHaveLength(51);
+    expect(notifications.send).toHaveBeenCalledTimes(51);
+    expect(notifications.send.mock.calls.map(([options]) => options)).toEqual(
+      expect.arrayContaining(
+        opened.map(app => notice(app.id, app.retirementReview!.requestedAt)),
+      ),
+    );
     expect(
       opened.every(
         app =>
@@ -3287,6 +3326,7 @@ describe('governance record access', () => {
     expect(reviews.get(kept.name)?.retirementReview?.status).toBe('kept');
     await task.fn(new AbortController().signal);
     expect(openedBySchedule(await readReviews())).toEqual(opened);
+    expect(notifications.send).toHaveBeenCalledTimes(51);
 
     const eligible = apps[5];
     const { body: history } = await api
