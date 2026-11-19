@@ -3069,11 +3069,25 @@ test('audit history shows production review and ownership handoff', async ({
     `"Team","${reportedTeam}","${pilot.owner}","missing"`,
   );
   const ownershipRole = ownership.getByRole('combobox', {
-    name: 'Affected ownership role',
+    name: 'Ownership filter',
   });
+  await ownershipRole.selectOption('uncovered');
+  await expect(page).toHaveURL(/ownershipRole=uncovered$/);
+  await expect(ownershipItems).toHaveCount(1);
+  await expect(ownershipItems.first()).toContainText(uncovered.name);
+  const uncoveredDownload = page.waitForEvent('download');
+  await ownership
+    .getByRole('button', { name: 'Download ownership issues CSV' })
+    .click();
+  const uncoveredCsv = await readFile(
+    await (await uncoveredDownload).path(),
+    'utf8',
+  );
+  expect(uncoveredCsv).toContain(uncovered.owner);
+  expect(uncoveredCsv).not.toContain(handoff.owner);
   await ownershipRole.selectOption('backup');
   await expect(
-    ownership.getByText('No ownership issues match this role.'),
+    ownership.getByText('No ownership issues match this filter.'),
   ).toBeVisible();
   await expect(
     ownership.getByRole('button', { name: 'Download ownership issues CSV' }),

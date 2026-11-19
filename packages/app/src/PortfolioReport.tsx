@@ -410,9 +410,11 @@ export function PortfolioReport({
     );
   }
   const requestedOwnershipRole = params.get('ownershipRole');
+  const uncoveredOnly = requestedOwnershipRole === 'uncovered';
   const ownershipRole = Object.keys(ownershipRoles).find(
     role => role === requestedOwnershipRole,
   ) as keyof typeof ownershipRoles | undefined;
+  const ownershipFilter = uncoveredOnly ? 'uncovered' : ownershipRole ?? '';
   const ownershipIssues =
     ownership?.issues
       .flatMap(issue => {
@@ -440,6 +442,7 @@ export function PortfolioReport({
         const lacksOwnerCoverage =
           !issue.availableBackupOwner &&
           unavailable.some(({ role }) => role === ownershipRoles.owner);
+        if (uncoveredOnly && !lacksOwnerCoverage) return [];
         return [{ ...issue, unavailable, lacksOwnerCoverage }];
       })
       .sort(
@@ -988,14 +991,15 @@ export function PortfolioReport({
             )}
             {!!ownership?.issues.length && (
               <label>
-                Affected ownership role
+                Ownership filter
                 <select
-                  value={ownershipRole ?? ''}
+                  value={ownershipFilter}
                   onChange={event =>
                     setReportFilter('ownershipRole', event.target.value)
                   }
                 >
-                  <option value="">All ownership roles</option>
+                  <option value="">All ownership issues</option>
+                  <option value="uncovered">No active owner or backup</option>
                   {Object.entries(ownershipRoles).map(([value, label]) => (
                     <option key={value} value={value}>
                       {label}
@@ -1007,7 +1011,7 @@ export function PortfolioReport({
             {ownership && ownershipIssues.length === 0 && (
               <p>
                 {ownership.issues.length
-                  ? 'No ownership issues match this role.'
+                  ? 'No ownership issues match this filter.'
                   : 'No ownership issues found.'}
               </p>
             )}
