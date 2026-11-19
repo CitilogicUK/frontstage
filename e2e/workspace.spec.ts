@@ -1299,6 +1299,7 @@ test('audit history shows production review and ownership handoff', async ({
   const handoff = {
     ...production,
     reviewTicketUrl: 'https://tickets.example.com/review/123',
+    riskAssessment: { tier: 2, reasons: ['configured-minimum'] },
     owner: 'user:default/new-owner',
     updatedAt: '2025-01-03T10:00:00.000Z',
   };
@@ -1518,6 +1519,18 @@ test('audit history shows production review and ownership handoff', async ({
     dialog.getByText('Lifecycle changed to experimental', { exact: false }),
   ).toBeVisible();
   await expect(dialog.getByText('Overall review: pending')).toBeVisible();
+  await dialog.getByText('Current risk assessment', { exact: true }).click();
+  await expect(
+    dialog.getByText('Tier 2 · Shared', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole('list', { name: 'Reasons for this tier' }),
+  ).toContainText('A workspace policy rule requires at least this tier.');
+  await expect(
+    dialog.getByText(
+      'This record was saved as Tier 3. Complete any required fields and save the app details to apply the current policy.',
+    ),
+  ).toBeVisible();
 
   await expect(
     dialog.getByText(

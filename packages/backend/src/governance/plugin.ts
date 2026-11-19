@@ -936,6 +936,30 @@ export const governancePlugin = createBackendPlugin({
             .json({ events, keyEvents, keyAuditVersion: 1 });
         });
 
+        function canViewReviewDetails(
+          record: GovernanceRecord,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ) {
+          return (
+            principal.type === 'user' &&
+            (principal.userEntityRef === record.owner ||
+              principal.userEntityRef === record.backupOwner ||
+              reviewers.includes(principal.userEntityRef))
+          );
+        }
+
+        function withRiskAssessment<T extends GovernanceRecord>(
+          record: T,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ) {
+          return {
+            ...record,
+            ...(canViewReviewDetails(record, principal) && {
+              riskAssessment: evaluateTierPolicy(record, tierPolicy),
+            }),
+          };
+        }
+
         function visibleRecord(
           record: GovernanceRecord,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
@@ -962,13 +986,12 @@ export const governancePlugin = createBackendPlugin({
                 signoffs: currentSignoffs(record.signoffs, trackConfig, now),
               }),
           };
-          if (
-            principal.type === 'user' &&
-            (principal.userEntityRef === record.owner ||
-              principal.userEntityRef === record.backupOwner ||
-              reviewers.includes(principal.userEntityRef))
-          )
-            return result;
+          if (canViewReviewDetails(record, principal)) {
+            return {
+              ...result,
+              riskAssessment: evaluateTierPolicy(record, tierPolicy),
+            };
+          }
           return {
             ...result,
             reviewNotes: undefined,
@@ -1473,9 +1496,9 @@ export const governancePlugin = createBackendPlugin({
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
           });
-          res.json(
-            visibleRecord((await load(req.params.id)).record, principal),
-          );
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord((await load(req.params.id)).record, principal));
         });
 
         router.get('/discovery/github', async (req, res) => {
@@ -1600,7 +1623,11 @@ export const governancePlugin = createBackendPlugin({
             id: req.params.id,
             includePrivate,
           });
-          res.status(201).json(withHostedWorkspaceStatus(record));
+          res
+            .status(201)
+            .json(
+              withRiskAssessment(withHostedWorkspaceStatus(record), principal),
+            );
         });
 
         router.post('/apps', async (req, res) => {
@@ -1620,7 +1647,11 @@ export const governancePlugin = createBackendPlugin({
           await validateOwners(app);
           const record = buildRecord(app, 'registered');
           await insert([record], principal);
-          res.status(201).json(withHostedWorkspaceStatus(record));
+          res
+            .status(201)
+            .json(
+              withRiskAssessment(withHostedWorkspaceStatus(record), principal),
+            );
         });
 
         function isImportPreview(value: unknown) {
@@ -1695,7 +1726,11 @@ export const governancePlugin = createBackendPlugin({
             return;
           }
           await insert([record], principal);
-          res.status(201).json(withHostedWorkspaceStatus(record));
+          res
+            .status(201)
+            .json(
+              withRiskAssessment(withHostedWorkspaceStatus(record), principal),
+            );
         });
 
         router.post('/imports', async (req, res) => {
@@ -1758,7 +1793,16 @@ export const governancePlugin = createBackendPlugin({
             return;
           }
           await insert(records, principal);
-          res.status(201).json(records.map(withHostedWorkspaceStatus));
+          res
+            .status(201)
+            .json(
+              records.map(record =>
+                withRiskAssessment(
+                  withHostedWorkspaceStatus(record),
+                  principal,
+                ),
+              ),
+            );
         });
 
         function assertRetirementRevision(
@@ -2440,7 +2484,9 @@ export const governancePlugin = createBackendPlugin({
             nextReview: nextReview(2, at),
           };
           await save(updated, revision, principal, 'attested');
-          res.json(withHostedWorkspaceStatus(updated));
+          res.json(
+            withRiskAssessment(withHostedWorkspaceStatus(updated), principal),
+          );
         });
 
         router.post('/apps/:id/hosted-attestation', async (req, res) => {
