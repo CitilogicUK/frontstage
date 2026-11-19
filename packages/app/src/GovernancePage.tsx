@@ -954,7 +954,11 @@ export function GovernancePage() {
         (pendingFirstDecisions.get(a.id) ?? 0) -
         (pendingFirstDecisions.get(b.id) ?? 0),
     );
-  } else if (view === 'Reviews' || ownershipScope !== 'all') {
+  } else if (
+    view === 'Reviews' ||
+    ownershipScope !== 'all' ||
+    inventoryReviewFilter === 'overdue'
+  ) {
     matching.sort((a, b) => {
       if (view === 'Inventory' && ownershipScope === 'me') {
         const retirementPriority =

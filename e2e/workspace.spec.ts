@@ -604,7 +604,9 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page).toHaveURL(/review=overdue$/);
   await expect(reviewStatus).toHaveValue('overdue');
   await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText('Overdue app');
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await expect(rows.first()).toContainText('5 days overdue');
+  await expect(rows.last()).toContainText('Overdue app');
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
