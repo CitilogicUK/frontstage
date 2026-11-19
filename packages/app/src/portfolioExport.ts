@@ -308,6 +308,39 @@ export function firstDecisionsCsv(
   );
 }
 
+export function missingReviewTicketsCsv(
+  apps: Array<{
+    id: string;
+    name: string;
+    owner: string;
+    team: string;
+    reviewStatus: string;
+    nextReview: string | null;
+  }>,
+  baseUrl: string,
+) {
+  return encodeCsv(
+    [
+      'app_id',
+      'app_name',
+      'owner',
+      'team',
+      'review_status',
+      'next_review_utc',
+      'app_url',
+    ],
+    apps.map(app => [
+      app.id,
+      app.name,
+      app.owner,
+      app.team,
+      app.reviewStatus,
+      app.nextReview ?? '',
+      appRecordUrl(baseUrl, app.id).href,
+    ]),
+  );
+}
+
 export function pendingSignoffsCsv(
   apps: Array<{
     id: string;

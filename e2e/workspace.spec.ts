@@ -1943,6 +1943,25 @@ test('reviewers can find required reviews without a linked ticket', async ({
   await expect(rows).toHaveCount(2);
 
   const search = page.getByRole('searchbox', { name: 'Search apps' });
+  const exportMissingTickets = page.getByRole('button', {
+    name: 'Download missing review tickets CSV',
+  });
+  await search.fill(app.name);
+  await expect(rows).toHaveCount(1);
+  const pendingExport = page.waitForEvent('download');
+  await exportMissingTickets.click();
+  const download = await pendingExport;
+  expect(download.suggestedFilename()).toBe(
+    'frontstage-missing-review-tickets.csv',
+  );
+  const csv = await readFile(await download.path(), 'utf8');
+  const [, ...exportedRows] = csv.trimEnd().split(/\r?\n/);
+  expect(exportedRows).toHaveLength(1);
+  expect(exportedRows[0]).toContain(`"${app.name}"`);
+  expect(exportedRows[0]).toContain(`"${workspaceUrl}/?app=${app.id}"`);
+  expect(csv).not.toContain(overdueApp.name);
+  expect(csv).not.toContain('Linked ticket app');
+
   await search.fill('no matching review tickets');
   await expect(
     page.getByRole('heading', { name: 'No matching apps' }),
@@ -1973,6 +1992,8 @@ test('reviewers can find required reviews without a linked ticket', async ({
   await expect(
     page.getByRole('heading', { name: 'No missing review tickets' }),
   ).toBeVisible();
+
+  await expect(exportMissingTickets).toHaveCount(0);
 
   canReview = false;
   await page.reload();

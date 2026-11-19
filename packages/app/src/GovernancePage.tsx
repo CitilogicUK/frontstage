@@ -44,6 +44,7 @@ import {
   downloadCsv,
   firstDecisionsCsv,
   inventoryCsv,
+  missingReviewTicketsCsv,
   pendingSignoffsCsv,
   type OutsideGatewayUsagePreview,
 } from './portfolioExport';
@@ -2016,6 +2017,26 @@ export function GovernancePage() {
                     }
                   >
                     Download first decisions CSV
+                  </button>
+                )}
+              {view === 'Reviews' &&
+                reviewFilter === 'missing-ticket' &&
+                !loading &&
+                !error &&
+                matching.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadCsv(
+                        missingReviewTicketsCsv(
+                          matching,
+                          config.getString('app.baseUrl'),
+                        ),
+                        'frontstage-missing-review-tickets.csv',
+                      )
+                    }
+                  >
+                    Download missing review tickets CSV
                   </button>
                 )}
               {view === 'Reviews' &&
