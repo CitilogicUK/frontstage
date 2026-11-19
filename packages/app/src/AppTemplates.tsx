@@ -111,7 +111,7 @@ export function AppTemplates() {
   const [stage, setStage] = useState<DeliveryStage>('trial');
   const [downloading, setDownloading] = useState<string>();
   const [error, setError] = useState<string>();
-  const { policy, failed } = useGatewayModelPolicy();
+  const { policy, failed, retry } = useGatewayModelPolicy();
   const [classification, setClassification] = useState(
     starterDefaults.classification,
   );
@@ -307,12 +307,22 @@ export function AppTemplates() {
               </select>
             </label>
           )}
-          {group.runtime && !model && (
-            <p>
-              {failed || policy
-                ? `No approved model is available for ${classification} data.`
-                : 'Loading approved models…'}
-            </p>
+          {group.runtime && failed && (
+            <div>
+              <p role="alert">Approved models could not load.</p>
+              <button type="button" onClick={retry}>
+                Retry loading approved models
+              </button>
+            </div>
+          )}
+          {group.runtime && !failed && !policy && (
+            <p role="status">Loading approved models…</p>
+          )}
+          {group.runtime && policy && !policy.enabled && (
+            <p>The gateway is disabled in this workspace.</p>
+          )}
+          {group.runtime && policy?.enabled && !model && (
+            <p>No approved model is available for {classification} data.</p>
           )}
           <div className="gov-template-grid">
             {starters

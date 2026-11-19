@@ -21,10 +21,13 @@ export function useGatewayModelPolicy(enabled = true) {
   const { fetch } = useApi(fetchApiRef);
   const [policy, setPolicy] = useState<ModelPolicy>();
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!enabled) return undefined;
     const controller = new AbortController();
+    setPolicy(undefined);
+    setFailed(false);
     discovery
       .getBaseUrl('governance')
       .then(base =>
@@ -39,13 +42,13 @@ export function useGatewayModelPolicy(enabled = true) {
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [discovery, enabled, fetch]);
+  }, [attempt, discovery, enabled, fetch]);
 
-  return { policy, failed };
+  return { policy, failed, retry: () => setAttempt(value => value + 1) };
 }
 
 export function GatewayModelGuide() {
-  const { policy, failed } = useGatewayModelPolicy();
+  const { policy, failed, retry } = useGatewayModelPolicy();
   return (
     <section
       className="gov-panel gov-model-guide"
@@ -59,9 +62,12 @@ export function GatewayModelGuide() {
         </p>
       </div>
       {failed && (
-        <p className="gov-empty" role="alert">
-          The model policy could not load.
-        </p>
+        <div className="gov-empty">
+          <p role="alert">The model policy could not load.</p>
+          <button type="button" onClick={retry}>
+            Retry loading model policy
+          </button>
+        </div>
       )}
       {!failed && !policy && (
         <p className="gov-empty" role="status">

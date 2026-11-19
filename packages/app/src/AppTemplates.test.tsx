@@ -1,4 +1,10 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { mockApis, TestApiProvider } from '@backstage/frontend-test-utils';
 import { MemoryRouter } from 'react-router-dom';
 import { AppTemplates } from './AppTemplates';
@@ -51,7 +57,9 @@ it('reports a starter download only after its archive is ready', async () => {
     });
     fetchStarter.mockRejectedValueOnce(new Error('Starter unavailable'));
     fireEvent.click(download);
-    await screen.findByRole('alert');
+    await within(
+      screen.getByRole('region', { name: 'AI-assisted software' }),
+    ).findByRole('alert');
     expect(analytics.getEvents()).toEqual([]);
     expect(click).not.toHaveBeenCalled();
 
