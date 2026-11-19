@@ -1229,7 +1229,7 @@ test('owners can filter Inventory to active requests for review changes', async 
     }),
   );
   await page.goto('/?owner=me');
-  const filter = page.getByLabel('Review status', { exact: true });
+  const filter = page.getByRole('combobox', { name: 'Review status' });
   const enter = page.getByRole('button', { name: 'Enter', exact: true });
   await expect(filter.or(enter)).toBeVisible();
   if (await enter.isVisible()) await enter.click();
