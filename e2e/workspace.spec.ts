@@ -853,11 +853,11 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   expect(columns).toMatch(
     /next_review_utc,days_overdue,app_url,registration_source,current_policy_tier$/,
   );
-  expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded"`)).toBe(
-    true,
-  );
   expect(
-    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered"`),
+    oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded",""`),
+  ).toBe(true);
+  expect(
+    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered",""`),
   ).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
