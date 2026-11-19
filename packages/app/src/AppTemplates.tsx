@@ -35,6 +35,21 @@ const starters = [
       'Start with a local Node.js API, a synthetic response, and tests for its HTTP behavior.',
   },
   {
+    id: 'internal-web-app',
+    type: 'app',
+    runtime: false,
+    name: 'Internal web app',
+    sourceFiles: [
+      'package.json',
+      'server.mjs',
+      'server.test.mjs',
+      'styles.css',
+    ],
+    action: 'Download internal web app starter',
+    description:
+      'Start with a browser interface, a read-only workflow using synthetic data, and HTTP tests.',
+  },
+  {
     id: 'data-validation',
     type: 'app',
     runtime: false,
