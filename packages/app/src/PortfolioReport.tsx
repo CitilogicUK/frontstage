@@ -656,6 +656,11 @@ export function PortfolioReport({
               <Link to="/?review=overdue">View overdue apps</Link>
             </div>
           )}
+          {canReview && (
+            <div>
+              <Link to="/?review=upcoming">View upcoming reviews</Link>
+            </div>
+          )}
         </div>
         {canReview && (
           <div className="gov-panel">
