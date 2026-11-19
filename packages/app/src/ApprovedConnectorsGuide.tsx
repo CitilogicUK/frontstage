@@ -4,6 +4,8 @@ import {
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
+import { Link } from 'react-router-dom';
+import { appClassifications } from './appDimensions';
 
 type ApprovedConnectors = {
   configured: boolean;
@@ -18,7 +20,7 @@ type ApprovedConnectors = {
   }>;
 };
 
-export function ApprovedConnectorsGuide() {
+function useApprovedConnectors() {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [registry, setRegistry] = useState<ApprovedConnectors>();
@@ -42,6 +44,63 @@ export function ApprovedConnectorsGuide() {
       });
     return () => controller.abort();
   }, [discovery, fetch]);
+
+  return { registry, failed };
+}
+
+export function RegistrationConnectorGuidance({
+  accesses,
+  classification,
+}: {
+  accesses: string[];
+  classification: string;
+}) {
+  const { registry, failed } = useApprovedConnectors();
+  const classificationIndex = appClassifications.indexOf(classification);
+  const matches = registry?.connectors.filter(
+    connector =>
+      classificationIndex >= 0 &&
+      accesses.includes(connector.access) &&
+      appClassifications.indexOf(connector.maxClassification) >=
+        classificationIndex,
+  );
+  return (
+    <section aria-labelledby="registration-connectors-title">
+      <h3 id="registration-connectors-title">
+        Approved connectors for this app
+      </h3>
+      {failed && <p role="status">The connector registry could not load.</p>}
+      {!failed && !registry && (
+        <p role="status">Loading approved connectors…</p>
+      )}
+      {registry && !registry.configured && (
+        <p>No connector registry is configured.</p>
+      )}
+      {registry?.configured && matches?.length === 0 && (
+        <p>
+          No approved connectors match the selected access and data
+          classification.
+        </p>
+      )}
+      {!!matches?.length && (
+        <ul>
+          {matches.map(connector => (
+            <li key={connector.id}>
+              <strong>{connector.name}</strong> ·{' '}
+              {connector.access === 'read' ? 'Read' : 'Write'}
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link to="/?view=guide" target="_blank" rel="noreferrer">
+        View approved connector registry (new tab)
+      </Link>
+    </section>
+  );
+}
+
+export function ApprovedConnectorsGuide() {
+  const { registry, failed } = useApprovedConnectors();
 
   return (
     <section
