@@ -723,7 +723,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.getByRole('button', { name: 'Download inventory CSV' }).click();
   const sourceCsv = await readFile(await (await sourceDownload).path(), 'utf8');
   expect(sourceCsv.split('\r\n')[0]).toContain('registration_source');
-  expect(sourceCsv.trimEnd().endsWith(',"bulk import"')).toBe(true);
+  expect(sourceCsv.trimEnd().endsWith(',"bulk import",""')).toBe(true);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })
@@ -851,13 +851,13 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const overdueCsv = await readFile(await overdueDownload.path(), 'utf8');
   const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
   expect(columns).toMatch(
-    /next_review_utc,days_overdue,app_url,registration_source$/,
-  );
-  expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded"`)).toBe(
-    true,
+    /next_review_utc,days_overdue,app_url,registration_source,current_policy_tier$/,
   );
   expect(
-    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered"`),
+    oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded",""`),
+  ).toBe(true);
+  expect(
+    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered",""`),
   ).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
@@ -1781,6 +1781,17 @@ test('audit history shows production review and ownership handoff', async ({
   ).toHaveValue('reassess');
   await expect(reviewRows).toHaveCount(1);
   await expect(reviewRows.first()).toContainText(handoff.name);
+  const reassessmentDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const reassessmentCsv = await readFile(
+    await (await reassessmentDownload).path(),
+    'utf8',
+  );
+  expect(reassessmentCsv.split('\r\n')[0]).toContain('risk_tier,lifecycle');
+  expect(reassessmentCsv.split('\r\n')[0]).toMatch(/current_policy_tier$/);
+  expect(reassessmentCsv.split('\r\n')[1]).toContain(',3,"experimental",');
+  expect(reassessmentCsv.split('\r\n')[1]).toMatch(/,2$/);
+
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
   await expect(page).toHaveURL(/view=reviews&review=required$/);
