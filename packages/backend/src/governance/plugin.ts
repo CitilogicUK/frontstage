@@ -127,7 +127,8 @@ type RecordAction =
   | 'graduation-requested'
   | 'graduation-accepted'
   | 'graduation-declined'
-  | 'graduation-cancelled';
+  | 'graduation-cancelled'
+  | 'graduation-ended';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
@@ -181,13 +182,29 @@ function isGraduationStage(record: GovernanceRecord) {
   );
 }
 
+function assertCanClearGraduation(
+  record: GovernanceRecord,
+  principal: BackstageUserPrincipal | BackstageServicePrincipal,
+) {
+  if (
+    principal.type === 'user' &&
+    record.graduation?.status === 'accepted' &&
+    record.graduation.nominee === principal.userEntityRef
+  )
+    throw new NotAllowedError(
+      'An accepted engineering co-owner cannot end their own handoff.',
+    );
+}
+
 function graduationAfterEdit(
   previous: GovernanceRecord,
   current: GovernanceRecord,
+  principal: BackstageUserPrincipal | BackstageServicePrincipal,
 ) {
-  return previous.owner === current.owner && isGraduationStage(current)
-    ? previous.graduation
-    : undefined;
+  if (previous.owner === current.owner && isGraduationStage(current))
+    return previous.graduation;
+  assertCanClearGraduation(previous, principal);
+  return undefined;
 }
 
 function retirementReviewAfterEdit(
@@ -540,6 +557,7 @@ export const governancePlugin = createBackendPlugin({
           lifecycleReason?: string,
           renewalException?: RenewalException,
           graduationNominee?: string,
+          graduationReason?: string,
         ) {
           const previous = await transaction(history)
             .where({ app_id: record.id, revision: revision - 1 })
@@ -552,6 +570,7 @@ export const governancePlugin = createBackendPlugin({
             lifecycleReason,
             renewalException,
             graduationNominee,
+            graduationReason,
             record,
           });
           await transaction(history).insert({
@@ -625,12 +644,14 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             expectedRetirementActivity,
             graduationNominee,
+            graduationReason,
           }: {
             ownerChanged?: boolean;
             lifecycleReason?: string;
             renewalException?: RenewalException;
             expectedRetirementActivity?: string;
             graduationNominee?: string;
+            graduationReason?: string;
           } = {},
         ) {
           await db.transaction(async transaction => {
@@ -678,6 +699,7 @@ export const governancePlugin = createBackendPlugin({
               lifecycleReason,
               renewalException,
               graduationNominee,
+              graduationReason,
             );
           });
         }
@@ -1445,7 +1467,7 @@ export const governancePlugin = createBackendPlugin({
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
-          updated.graduation = graduationAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated, principal);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
           await save(updated, revision, principal, 'updated', {
@@ -1545,7 +1567,7 @@ export const governancePlugin = createBackendPlugin({
                 };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
-          updated.graduation = graduationAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated, principal);
           const ownerChanged = app.owner !== record.owner;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
@@ -1625,20 +1647,41 @@ export const governancePlugin = createBackendPlugin({
           assertCanEdit(record, principal);
           if (record.updatedAt !== timestamp.data)
             throw new ConflictError(
-              'The app changed. Reopen the current record before cancelling its engineering handoff.',
+              'The app changed. Reopen the current record before changing its engineering handoff.',
             );
-          if (record.graduation?.status !== 'pending')
+          const graduation = record.graduation;
+          if (!graduation || graduation.status === 'declined')
             throw new ConflictError(
-              'Only pending engineering nominations can be cancelled.',
+              'There is no pending or accepted engineering handoff to remove.',
             );
+          const ending = graduation.status === 'accepted';
+          let graduationReason: string | undefined;
+          if (ending) {
+            assertCanClearGraduation(record, principal);
+            const reason = z
+              .string()
+              .trim()
+              .min(1)
+              .max(500)
+              .safeParse(req.body?.reason);
+            if (!reason.success)
+              throw new InputError(
+                'Provide a reason of at most 500 characters to end the accepted engineering handoff.',
+              );
+            graduationReason = reason.data;
+          }
           const updated: GovernanceRecord = {
             ...record,
             graduation: undefined,
             updatedAt: nextRecordTimestamp(record.updatedAt),
           };
-          await save(updated, revision, principal, 'graduation-cancelled', {
-            graduationNominee: record.graduation.nominee,
-          });
+          await save(
+            updated,
+            revision,
+            principal,
+            ending ? 'graduation-ended' : 'graduation-cancelled',
+            { graduationNominee: graduation.nominee, graduationReason },
+          );
           res.json(visibleRecord(updated, principal));
         });
 
@@ -1942,7 +1985,7 @@ export const governancePlugin = createBackendPlugin({
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
-          updated.graduation = graduationAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated, principal);
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });
