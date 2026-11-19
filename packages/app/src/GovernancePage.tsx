@@ -691,6 +691,49 @@ export function GovernancePage() {
     [discovery, fetch],
   );
 
+  const pendingRetirementAppId =
+    selected?.retirementReview?.status === 'pending' ? selected.id : undefined;
+  const pendingRetirementRevision = pendingRetirementAppId
+    ? selected?.updatedAt
+    : undefined;
+  const [retirementActivity, setRetirementActivity] = useState<{
+    id: string;
+    revision: string;
+    changedAt: string;
+  }>();
+  const liveActivityChangedAt =
+    retirementActivity?.id === pendingRetirementAppId &&
+    retirementActivity?.revision === pendingRetirementRevision
+      ? retirementActivity?.changedAt
+      : undefined;
+
+  useEffect(() => {
+    if (!pendingRetirementAppId || !pendingRetirementRevision) return undefined;
+    const controller = new AbortController();
+    api(
+      `/apps/${encodeURIComponent(pendingRetirementAppId)}`,
+      undefined,
+      'GET',
+      controller.signal,
+    ).then(
+      (app: App) => {
+        const changedAt = app.retirementReview?.liveActivityChangedAt;
+        if (
+          !controller.signal.aborted &&
+          app.updatedAt === pendingRetirementRevision &&
+          changedAt
+        )
+          setRetirementActivity({
+            id: pendingRetirementAppId,
+            revision: pendingRetirementRevision,
+            changedAt,
+          });
+      },
+      () => undefined,
+    );
+    return () => controller.abort();
+  }, [api, pendingRetirementAppId, pendingRetirementRevision]);
+
   useEffect(() => {
     if (view !== 'Discovery' || !detailId || loading || inventoryRecord)
       return undefined;
@@ -2860,13 +2903,21 @@ export function GovernancePage() {
             )}
             {(retirementCandidate || selected.retirementReview) && (
               <AppRetirementReview
-                key={`retirement-review-${selected.updatedAt}`}
+                key={`retirement-review-${selected.id}-${selected.updatedAt}-${
+                  liveActivityChangedAt ??
+                  selected.retirementReview?.liveActivityChangedAt ??
+                  ''
+                }`}
                 owner={selected.owner}
                 candidateLastLiveCall={retirementCandidate?.lastLiveCall}
                 activeSince={
                   retirementCandidate?.activeSince ?? selected.activeSince
                 }
-                review={selected.retirementReview}
+                review={
+                  selected.retirementReview && liveActivityChangedAt
+                    ? { ...selected.retirementReview, liveActivityChangedAt }
+                    : selected.retirementReview
+                }
                 canDecide={ownerCanDecideRetirement(selected, actor)}
                 busy={busy}
                 onRequest={event =>

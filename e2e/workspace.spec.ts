@@ -3769,6 +3769,72 @@ test('the assigned owner can act on a scheduled retirement request', async ({
   ).toBeEnabled();
 });
 
+test('resumed live gateway activity leaves only the keep decision available', async ({
+  page,
+}) => {
+  const owner = 'user:default/owner';
+  const requestedAt = '2025-05-02T00:00:00.000Z';
+  const app = {
+    id: 'resumed-retirement',
+    name: 'Resumed invoice assistant',
+    purpose: 'Summarize invoices for the finance team.',
+    owner,
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/resumed-retirement',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    models: ['gpt-4.1-mini'],
+    reviewStatus: 'not required',
+    updatedAt: requestedAt,
+    activeSince: '2025-01-01T00:00:00.000Z',
+    retirementReview: {
+      owner,
+      requestedBy: 'plugin:governance',
+      requestedAt,
+      lastLiveCall: null,
+      status: 'pending',
+    },
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor: owner, canReview: false, apps: [app] } }),
+  );
+  await page.route('**/api/governance/apps/resumed-retirement', route =>
+    route.fulfill({
+      json: {
+        ...app,
+        retirementReview: {
+          ...app.retirementReview,
+          liveActivityChangedAt: '2025-05-03T00:00:00.000Z',
+        },
+      },
+    }),
+  );
+
+  await page.goto('/?app=resumed-retirement');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  const review = details.getByRole('region', { name: 'Retirement review' });
+  await expect(review.getByText(/Live gateway activity resumed/)).toBeVisible();
+  const decision = review.getByRole('combobox', {
+    name: 'Retirement decision',
+  });
+  await expect(
+    decision.getByRole('option', { name: 'Retire app' }),
+  ).toHaveCount(0);
+  await decision.selectOption({ label: 'Keep active' });
+  await expect(decision).toHaveValue('keep');
+  await review
+    .getByRole('textbox', { name: 'Reason for decision' })
+    .fill('The app is serving live requests again.');
+  await expect(
+    review.getByRole('button', { name: 'Record retirement decision' }),
+  ).toBeEnabled();
+});
+
 test('an engineering co-owner nominee can accept without gaining app controls', async ({
   page,
 }) => {
