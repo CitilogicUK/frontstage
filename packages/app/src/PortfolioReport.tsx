@@ -24,6 +24,8 @@ type AppSummary = {
   team: string;
   owner: string;
   backupOwner?: string;
+  type?: string;
+  hostedAttestation?: { nextDue: string };
   tier: number;
   lifecycle: string;
   platform: string;
@@ -33,6 +35,7 @@ type AppSummary = {
   deliveryStage?: string;
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
+  reviewTicketUrl?: string;
   nextReview: string | null;
 };
 
@@ -161,6 +164,13 @@ export function PortfolioReport({
       values: appRiskTierNames.map((_, index) => String(index + 1)),
       valuesOf: (app: AppSummary) => [String(app.tier)],
     },
+    accountableOwner: {
+      label: 'Accountable owner',
+      values: [...new Set(apps.map(app => app.owner))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
+      valuesOf: (app: AppSummary) => [app.owner],
+    },
     team: {
       label: 'Team',
       values: [...new Set(apps.map(app => app.team).filter(Boolean))].sort(
@@ -256,9 +266,30 @@ export function PortfolioReport({
     }
   }
   const now = Date.now();
+  const hostedAttestationsNeedingAttention = canReview
+    ? apps
+        .filter(app => {
+          if (app.type !== 'provider-hosted app' || app.lifecycle === 'retired')
+            return false;
+          const nextDue = app.hostedAttestation?.nextDue;
+          return !nextDue || Date.parse(nextDue) <= now;
+        })
+        .sort(
+          (a, b) =>
+            Number(!a.hostedAttestation) - Number(!b.hostedAttestation) ||
+            (a.hostedAttestation?.nextDue ?? '').localeCompare(
+              b.hostedAttestation?.nextDue ?? '',
+            ) ||
+            a.name.localeCompare(b.name) ||
+            a.id.localeCompare(b.id),
+        )
+    : [];
   const reviewable = inventory.filter(app => app.tier === 2 || app.tier === 3);
   const overdue = reviewable.filter(app => isReviewOverdue(app, now)).length;
   const critical = inventory.filter(app => requiresCriticalReview(app, now));
+  const missingTickets = canReview
+    ? critical.filter(app => !app.reviewTicketUrl).length
+    : 0;
   const liveCost = report?.usage.reduce(
     (sum, row) => sum + (row.mode === 'openai' ? row.estimatedCostUsd : 0),
     0,
@@ -411,6 +442,13 @@ export function PortfolioReport({
               </Link>
             </div>
           )}
+          {missingTickets > 0 && (
+            <div>
+              <Link to="/?view=reviews&review=missing-ticket">
+                {missingTickets} missing a review ticket
+              </Link>
+            </div>
+          )}
         </div>
         <div className="gov-panel">
           <dt>Overdue reviews and attestations</dt>
@@ -532,6 +570,7 @@ export function PortfolioReport({
               if (
                 inventoryGroup === 'platform' ||
                 inventoryGroup === 'team' ||
+                inventoryGroup === 'accountableOwner' ||
                 inventoryGroup === 'model'
               )
                 label = value;
@@ -712,6 +751,38 @@ export function PortfolioReport({
                       {issue.provider ?? 'Provider unspecified'} ·{' '}
                       {issue.workspace ?? 'Workspace unspecified'} ·{' '}
                       {issue.lifecycle}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+      {canReview && (
+        <section
+          className="gov-panel gov-stage-report"
+          aria-labelledby="portfolio-hosted-attestations"
+        >
+          <div className="gov-report-heading">
+            <h2 id="portfolio-hosted-attestations">
+              Hosted workspace attestations
+            </h2>
+            {hostedAttestationsNeedingAttention.length === 0 ? (
+              <p>No missing or overdue workspace attestations.</p>
+            ) : (
+              <ul>
+                {hostedAttestationsNeedingAttention.map(app => (
+                  <li key={app.id}>
+                    <Link to={reportAppLink(app.id)}>{app.name}</Link>
+                    <p>
+                      {app.hostedAttestation
+                        ? `Overdue since ${app.hostedAttestation.nextDue.slice(
+                            0,
+                            10,
+                          )} UTC`
+                        : 'Confirmation missing'}{' '}
+                      · {app.owner}
                     </p>
                   </li>
                 ))}
