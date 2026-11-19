@@ -4,7 +4,7 @@ import {
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
-import { Link } from 'react-router-dom';
+import { Link, type To } from 'react-router-dom';
 
 type UsagePreview = {
   from: string;
@@ -21,7 +21,7 @@ type UsagePreview = {
 export function OutsideGatewayUsage({
   appLink,
 }: {
-  appLink: (appId: string) => string;
+  appLink: (appId: string) => To;
 }) {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
