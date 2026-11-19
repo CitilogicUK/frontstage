@@ -1275,6 +1275,28 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       expect(detail.structuredContent).not.toHaveProperty('app.reviewNotes');
       expect(detail.structuredContent).not.toHaveProperty('app.evidence');
 
+      const personalApp = { audience: 'personal', classification: 'internal' };
+      const baselineRisk = await catalogMcp.callTool({
+        name: 'preview_risk',
+        arguments: personalApp,
+      });
+      expect(baselineRisk.isError).not.toBe(true);
+      expect(baselineRisk.structuredContent).toMatchObject({
+        tier: 1,
+        reasons: [],
+        effectiveClassification: 'internal',
+      });
+      const writeRisk = await catalogMcp.callTool({
+        name: 'preview_risk',
+        arguments: { ...personalApp, connections: [{ access: 'write' }] },
+      });
+      expect(writeRisk.isError).not.toBe(true);
+      expect(writeRisk.structuredContent).toMatchObject({
+        tier: 3,
+        reasons: expect.arrayContaining(['write-connection']),
+        effectiveClassification: 'internal',
+      });
+
       const mcpAppName = 'MCP inventory reconciliation';
       const content = (
         await readFile(

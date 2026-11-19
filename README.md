@@ -47,6 +47,8 @@ From a checkout with dependencies installed, configure a local MCP client to lau
 
 Use `search_apps` to find registered apps by name or ID. It returns up to 20 matches by default and accepts a limit up to 50. Use `get_app` with the selected app ID. Both tools return catalog fields such as ownership, tier, lifecycle, and source URL.
 
+Use `preview_risk` while drafting an app to check the effective data classification, calculated tier, and reasons. Provide the audience and classification along with any actions, connections, or hosted settings that apply. It uses the same policy as the registration questionnaire and saves no record.
+
 Set `FRONTSTAGE_MCP_WRITE_ENABLED=true` in the MCP process environment to add the descriptor tools. Pass the YAML from a repository descriptor as `content` to `preview_descriptor` to check ownership, calculated tier, and source URL conflicts. After reviewing the preview, use `register_descriptor` with the same content to create the record. The MCP client controls interactive approval for `register_descriptor`. Backstage applies the same authentication, validation, and audit rules as the repository registration endpoint.
 
 Set optional risk floors in `governance.tierPolicy`. The keys are `audience`, `classification`, `hostedSharing`, and `connection`. Values 1 through 3 can raise the built-in requirements. For example, set `governance.tierPolicy.classification.confidential: 3` to require critical review for confidential data. The live questionnaire uses `POST /api/governance/tier-preview`.

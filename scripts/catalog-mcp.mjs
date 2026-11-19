@@ -28,6 +28,7 @@ function readConfig() {
   return {
     appsUrl: new URL('api/governance/apps', backend),
     repositoryUrl: new URL('api/governance/repository', backend),
+    tierPreviewUrl: new URL('api/governance/tier-preview', backend),
     token,
     writeEnabled: process.env.FRONTSTAGE_MCP_WRITE_ENABLED === 'true',
   };
@@ -83,6 +84,36 @@ const descriptorPreview = z.object({
   ),
 });
 
+const classification = z.enum([
+  'public',
+  'internal',
+  'confidential',
+  'restricted',
+]);
+const riskInput = z.object({
+  audience: z.enum(['personal', 'team', 'company', 'external']),
+  classification,
+  takesActions: z.boolean().optional(),
+  affectsPeople: z.boolean().optional(),
+  critical: z.boolean().optional(),
+  personalData: z.boolean().optional(),
+  connections: z
+    .array(z.object({ access: z.enum(['read', 'write']) }))
+    .max(50)
+    .optional(),
+  hosted: z
+    .object({
+      sharing: z.enum(['private', 'named people', 'company', 'public link']),
+      dataClassification: classification.optional(),
+    })
+    .optional(),
+});
+const riskResult = z.object({
+  tier: z.literal([1, 2, 3]),
+  reasons: z.array(z.string()),
+  effectiveClassification: classification,
+});
+
 function safeSummary(app) {
   if (!app.sourceUrl) return app;
   // Legacy registration allowed URLs with embedded credentials.
@@ -100,8 +131,13 @@ function safeSummary(app) {
   return app;
 }
 
-async function fetchCatalog(url, token, schema, descriptor) {
-  const submitting = descriptor !== undefined;
+async function fetchCatalog(
+  url,
+  token,
+  schema,
+  { body, badRequest, conflict } = {},
+) {
+  const submitting = body !== undefined;
   let response;
   try {
     response = await fetch(url, {
@@ -111,7 +147,7 @@ async function fetchCatalog(url, token, schema, descriptor) {
         Authorization: `Bearer ${token}`,
         ...(submitting && { 'Content-Type': 'application/json' }),
       },
-      ...(submitting && { body: JSON.stringify({ content: descriptor }) }),
+      ...(submitting && { body: JSON.stringify(body) }),
       redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -124,20 +160,26 @@ async function fetchCatalog(url, token, schema, descriptor) {
       throw new Error('Frontstage returned an unexpected redirect.');
     if (response.status === 401 || response.status === 403)
       throw new Error('Frontstage authentication failed.');
-    if (submitting && response.status === 400)
-      throw new Error('Frontstage could not validate the descriptor.');
-    if (submitting && response.status === 409)
-      throw new Error('Frontstage found a conflicting app registration.');
+    if (response.status === 400 && badRequest) throw new Error(badRequest);
+    if (response.status === 409 && conflict) throw new Error(conflict);
     if (!submitting && response.status === 404 && schema === appSummary)
       throw new Error('App not found.');
     throw new Error(`Frontstage request failed (HTTP ${response.status}).`);
   }
 
-  const body = await response.json().catch(() => undefined);
-  const parsed = schema.safeParse(body);
+  const responseBody = await response.json().catch(() => undefined);
+  const parsed = schema.safeParse(responseBody);
   if (!parsed.success)
     throw new Error('Frontstage returned an invalid catalog response.');
   return parsed.data;
+}
+
+function fetchDescriptor(url, token, schema, content) {
+  return fetchCatalog(url, token, schema, {
+    body: { content },
+    badRequest: 'Frontstage could not validate the descriptor.',
+    conflict: 'Frontstage found a conflicting app registration.',
+  });
 }
 
 function toolResult(structuredContent) {
@@ -148,7 +190,8 @@ function toolResult(structuredContent) {
 }
 
 async function start() {
-  const { appsUrl, repositoryUrl, token, writeEnabled } = readConfig();
+  const { appsUrl, repositoryUrl, tierPreviewUrl, token, writeEnabled } =
+    readConfig();
   const server = new McpServer({
     name: 'frontstage-catalog',
     version: '1.0.0',
@@ -194,6 +237,23 @@ async function start() {
       return toolResult({ app: safeSummary(app) });
     },
   );
+  server.registerTool(
+    'preview_risk',
+    {
+      description:
+        'Estimate an app risk tier from questionnaire answers using the current Frontstage policy.',
+      inputSchema: riskInput,
+      outputSchema: riskResult,
+      annotations: { readOnlyHint: true },
+    },
+    async answers =>
+      toolResult(
+        await fetchCatalog(tierPreviewUrl, token, riskResult, {
+          body: answers,
+          badRequest: 'Frontstage could not validate the risk questionnaire.',
+        }),
+      ),
+  );
   if (writeEnabled) {
     const previewUrl = new URL(repositoryUrl);
     previewUrl.searchParams.set('dryRun', 'true');
@@ -208,7 +268,7 @@ async function start() {
       },
       async ({ content }) =>
         toolResult(
-          await fetchCatalog(previewUrl, token, descriptorPreview, content),
+          await fetchDescriptor(previewUrl, token, descriptorPreview, content),
         ),
     );
     server.registerTool(
@@ -225,7 +285,7 @@ async function start() {
         },
       },
       async ({ content }) => {
-        const app = await fetchCatalog(
+        const app = await fetchDescriptor(
           repositoryUrl,
           token,
           appSummary,
