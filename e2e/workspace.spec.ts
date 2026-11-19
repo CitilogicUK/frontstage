@@ -723,7 +723,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.getByRole('button', { name: 'Download inventory CSV' }).click();
   const sourceCsv = await readFile(await (await sourceDownload).path(), 'utf8');
   expect(sourceCsv.split('\r\n')[0]).toContain('registration_source');
-  expect(sourceCsv.trimEnd().endsWith(',"bulk import"')).toBe(true);
+  expect(sourceCsv.trimEnd().endsWith(',"bulk import",""')).toBe(true);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })
