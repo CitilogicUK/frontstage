@@ -161,6 +161,8 @@ test('workspace screens share navigation and fit the viewport', async ({
       json: {
         enabled: true,
         days: 30,
+        windowStartUtc: '2026-08-01',
+        windowEndUtc: '2026-08-30',
         eligibleCount: 8,
         responseCount: 4,
         satisfiedCount: 3,
@@ -270,6 +272,17 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(registrationFeedback).toContainText('4 of 8 feedback offers');
   await expect(registrationFeedback).toContainText(
     '3 of 4 responses were satisfied',
+  );
+  const feedbackExport = page.waitForEvent('download');
+  await registrationFeedback
+    .getByRole('button', { name: 'Download registration feedback CSV' })
+    .click();
+  const feedbackFile = await feedbackExport;
+  expect(feedbackFile.suggestedFilename()).toBe(
+    'frontstage-registration-feedback.csv',
+  );
+  expect(await readFile(await feedbackFile.path(), 'utf8')).toBe(
+    '\uFEFFwindow_start_utc,window_end_utc,window_days,eligible_count,response_count,satisfied_count\r\n"2026-08-01","2026-08-30",30,8,4,3\r\n',
   );
   const coverage = page.locator('.gov-report-summary > div').filter({
     hasText: 'GitHub discovery coverage',

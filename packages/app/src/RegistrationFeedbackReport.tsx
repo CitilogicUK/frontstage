@@ -5,12 +5,19 @@ import {
   useApi,
 } from '@backstage/core-plugin-api';
 
-type RegistrationFeedback = {
+import {
+  downloadCsv,
+  registrationFeedbackCsv,
+  type RegistrationFeedbackTotals,
+} from './portfolioExport';
+
+type RegistrationFeedback = Omit<
+  RegistrationFeedbackTotals,
+  'windowStartUtc' | 'windowEndUtc'
+> & {
   enabled: boolean;
-  days: number;
-  eligibleCount: number;
-  responseCount: number;
-  satisfiedCount: number;
+  windowStartUtc?: string;
+  windowEndUtc?: string;
 };
 
 export function RegistrationFeedbackReport() {
@@ -38,6 +45,8 @@ export function RegistrationFeedbackReport() {
     return () => controller.abort();
   }, [attempt, discovery, fetch]);
 
+  const { windowStartUtc, windowEndUtc } = report ?? {};
+
   return (
     <section
       className="gov-panel gov-stage-report"
@@ -45,6 +54,23 @@ export function RegistrationFeedbackReport() {
     >
       <div className="gov-report-heading">
         <h2 id="registration-feedback-title">Registration feedback</h2>
+        {report?.enabled && windowStartUtc && windowEndUtc && (
+          <button
+            type="button"
+            onClick={() =>
+              downloadCsv(
+                registrationFeedbackCsv({
+                  ...report,
+                  windowStartUtc,
+                  windowEndUtc,
+                }),
+                'frontstage-registration-feedback.csv',
+              )
+            }
+          >
+            Download registration feedback CSV
+          </button>
+        )}
       </div>
       {report === undefined && (
         <p role="status">Loading registration feedback…</p>
