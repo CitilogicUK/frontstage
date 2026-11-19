@@ -30,6 +30,6 @@ The AI App Governance Platform spec describes four phases. Frontstage demonstrat
 | Overdue reviews | Non-retired Tier 2 and Tier 3 apps with an overdue scheduled review or attestation divided by non-retired Tier 2 and Tier 3 apps. |
 | Time to register | The opt-in local measure shows the median time to submit a successful Tier 1 form and its sample count over 30 UTC calendar days. Backstage Analytics also emits timing through successful save when an analytics destination is configured. |
 | Time to decision | Median UTC weekdays from first pending Tier 3 submission to the first overall approval or request for changes. Pending decisions appear in the queue. |
-| Builder satisfaction | The form emits an optional three-point response through Backstage Analytics after registration. Pilot reporting needs a baseline and response rate. |
+| Builder satisfaction | The opt-in local report shows the response rate and satisfied share for feedback offered after interactive registration over 30 UTC calendar days. The form also emits the optional three-point response through Backstage Analytics. A pilot needs a representative baseline. |
 
 The percentages and time targets in the spec are proposals. Collect representative pilot data before using them as launch criteria.

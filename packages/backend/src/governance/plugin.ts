@@ -1,3 +1,10 @@
+import {
+  issueRegistrationFeedbackToken,
+  recordRegistrationFeedback,
+  registrationFeedbackInput,
+  registrationFeedbackMigration,
+  registrationFeedbackReport,
+} from './registrationFeedback';
 import { sendBackupHandoverNotifications } from './backupHandoverNotifications';
 import {
   recordRegistrationTiming,
@@ -408,6 +415,9 @@ export const governancePlugin = createBackendPlugin({
           ...(trackConfig?.security ?? []),
           ...(trackConfig?.dataProtection ?? []),
         ];
+        const collectRegistrationFeedback =
+          config.getOptionalBoolean('governance.collectRegistrationFeedback') ??
+          false;
         const collectTierOneRegistrationTiming =
           config.getOptionalBoolean(
             'governance.collectTierOneRegistrationTiming',
@@ -580,9 +590,12 @@ export const governancePlugin = createBackendPlugin({
             '019_ownership_observations',
             '020_directory_request_fulfillment',
             '021_registration_timing',
+            '022_registration_feedback',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
+            if (name === '022_registration_feedback')
+              return registrationFeedbackMigration();
             if (name === '021_registration_timing')
               return registrationTimingMigration();
             if (name === '020_directory_request_fulfillment')
@@ -989,12 +1002,14 @@ export const governancePlugin = createBackendPlugin({
           {
             discoveryClaim,
             registrationElapsedSeconds,
+            interactiveRegistration = false,
           }: {
             discoveryClaim?: { id: string; includePrivate: boolean };
             registrationElapsedSeconds?: unknown;
+            interactiveRegistration?: boolean;
           } = {},
         ) {
-          await db.transaction(async transaction => {
+          return db.transaction(async transaction => {
             const rows = records.map(record => ({
               id: record.id,
               source_key: appSourceKey(record.sourceUrl),
@@ -1042,6 +1057,22 @@ export const governancePlugin = createBackendPlugin({
                   'Could not record anonymous Tier 1 registration timing',
                 ),
               );
+            if (
+              collectRegistrationFeedback &&
+              interactiveRegistration &&
+              principal.type === 'user'
+            ) {
+              return issueRegistrationFeedbackToken(
+                transaction,
+                principal.userEntityRef,
+              ).catch(() => {
+                logger.warn(
+                  'Could not issue anonymous registration feedback token',
+                );
+                return undefined;
+              });
+            }
+            return undefined;
           });
         }
 
@@ -2206,6 +2237,39 @@ export const governancePlugin = createBackendPlugin({
           });
         });
 
+        router.post('/registration-feedback', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          res.set('Cache-Control', 'no-store');
+          if (!collectRegistrationFeedback)
+            throw new NotFoundError('Registration feedback is unavailable.');
+          const input = registrationFeedbackInput.safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide a registration feedback token and a rating of 1, 2, or 3.',
+            );
+          await recordRegistrationFeedback(
+            db,
+            principal.userEntityRef,
+            input.data,
+          );
+          res.status(204).end();
+        });
+
+        router.get('/reports/registration-feedback', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(
+              await registrationFeedbackReport(db, collectRegistrationFeedback),
+            );
+        });
+
         router.get('/reports/registration-timing', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
@@ -2271,6 +2335,9 @@ export const governancePlugin = createBackendPlugin({
               appsAwaitingAccessFulfillment: ownedIds.filter(id =>
                 awaitingFulfillment.has(id),
               ),
+              ...(collectRegistrationFeedback && {
+                collectRegistrationFeedback: true,
+              }),
               ...(collectTierOneRegistrationTiming && {
                 collectTierOneRegistrationTiming: true,
               }),
@@ -2675,15 +2742,21 @@ export const governancePlugin = createBackendPlugin({
           }
           await validateOwners(app);
           const record = buildRecord(app, 'git');
-          await insert([record], principal, {
+          const registrationFeedbackToken = await insert([record], principal, {
             discoveryClaim: { id: req.params.id, includePrivate },
             registrationElapsedSeconds: req.body?.registrationElapsedSeconds,
+            interactiveRegistration: true,
           });
           res
+            .set('Cache-Control', 'no-store')
             .status(201)
-            .json(
-              withRiskAssessment(withHostedWorkspaceStatus(record), principal),
-            );
+            .json({
+              ...withRiskAssessment(
+                withHostedWorkspaceStatus(record),
+                principal,
+              ),
+              registrationFeedbackToken,
+            });
         });
 
         router.post('/apps', async (req, res) => {
@@ -2730,14 +2803,20 @@ export const governancePlugin = createBackendPlugin({
           if (fromHostedSnapshot) source = 'hosted snapshot';
           if (fromOutsideGateway) source = 'outside-gateway usage';
           const record = buildRecord(app, source);
-          await insert([record], principal, {
+          const registrationFeedbackToken = await insert([record], principal, {
             registrationElapsedSeconds: req.body?.registrationElapsedSeconds,
+            interactiveRegistration: true,
           });
           res
+            .set('Cache-Control', 'no-store')
             .status(201)
-            .json(
-              withRiskAssessment(withHostedWorkspaceStatus(record), principal),
-            );
+            .json({
+              ...withRiskAssessment(
+                withHostedWorkspaceStatus(record),
+                principal,
+              ),
+              registrationFeedbackToken,
+            });
         });
 
         function isImportPreview(value: unknown) {

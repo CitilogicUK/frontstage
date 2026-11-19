@@ -147,12 +147,24 @@ test('workspace screens share navigation and fit the viewport', async ({
         ...(await response.json()),
         canReview: true,
         collectTierOneRegistrationTiming: true,
+        collectRegistrationFeedback: true,
       },
     });
   });
   await page.route('**/api/governance/reports/registration-timing', route =>
     route.fulfill({
       json: { enabled: true, days: 30, sampleCount: 3, medianSeconds: 125 },
+    }),
+  );
+  await page.route('**/api/governance/reports/registration-feedback', route =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        days: 30,
+        eligibleCount: 8,
+        responseCount: 4,
+        satisfiedCount: 3,
+      },
     }),
   );
   await page.route('**/api/governance/discovery/github', route =>
@@ -252,6 +264,13 @@ test('workspace screens share navigation and fit the viewport', async ({
   });
   await expect(registrationTiming).toContainText('Median: 125 seconds');
   await expect(registrationTiming).toContainText('3 timed registrations');
+  const registrationFeedback = page.getByRole('region', {
+    name: 'Registration feedback',
+  });
+  await expect(registrationFeedback).toContainText('4 of 8 feedback offers');
+  await expect(registrationFeedback).toContainText(
+    '3 of 4 responses were satisfied',
+  );
   const coverage = page.locator('.gov-report-summary > div').filter({
     hasText: 'GitHub discovery coverage',
   });
@@ -593,11 +612,23 @@ test('workspace screens share navigation and fit the viewport', async ({
       json: {
         ...payload,
         id: 'starter-registration',
+        registrationFeedbackToken: 'test-feedback-token',
         tier: 1,
         reviewStatus: 'not required',
         updatedAt: '2025-01-01T00:00:00.000Z',
       },
     });
+  });
+  let feedbackAttempts = 0;
+  await page.route('**/api/governance/registration-feedback', route => {
+    expect(route.request().postDataJSON()).toEqual({
+      token: 'test-feedback-token',
+      rating: 3,
+    });
+    feedbackAttempts += 1;
+    return route.fulfill(
+      feedbackAttempts === 1 ? { status: 503, json: {} } : { status: 204 },
+    );
   });
   await page.getByLabel('Highest data classification').selectOption('internal');
   await page
@@ -610,6 +641,14 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(
     page.getByText('App registered.', { exact: true }),
   ).toBeVisible();
+  const survey = page.getByRole('group', { name: /how satisfied/i });
+  await survey.getByRole('button', { name: 'Satisfied', exact: true }).click();
+  await expect(survey.getByRole('alert')).toHaveText(
+    'Feedback could not be saved. Try again or skip.',
+  );
+  await survey.getByRole('button', { name: 'Satisfied', exact: true }).click();
+  await expect(page.getByText('Thanks for your feedback.')).toBeVisible();
+  expect(feedbackAttempts).toBe(2);
 
   await navigation
     .getByRole('link', { name: 'Templates', exact: true })

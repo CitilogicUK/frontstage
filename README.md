@@ -358,6 +358,8 @@ Backstage Analytics receives semantic events when a registration is saved or a s
 
 Set `governance.collectTierOneRegistrationTiming` to true to show a local **Tier 1 registration time** measure in Reports. It uses elapsed time from opening the interactive form to submitting the attempt that succeeds, including time spent on earlier retries. Frontstage stores the duration and UTC day and shows reviewers the median and sample count for the last 30 UTC calendar days. Existing registrations have no timing sample. The setting is off by default.
 
+Set `governance.collectRegistrationFeedback` to true to see **Registration feedback** in Reports. After interactive registration, builders can rate the experience or skip the question. Reviewers see the response rate and the share of respondents who selected Satisfied for offers made in the last 30 UTC calendar days. Frontstage stores a receipt digest tied to the signed-in builder, the UTC day of the offer, and the optional rating. Receipts expire outside the reporting window and old rows are removed in batches on subsequent eligible registrations. Reviewers see aggregate counts. The setting is off by default and Backstage Analytics continues to emit the existing feedback event.
+
 ## Deployment and roadmap
 
 The dev server uses seed identities and SQLite. Before deployment, configure company SSO and the Backstage identity catalog provider, map reviewers to company identities, supply Postgres and the production URLs, and configure permissions for accessing the inventory. Production gateway operations, provider controls, additional discovery connectors, and deeper reporting remain later phases.

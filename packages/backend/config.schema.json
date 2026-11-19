@@ -17,6 +17,11 @@
           "default": false,
           "description": "Require reviewer verification and an HTTPS evidence link when approving a Tier 3 app that takes actions."
         },
+        "collectRegistrationFeedback": {
+          "type": "boolean",
+          "default": false,
+          "description": "Collect optional anonymous ratings after successful interactive registration and report aggregate counts to reviewers."
+        },
         "collectTierOneRegistrationTiming": {
           "type": "boolean",
           "default": false,

@@ -107,6 +107,8 @@ type OwnerScorecard = {
   catalogUnavailable: boolean;
 };
 
+type RegistrationResult = App & { registrationFeedbackToken?: string };
+
 type App = {
   id: string;
   name: string;
@@ -425,6 +427,8 @@ export function GovernancePage() {
     collectTierOneRegistrationTiming,
     setCollectTierOneRegistrationTiming,
   ] = useState(false);
+  const [collectRegistrationFeedback, setCollectRegistrationFeedback] =
+    useState(false);
   const [graduationEnabled, setGraduationEnabled] = useState(false);
   const [reviewTracks, setReviewTracks] = useState<ReviewTrack[]>([]);
   const [reviewerTracks, setReviewerTracks] = useState<ReviewTrack[]>([]);
@@ -634,6 +638,10 @@ export function GovernancePage() {
     tier: number;
     detailId?: string;
     answered?: boolean;
+    token?: string;
+    pending?: boolean;
+    failed?: boolean;
+    view: 'Discovery' | 'Inventory' | 'Reports';
   }>();
   const [appEditorToggle, setAppEditorToggle] = useState<{
     key: string;
@@ -818,6 +826,7 @@ export function GovernancePage() {
               body: JSON.stringify(body),
             },
       );
+      if (response.status === 204) return undefined;
       const result = await response.json();
       if (!response.ok) {
         throw Object.assign(
@@ -923,6 +932,9 @@ export function GovernancePage() {
         setCanReview(result.canReview);
         setCollectTierOneRegistrationTiming(
           result.collectTierOneRegistrationTiming === true,
+        );
+        setCollectRegistrationFeedback(
+          result.collectRegistrationFeedback === true,
         );
         setGraduationEnabled(result.graduationEnabled === true);
         setReviewTracks(result.reviewTracks ?? []);
@@ -1685,9 +1697,10 @@ export function GovernancePage() {
 
   const showRegistrationFeedback =
     registrationFeedback &&
+    view === registrationFeedback.view &&
     (registrationFeedback.detailId
-      ? view === 'Discovery' && selected?.id === registrationFeedback.detailId
-      : view === 'Inventory' && !detailId);
+      ? selected?.id === registrationFeedback.detailId
+      : !detailId);
   const registrationFeedbackPrompt = showRegistrationFeedback && (
     <div className="gov-notice gov-registration-feedback">
       {registrationFeedback.answered ? (
@@ -1701,7 +1714,29 @@ export function GovernancePage() {
                 <button
                   key={label}
                   type="button"
-                  onClick={() => {
+                  disabled={registrationFeedback.pending}
+                  onClick={async () => {
+                    const { token } = registrationFeedback;
+                    if (token) {
+                      setRegistrationFeedback({
+                        ...registrationFeedback,
+                        pending: true,
+                        failed: false,
+                      });
+                      try {
+                        await api('/registration-feedback', {
+                          token,
+                          rating: index + 1,
+                        });
+                      } catch {
+                        setRegistrationFeedback(current =>
+                          current === undefined || current.token !== token
+                            ? current
+                            : { ...current, pending: false, failed: true },
+                        );
+                        return;
+                      }
+                    }
                     analytics.captureEvent(
                       'rate-registration',
                       'governance-app',
@@ -1713,10 +1748,11 @@ export function GovernancePage() {
                         },
                       },
                     );
-                    setRegistrationFeedback({
-                      ...registrationFeedback,
-                      answered: true,
-                    });
+                    setRegistrationFeedback(current =>
+                      current === undefined || current.token !== token
+                        ? current
+                        : { ...current, pending: false, answered: true },
+                    );
                   }}
                 >
                   {label}
@@ -1725,11 +1761,15 @@ export function GovernancePage() {
             )}
             <button
               type="button"
+              disabled={registrationFeedback.pending}
               onClick={() => setRegistrationFeedback(undefined)}
             >
               Skip feedback
             </button>
           </div>
+          {registrationFeedback.failed && (
+            <p role="alert">Feedback could not be saved. Try again or skip.</p>
+          )}
         </fieldset>
       )}
     </div>
@@ -3617,6 +3657,10 @@ export function GovernancePage() {
         <PortfolioReport
           apps={apps}
           appSaveVersion={appSaveVersion}
+          collectRegistrationFeedback={collectRegistrationFeedback}
+          registrationFeedbackSaved={Boolean(
+            registrationFeedback?.token && registrationFeedback.answered,
+          )}
           collectTierOneRegistrationTiming={collectTierOneRegistrationTiming}
           discoveries={discoveries}
           discoveryUnavailable={Boolean(discoveryError)}
@@ -3811,7 +3855,7 @@ export function GovernancePage() {
                     ? elapsedSeconds
                     : undefined;
                 const usageSignal = usageRegistrationSession.current?.signal;
-                const registered: App = await api(endpoint, {
+                const registered: RegistrationResult = await api(endpoint, {
                   name: value('name'),
                   purpose: value('purpose'),
                   type: hostedRegistration
@@ -3872,7 +3916,9 @@ export function GovernancePage() {
                     usesAiAtRuntime,
                   },
                 });
-                mergeSavedApps([registered]);
+                const { registrationFeedbackToken, ...registeredApp } =
+                  registered;
+                mergeSavedApps([registeredApp]);
                 if (usageSignal?.aborted) return;
                 let registrationMessage = candidate
                   ? 'Repository claimed and app registered.'
@@ -3916,6 +3962,9 @@ export function GovernancePage() {
                     ),
                   );
                 }
+                const registrationDestination = usageRegistrationSource
+                  ? 'Reports'
+                  : 'Inventory';
                 if (candidate || hostedRegistration) {
                   resetView();
                   setParams({
@@ -3923,14 +3972,17 @@ export function GovernancePage() {
                     ...(candidate && { discoveryStatus: 'registered' }),
                     app: registered.id,
                   });
-                } else if (usageRegistrationSource) {
-                  navigate('Reports');
                 } else {
-                  navigate('Inventory');
+                  navigate(registrationDestination);
                 }
                 setRegistrationFeedback({
                   source,
                   tier: registered.tier,
+                  token: registrationFeedbackToken,
+                  view:
+                    candidate || hostedRegistration
+                      ? 'Discovery'
+                      : registrationDestination,
                   detailId:
                     candidate || hostedRegistration ? registered.id : undefined,
                 });
