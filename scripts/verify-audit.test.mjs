@@ -39,6 +39,7 @@ const revoked = {
   ...hashEvent({
     appId,
     action: 'revoked',
+    environment: 'sandbox',
     ...metadata,
     revision: 1,
     previousDigest: issued.digest,
@@ -102,4 +103,38 @@ test('checks the saved key checkpoint and rejects a truncated or edited chain', 
   });
   assert.equal(edited.status, 1);
   assert.match(edited.stderr, /inconsistent metadata or chain linkage/);
+});
+
+test('verifies earlier checkpoints and final digests together', async () => {
+  const updatedRecord = hashEvent({
+    record: { id: appId },
+    previousDigest: events[0].digest,
+    revision: 1,
+  });
+  const audit = {
+    events: [...events, updatedRecord],
+    keyAuditVersion: 1,
+    keyEvents: [issued, revoked],
+  };
+  const anchors = [
+    updatedRecord.digest,
+    '--checkpoint',
+    events[0].digest,
+    '--key-head',
+    revoked.digest,
+    '--key-checkpoint',
+    issued.digest,
+  ];
+  const valid = await verify(audit, ...anchors);
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.match(valid.stdout, /Saved checkpoint matched revision 0/);
+  assert.match(valid.stdout, /Saved key checkpoint matched revision 0/);
+
+  const truncated = await verify({ ...audit, events }, ...anchors);
+  assert.equal(truncated.status, 1);
+  assert.match(truncated.stderr, /final digest does not match/);
+
+  const invalid = await verify(audit, ...anchors.slice(0, -1), 'invalid');
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /Usage: yarn audit:verify/);
 });

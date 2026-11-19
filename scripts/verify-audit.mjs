@@ -92,19 +92,16 @@ try {
       'key-checkpoint': { type: 'string' },
     },
   });
-  const suppliedDigest = expectedHead ?? checkpoint;
-  const suppliedKeyDigest = keyHead ?? keyCheckpoint;
+  const digests = [expectedHead, checkpoint, keyHead, keyCheckpoint];
   if (
     !filename ||
     extra.length ||
-    (expectedHead !== undefined && checkpoint !== undefined) ||
-    (suppliedDigest !== undefined && !/^[a-f0-9]{64}$/i.test(suppliedDigest)) ||
-    (keyHead !== undefined && keyCheckpoint !== undefined) ||
-    (suppliedKeyDigest !== undefined &&
-      !/^[a-f0-9]{64}$/i.test(suppliedKeyDigest))
+    digests.some(
+      digest => digest !== undefined && !/^[a-f0-9]{64}$/i.test(digest),
+    )
   ) {
     throw new Error(
-      'Usage: yarn audit:verify <export.json> [expected-head-sha256 | --checkpoint sha256] [--key-head sha256 | --key-checkpoint sha256]',
+      'Usage: yarn audit:verify <export.json> [expected-head-sha256] [--checkpoint sha256] [--key-head sha256] [--key-checkpoint sha256]',
     );
   }
   const checkpointDigest = checkpoint?.toLowerCase();
