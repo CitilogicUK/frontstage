@@ -165,11 +165,18 @@ const scenarios = [
   },
 ];
 
+function printRecord(record, summary) {
+  const url = new URL(origin);
+  url.searchParams.set('app', record.id);
+  console.log(`${record.name} — ${summary}\n  ${url.href}`);
+}
+
 for (const scenario of scenarios) {
   const existing = apps.find(app => app.sourceUrl === scenario.sourceUrl);
   const record = existing ?? (await request('/apps', scenario));
-  console.log(
-    `${record.name} — Tier ${record.tier}, ${record.lifecycle}, review ${record.reviewStatus}`,
+  printRecord(
+    record,
+    `Tier ${record.tier}, ${record.lifecycle}, review ${record.reviewStatus}`,
   );
 }
 
@@ -200,9 +207,9 @@ if (!existingDirectoryApp) {
   await request(`${appPath}/directory-requests`, {
     message: 'I need access to reconcile the weekly synthetic stock count.',
   });
-  console.log(`${app.name} — published with a pending access request`);
+  printRecord(app, 'published with a pending access request');
 } else {
-  console.log(`${existingDirectoryApp.name} — existing demo record preserved`);
+  printRecord(existingDirectoryApp, 'existing demo record preserved');
   const { apps: listings } = await request('/directory');
   const listing = listings.find(item => item.id === existingDirectoryApp.id);
   if (!listing?.requestStatus) {
