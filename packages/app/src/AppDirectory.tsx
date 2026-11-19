@@ -21,8 +21,12 @@ type DirectoryApp = DirectoryListing & {
   name: string;
   requestStatus?: DirectoryRequestStatus;
   requestId?: string;
+  requestProvisionedAt?: string;
 };
-type UnavailableRequest = Pick<DirectoryApp, 'id' | 'name' | 'requestId'> & {
+type UnavailableRequest = Pick<
+  DirectoryApp,
+  'id' | 'name' | 'requestId' | 'requestProvisionedAt'
+> & {
   requestStatus: DirectoryRequestStatus;
 };
 type DirectoryFeed = {
@@ -169,6 +173,7 @@ export function AppDirectory() {
                     <DirectoryRequestAction
                       appId={app.id}
                       status={app.requestStatus}
+                      provisionedAt={app.requestProvisionedAt}
                       withdrawRequestId={
                         requestView ? app.requestId : undefined
                       }

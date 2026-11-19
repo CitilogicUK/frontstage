@@ -15,6 +15,7 @@ import {
   saveOutsideGatewayUsage,
 } from './outsideGatewayUsage';
 import {
+  directoryRequestFulfillmentMigration,
   directoryRequestsMigration,
   directoryRequestsTable,
   directoryRequestView,
@@ -223,6 +224,7 @@ type RecordAction =
   | 'directory-access-approved'
   | 'directory-access-declined'
   | 'directory-access-withdrawn'
+  | 'directory-access-provisioned'
   | 'review-ticket-updated'
   | 'ownership-handover';
 
@@ -558,9 +560,12 @@ export const governancePlugin = createBackendPlugin({
             '017_gateway_key_environments',
             '018_outside_gateway_usage',
             '019_ownership_observations',
+            '020_directory_request_fulfillment',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
+            if (name === '020_directory_request_fulfillment')
+              return directoryRequestFulfillmentMigration();
             if (name === '012_gateway_key_audit')
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
@@ -1572,12 +1577,16 @@ export const governancePlugin = createBackendPlugin({
             db(table).select('payload'),
             db<DirectoryRequestRow>(directoryRequestsTable)
               .where({ requester: principal.userEntityRef })
-              .select('app_id', 'id', 'status'),
+              .select('app_id', 'id', 'status', 'provisioned_at'),
           ]);
           const ownRequestByApp = new Map(
             ownRequests.map(row => [
               row.app_id,
-              { requestId: row.id, requestStatus: row.status },
+              {
+                requestId: row.id,
+                requestStatus: row.status,
+                requestProvisionedAt: row.provisioned_at ?? undefined,
+              },
             ]),
           );
           const records = rows.map(
@@ -1968,6 +1977,76 @@ export const governancePlugin = createBackendPlugin({
               );
             });
             res.set('Cache-Control', 'no-store').status(204).end();
+          },
+        );
+
+        router.patch(
+          '/apps/:id/directory-requests/:requestId/fulfillment',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            const { saved, changed } = await db.transaction(
+              async transaction => {
+                const { record, revision } = await load(
+                  req.params.id,
+                  transaction,
+                );
+                if (principal.userEntityRef !== record.owner)
+                  throw new NotAllowedError(
+                    'Only the current app owner can record access fulfillment.',
+                  );
+                const request = transaction<DirectoryRequestRow>(
+                  directoryRequestsTable,
+                ).where({ app_id: record.id, id: req.params.requestId });
+                const current = await request.clone().first();
+                if (!current)
+                  throw new NotFoundError(
+                    'This app has no matching access request.',
+                  );
+                if (current.status !== 'approved')
+                  throw new ConflictError(
+                    'Only approved access requests can be marked provisioned.',
+                  );
+                if (current.provisioned_at)
+                  return { saved: current, changed: false };
+
+                const provisionedAt = new Date().toISOString();
+                const [updated] = await request
+                  .where({ status: 'approved' })
+                  .whereNull('provisioned_at')
+                  .update({ provisioned_at: provisionedAt })
+                  .returning('*');
+                if (!updated)
+                  throw new ConflictError(
+                    'This access request changed. Retry recording fulfillment.',
+                  );
+                // Keep the app edit timestamp unchanged for access fulfillment.
+                await transaction(table)
+                  .where({ id: record.id })
+                  .update({ revision: revision + 1 });
+                await logChange(
+                  transaction,
+                  record,
+                  revision + 1,
+                  principal,
+                  'directory-access-provisioned',
+                  { at: provisionedAt },
+                );
+                return { saved: updated, changed: true };
+              },
+            );
+            if (changed)
+              await sendGovernanceNotification({
+                recipient: saved.requester,
+                title: 'Directory access marked provisioned',
+                description: 'View the update in Directory → My requests.',
+                search: '?view=directory&directoryAccess=mine',
+                scope: `governance-directory-fulfillment-${saved.id}`,
+              });
+            res
+              .set('Cache-Control', 'no-store')
+              .json(directoryRequestView(saved));
           },
         );
 

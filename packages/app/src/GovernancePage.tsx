@@ -3053,6 +3053,7 @@ export function GovernancePage() {
                 key={`directory-requests-${selected.id}`}
                 appId={selected.id}
                 appRevision={selected.updatedAt}
+                canRecordFulfillment={actor === selected.owner}
                 onPendingChange={updatePendingAccessRequests}
                 onDecisionSaved={() => setAuditVersion(version => version + 1)}
                 listingMeetsLaunchRequirements={

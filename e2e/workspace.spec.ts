@@ -6256,6 +6256,7 @@ test('a directory access request receives a recorded owner decision', async ({
   };
   let actor = requester;
   let status: 'pending' | 'approved' | undefined;
+  let provisionedAt: string | undefined;
   let canApprove = true;
   let approvalCheckUnavailable = true;
   const conflictMessage =
@@ -6291,6 +6292,8 @@ test('a directory access request receives a recorded owner decision', async ({
             name: app.name,
             ...listing,
             requestStatus: actor === requester ? status : undefined,
+            requestProvisionedAt:
+              actor === requester ? provisionedAt : undefined,
           },
           {
             id: 'unrequested-app',
@@ -6315,7 +6318,7 @@ test('a directory access request receives a recorded owner decision', async ({
       expect(request.method()).toBe('GET');
       return route.fulfill({
         json: {
-          requests: [{ ...seed, status }],
+          requests: [{ ...seed, status, provisionedAt }],
           canApprove: canApprove && !approvalCheckUnavailable,
           approvalCheckUnavailable,
         },
@@ -6337,6 +6340,17 @@ test('a directory access request receives a recorded owner decision', async ({
       return route.fulfill({
         json: { ...seed, status, decidedBy: owner, decidedAt: app.updatedAt },
       });
+    },
+  );
+
+  await page.route(
+    '**/api/governance/apps/access-app/directory-requests/request-1/fulfillment',
+    route => {
+      expect(actor).toBe(owner);
+      expect(status).toBe('approved');
+      expect(route.request().method()).toBe('PATCH');
+      provisionedAt = '2025-05-05T10:00:00.000Z';
+      return route.fulfill({ json: { ...seed, status, provisionedAt } });
     },
   );
 
@@ -6462,6 +6476,14 @@ test('a directory access request receives a recorded owner decision', async ({
     app.updatedAt,
   );
 
+  await details
+    .getByRole('button', { name: 'Mark access provisioned' })
+    .click();
+  await details
+    .getByRole('button', { name: 'Confirm access provisioned' })
+    .click();
+  await expect(details.getByText(/access provisioned/i)).toBeVisible();
+
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(workQueue).toHaveCount(0);
   await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
@@ -6473,9 +6495,7 @@ test('a directory access request receives a recorded owner decision', async ({
   await expect(
     directory.getByText('Access request approved', { exact: true }),
   ).toBeVisible();
-  await expect(
-    directory.getByText('The app owner handles access in the destination app.'),
-  ).toBeVisible();
+  await expect(directory.getByText(/access provisioned/i)).toBeVisible();
   await expect(directory.getByText(message, { exact: true })).toHaveCount(0);
   await assertWorkspace(page, 'App directory', 'Directory');
 
