@@ -63,6 +63,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
   const [open, setOpen] = useState(false);
   const [audit, setAudit] = useState<Audit>();
   const [error, setError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -85,7 +86,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
-  }, [appId, discovery, fetch, open]);
+  }, [appId, discovery, fetch, loadAttempt, open]);
 
   function download() {
     const url = URL.createObjectURL(
@@ -289,9 +290,15 @@ export function AppAuditHistory({ appId }: { appId: string }) {
     >
       <summary>Audit history</summary>
       {open && error && (
-        <p role="alert">
-          Audit history could not load. Close and reopen to retry.
-        </p>
+        <>
+          <p role="alert">Audit history could not load.</p>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt(attempt => attempt + 1)}
+          >
+            Retry loading audit history
+          </button>
+        </>
       )}
       {open && !error && !audit && <p role="status">Loading audit history…</p>}
       {open && audit && (
