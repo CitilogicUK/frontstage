@@ -11,7 +11,7 @@ import {
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
-import { Link, type To } from 'react-router-dom';
+import { Link, useSearchParams, type To } from 'react-router-dom';
 import {
   downloadCsv,
   outsideGatewayUsageCsv,
@@ -20,6 +20,7 @@ import {
 
 const maxUsageFileSize = 1024 * 1024;
 const reconciliationPath = '/reports/outside-gateway/reconciliations';
+const reconciliationParam = 'usageReconciliation';
 
 type SavedReconciliation = {
   id: string;
@@ -65,6 +66,10 @@ export function OutsideGatewayUsage({
   const config = useApi(configApiRef);
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
+  const [params, setParams] = useSearchParams();
+  const routeId = params.get(reconciliationParam);
+  const previousRouteId = useRef<string | null>(null);
+  const [routeAttempt, setRouteAttempt] = useState(0);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File>();
@@ -77,8 +82,54 @@ export function OutsideGatewayUsage({
   const historyHeading = useRef<HTMLHeadingElement>(null);
   const loadOlderButton = useRef<HTMLButtonElement>(null);
   const request = useRef<AbortController>();
+  const requestRoute = useRef<string | null>(null);
   const historyRequest = useRef<AbortController>();
   useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => {
+    const previous = previousRouteId.current;
+    previousRouteId.current = routeId;
+    if (routeId === null) {
+      if (previous !== null) setSaved(undefined);
+      if (requestRoute.current !== null) {
+        request.current?.abort();
+        requestRoute.current = null;
+        setError(undefined);
+        setBusy(false);
+      }
+      return undefined;
+    }
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    requestRoute.current = routeId;
+    setSaved(undefined);
+    onPreview(undefined);
+    setError(undefined);
+    setBusy(true);
+    discovery
+      .getBaseUrl('governance')
+      .then(base =>
+        fetch(`${base}${reconciliationPath}/${encodeURIComponent(routeId)}`, {
+          signal: controller.signal,
+        }),
+      )
+      .then(async response => {
+        if (!response.ok) throw new Error('Reconciliation unavailable');
+        const result: SavedReconciliation = await response.json();
+        if (!controller.signal.aborted) setSaved(result);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setError('The saved reconciliation could not load.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBusy(false);
+      });
+    return () => {
+      controller.abort();
+      if (request.current === controller) setBusy(false);
+    };
+  }, [discovery, fetch, onPreview, routeAttempt, routeId]);
   const readHistory = useCallback(
     async (signal: AbortSignal, before?: string) => {
       const base = await discovery.getBaseUrl('governance');
@@ -148,6 +199,25 @@ export function OutsideGatewayUsage({
     setSaved(undefined);
     onPreview(undefined);
     setError(undefined);
+    clearReconciliationRoute();
+  }
+
+  function clearReconciliationRoute() {
+    if (routeId !== null) {
+      const next = new URLSearchParams(params);
+      next.delete(reconciliationParam);
+      setParams(next, { replace: true });
+    }
+  }
+
+  function openReconciliation(id: string) {
+    if (id === routeId) {
+      setRouteAttempt(attempt => attempt + 1);
+    } else {
+      const next = new URLSearchParams(params);
+      next.set(reconciliationParam, id);
+      setParams(next);
+    }
   }
 
   function selectFile(nextFile: File | undefined) {
@@ -190,6 +260,7 @@ export function OutsideGatewayUsage({
     const pastedUsage = String(new FormData(event.currentTarget).get('usage'));
     const controller = new AbortController();
     request.current = controller;
+    requestRoute.current = null;
     setBusy(true);
     try {
       let input = pastedUsage;
@@ -222,6 +293,7 @@ export function OutsideGatewayUsage({
   async function recheckSaved(reconciliation: SavedReconciliation) {
     const controller = new AbortController();
     request.current = controller;
+    requestRoute.current = routeId;
     setError(undefined);
     setBusy(true);
     try {
@@ -231,6 +303,7 @@ export function OutsideGatewayUsage({
       );
       if (result) {
         setSaved(undefined);
+        clearReconciliationRoute();
         onPreview({ ...result, savedReconciliationId: reconciliation.id });
       }
     } catch {
@@ -241,47 +314,36 @@ export function OutsideGatewayUsage({
     }
   }
 
-  async function accessReconciliation(id?: string) {
+  async function saveReconciliation() {
+    if (!livePreview) return;
     const controller = new AbortController();
     request.current = controller;
+    requestRoute.current = null;
     setError(undefined);
     setBusy(true);
     try {
       const base = await discovery.getBaseUrl('governance');
-      let response: Response;
-      if (id) {
-        response = await fetch(
-          `${base}${reconciliationPath}/${encodeURIComponent(id)}`,
-          { signal: controller.signal },
+      const response = await fetch(base + reconciliationPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify(usageInput(livePreview)),
+      });
+      if (response.status === 400) {
+        setError(
+          'Saved reconciliations require source URLs without query strings or fragments.',
         );
-      } else {
-        if (!livePreview) return;
-        response = await fetch(base + reconciliationPath, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify(usageInput(livePreview)),
-        });
-        if (response.status === 400) {
-          setError(
-            'Saved reconciliations require source URLs without query strings or fragments.',
-          );
-          return;
-        }
+        return;
       }
       if (!response.ok) throw new Error('Reconciliation unavailable');
       const result: SavedReconciliation = await response.json();
       if (controller.signal.aborted) return;
       setSaved(result);
       onPreview(undefined);
-      if (!id) setHistoryVersion(version => version + 1);
+      setHistoryVersion(version => version + 1);
     } catch {
       if (!controller.signal.aborted)
-        setError(
-          id
-            ? 'The saved reconciliation could not load.'
-            : 'The reconciliation could not be saved.',
-        );
+        setError('The reconciliation could not be saved.');
     } finally {
       if (!controller.signal.aborted) setBusy(false);
     }
@@ -363,7 +425,7 @@ export function OutsideGatewayUsage({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void accessReconciliation(item.id)}
+                onClick={() => openReconciliation(item.id)}
               >
                 Open saved reconciliation from {item.from} to {item.to}
               </button>{' '}
@@ -396,6 +458,17 @@ export function OutsideGatewayUsage({
                 <time dateTime={saved.confirmedAt}>{saved.confirmedAt}</time> ·{' '}
                 {saved.confirmedBy}. Matches reflect Inventory at save time.
               </p>
+              <Link
+                to={{
+                  pathname: '/',
+                  search: new URLSearchParams({
+                    view: 'reports',
+                    [reconciliationParam]: saved.id,
+                  }).toString(),
+                }}
+              >
+                Direct link to saved reconciliation
+              </Link>
               <button
                 type="button"
                 disabled={busy}
@@ -410,9 +483,11 @@ export function OutsideGatewayUsage({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() =>
-                  void accessReconciliation(livePreview?.savedReconciliationId)
-                }
+                onClick={() => {
+                  if (livePreview?.savedReconciliationId)
+                    openReconciliation(livePreview.savedReconciliationId);
+                  else void saveReconciliation();
+                }}
               >
                 {livePreview?.savedReconciliationId
                   ? 'Open original reconciliation'

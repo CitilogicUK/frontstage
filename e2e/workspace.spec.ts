@@ -930,6 +930,21 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(startRegistration).toHaveCount(0);
   expect(previewCalls).toBe(4);
 
+  const directLink = report.getByRole('link', {
+    name: 'Direct link to saved reconciliation',
+  });
+  const directPath = `/?view=reports&usageReconciliation=${reconciliation.id}`;
+  await expect(directLink).toHaveAttribute('href', directPath);
+  await page.goto(directPath);
+  await expect(page).toHaveURL(`${workspaceUrl}${directPath}`);
+  await expect(report.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
+  await expect(report.getByRole('link', { name: app.name })).toBeVisible();
+  await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
+  await expect(startRegistration).toHaveCount(0);
+  expect(previewCalls).toBe(4);
+
   await page.getByRole('link', { name: 'Inventory', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Registration source' })
