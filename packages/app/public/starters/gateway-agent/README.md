@@ -2,6 +2,8 @@
 
 Drafts a plan and answer in two gateway calls. It requires Node.js 22 or later and uses built-in APIs.
 
+Run `node --test` to check the gateway client locally. These tests use synthetic data and require no app key or network access.
+
 Complete `PROJECT_BRIEF.md` before building. Coding agents should follow `AGENTS.md`. Claude Code loads it through `CLAUDE.md`.
 
 1. Put these files in your repository. Edit the source URL, owner, team, purpose, data classification, and models in `catalog-info.yaml` to describe your app. Replace the sample backup owner where present, or add one if the risk tier requires it.

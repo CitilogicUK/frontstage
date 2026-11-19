@@ -242,6 +242,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(descriptor).toContain('deliveryStage: poc');
     expect(descriptor).toContain(`usesAiAtRuntime: ${usesAi}`);
     expect(Boolean(files[`${id}/gateway.mjs`])).toBe(usesAi);
+    expect(Boolean(files[`${id}/gateway.test.mjs`])).toBe(usesAi);
     expect(descriptor).toContain('classification: restricted');
     expect(descriptor).toContain('backupOwner: user:default/backup');
     expect(brief).toContain('Highest data classification: restricted');

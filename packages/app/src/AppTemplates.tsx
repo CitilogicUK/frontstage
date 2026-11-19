@@ -116,20 +116,19 @@ export function AppTemplates() {
     try {
       const base = new URL(config.getString('app.baseUrl'));
       base.pathname = base.pathname.replace(/\/?$/, '/');
+      const sharedFiles = [
+        'AGENTS.md',
+        'CLAUDE.md',
+        ...(starter.runtime ? ['gateway.mjs', 'gateway.test.mjs'] : []),
+      ];
       const files = await Promise.all(
         [
           'README.md',
           'catalog-info.yaml',
-          'AGENTS.md',
-          'CLAUDE.md',
           ...starter.sourceFiles,
-          ...(starter.runtime ? ['gateway.mjs'] : []),
+          ...sharedFiles,
         ].map(async name => {
-          const folder = ['AGENTS.md', 'CLAUDE.md', 'gateway.mjs'].includes(
-            name,
-          )
-            ? 'shared'
-            : starter.id;
+          const folder = sharedFiles.includes(name) ? 'shared' : starter.id;
           const response = await fetch(
             new URL(`starters/${folder}/${name}`, base),
           );
