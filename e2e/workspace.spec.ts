@@ -1845,6 +1845,7 @@ test('reviewers can find required reviews without a linked ticket', async ({
     lifecycle: 'experimental',
     reviewStatus: 'pending',
     nextReview: null,
+    updatedAt: '2025-01-01T00:00:00.000Z',
     classification: 'internal',
     platform: 'GitHub',
     models: [],
@@ -1858,7 +1859,27 @@ test('reviewers can find required reviews without a linked ticket', async ({
     nextReview: '2025-01-01T00:00:00.000Z',
   };
   let canReview = true;
+  const ticket = 'https://tickets.example.com/reviews/assigned';
   let reviewTicketUrl: string | undefined;
+  let overdueTicketUrl: string | undefined;
+  await page.route(
+    '**/api/governance/apps/missing-ticket/review-ticket',
+    route => {
+      expect(route.request().method()).toBe('PATCH');
+      expect(route.request().postDataJSON()).toEqual({
+        url: ticket,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      reviewTicketUrl = ticket;
+      return route.fulfill({
+        json: {
+          ...app,
+          reviewTicketUrl,
+          updatedAt: '2025-01-02T00:00:00.000Z',
+        },
+      });
+    },
+  );
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -1866,7 +1887,7 @@ test('reviewers can find required reviews without a linked ticket', async ({
         actor: 'user:default/reviewer',
         apps: [
           { ...app, reviewTicketUrl },
-          { ...overdueApp, reviewTicketUrl },
+          { ...overdueApp, reviewTicketUrl: overdueTicketUrl },
           {
             ...app,
             id: 'linked-ticket',
@@ -1932,7 +1953,22 @@ test('reviewers can find required reviews without a linked ticket', async ({
   await search.clear();
   await expect(rows).toHaveCount(2);
 
-  reviewTicketUrl = 'https://tickets.example.com/reviews/assigned';
+  await rows
+    .filter({ hasText: app.name })
+    .getByRole('button', { name: app.name })
+    .click();
+  await details
+    .getByRole('textbox', { name: 'Ticket URL', exact: true })
+    .fill(ticket);
+  await details.getByRole('button', { name: 'Save review ticket' }).click();
+  await expect(details.getByText('Review ticket saved.')).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/view=reviews&review=missing-ticket$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(overdueApp.name);
+  await expect(filter).toBeFocused();
+
+  overdueTicketUrl = ticket;
   await page.reload();
   await expect(
     page.getByRole('heading', { name: 'No missing review tickets' }),
