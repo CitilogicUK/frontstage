@@ -22,7 +22,7 @@ yarn start --config ../../app-config.reviewer.yaml
 
 ## Register apps
 
-The **Risk assessment** preview shows which answers or workspace policy rules set the estimated tier. The same policy evaluates the record when you save. Owners, backup owners, and reviewers can expand **Current risk assessment** on saved records. If the current policy would assign a different tier, the panel also identifies the saved tier. Saving the app details again applies the current policy.
+The **Risk assessment** preview shows which answers or workspace policy rules set the estimated tier. The same policy evaluates the record when you save. Owners, backup owners, and reviewers can expand **Current risk assessment** on saved records. If the current policy would assign a different tier, the panel also identifies the saved tier. Saving the app details again applies the current policy. Reviewers can open **Apps needing risk reassessment** in Reports to find non-retired records with a tier mismatch.
 
 - **Intake form.** Use Register to enter app details and preview the tier. The backend recalculates the tier before saving.
 - **Repository.** Commit a descriptor using [examples/ai-app.yaml](examples/ai-app.yaml), then upload it under Import, submit it from CI, or use it when claiming a repository in Discovery.

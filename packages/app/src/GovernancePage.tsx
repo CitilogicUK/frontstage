@@ -28,6 +28,7 @@ import {
   appRiskTierNames as tierNames,
   appRegistrationSources,
   registrationSource,
+  needsRiskReassessment,
 } from './appDimensions';
 import { deliveryStages, parseDeliveryStage } from './deliveryStages';
 import {
@@ -1091,7 +1092,8 @@ export function GovernancePage() {
       inventoryReview === 'retirement' ||
       inventoryReview === 'access' ||
       inventoryReview === 'workspace' ||
-      inventoryReview === 'scorecard')
+      inventoryReview === 'scorecard' ||
+      (inventoryReview === 'reassess' && canReview))
       ? inventoryReview
       : '';
 
@@ -1144,6 +1146,7 @@ export function GovernancePage() {
       (!filterByRuntime ||
         (app.usesAiAtRuntime !== false) === (runtimeFilter === 'yes')) &&
       (inventoryReviewFilter !== 'overdue' || isReviewOverdue(app, now)) &&
+      (inventoryReviewFilter !== 'reassess' || needsRiskReassessment(app)) &&
       (inventoryReviewFilter !== 'attention' ||
         appReview(app, now).priority <= 1) &&
       (inventoryReviewFilter !== 'upcoming' ||
@@ -1643,6 +1646,11 @@ export function GovernancePage() {
                     >
                       <option value="">All review statuses</option>
                       <option value="attention">Needs review attention</option>
+                      {canReview && (
+                        <option value="reassess">
+                          Needs risk reassessment
+                        </option>
+                      )}
                       <option value="overdue">
                         Overdue reviews and attestations
                       </option>
