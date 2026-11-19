@@ -455,6 +455,16 @@ export function GovernancePage() {
     params.get('source') === 'outside-gateway'
       ? usageSourceSelection
       : undefined;
+  const usageRegistrationSession = useRef<AbortController>();
+  useEffect(() => {
+    if (!usageRegistrationSource) return undefined;
+    const controller = new AbortController();
+    usageRegistrationSession.current = controller;
+    return () => {
+      controller.abort();
+      usageRegistrationSession.current = undefined;
+    };
+  }, [usageRegistrationSource]);
   const hostedRegistration =
     view === 'Register' &&
     canReview &&
@@ -3401,6 +3411,7 @@ export function GovernancePage() {
                   value('deliveryStage'),
                 );
                 const startedAt = registrationStartedAt.current;
+                const usageSignal = usageRegistrationSession.current?.signal;
                 const registered: App = await api(endpoint, {
                   name: value('name'),
                   purpose: value('purpose'),
@@ -3462,11 +3473,15 @@ export function GovernancePage() {
                   },
                 });
                 mergeSavedApps([registered]);
-                let usageRefreshFailed = false;
+                if (usageSignal?.aborted) return;
+                let registrationMessage = candidate
+                  ? 'Repository claimed and app registered.'
+                  : 'App registered.';
                 if (usageRegistrationSource && usagePreview) {
                   try {
-                    setUsagePreview(
-                      await api('/reports/outside-gateway/preview', {
+                    const refreshed: OutsideGatewayUsagePreview = await api(
+                      '/reports/outside-gateway/preview',
+                      {
                         from: usagePreview.from,
                         to: usagePreview.to,
                         rows: usagePreview.rows.map(
@@ -3476,11 +3491,17 @@ export function GovernancePage() {
                             calls,
                           }),
                         ),
-                      }),
+                      },
+                      'POST',
+                      usageSignal,
                     );
+                    if (usageSignal?.aborted) return;
+                    setUsagePreview(refreshed);
                   } catch {
+                    if (usageSignal?.aborted) return;
                     setUsagePreview(undefined);
-                    usageRefreshFailed = true;
+                    registrationMessage =
+                      'App registered. Reload the usage file to refresh matches.';
                   }
                 }
                 if (hostedRegistration) {
@@ -3510,13 +3531,7 @@ export function GovernancePage() {
                   detailId:
                     candidate || hostedRegistration ? registered.id : undefined,
                 });
-                setMessage(
-                  usageRefreshFailed
-                    ? 'App registered. Reload the usage file to refresh matches.'
-                    : candidate
-                    ? 'Repository claimed and app registered.'
-                    : 'App registered.',
-                );
+                setMessage(registrationMessage);
               })
             }
           >
