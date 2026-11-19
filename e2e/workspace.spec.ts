@@ -6112,6 +6112,51 @@ test('an owner can publish a searchable directory listing and remove it', async 
   expect(inventoryReads).toBe(3);
 });
 
+test('a requester can withdraw their pending request for an unavailable directory listing', async ({
+  page,
+}) => {
+  const pending = {
+    id: 'withdrawal-app',
+    name: 'Unavailable inventory app',
+    requestId: 'pending-1',
+    requestStatus: 'pending',
+  };
+  let withdrawals = 0;
+  await page.route('**/api/governance/directory', route =>
+    route.fulfill({
+      json: {
+        apps: [],
+        unavailableRequests: withdrawals ? [] : [pending],
+      },
+    }),
+  );
+  await page.route(
+    '**/api/governance/apps/withdrawal-app/directory-requests/pending-1',
+    route => {
+      expect(route.request().method()).toBe('DELETE');
+      withdrawals += 1;
+      return route.fulfill({ status: 204 });
+    },
+  );
+  await page.goto('/?view=directory&directoryAccess=mine');
+  const directory = page.getByRole('region', { name: 'Directory apps' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(directory.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const row = directory.getByRole('row', { name: /Unavailable inventory app/ });
+  await expect(row.getByText('Listing unavailable')).toBeVisible();
+  await row.getByRole('button', { name: 'Withdraw request' }).click();
+  await row.getByRole('button', { name: 'Cancel withdrawal' }).click();
+  expect(withdrawals).toBe(0);
+  await row.getByRole('button', { name: 'Withdraw request' }).click();
+  await row.getByRole('button', { name: 'Confirm withdrawal' }).click();
+  await expect(directory.getByText('No access requests')).toBeVisible();
+  await expect(directory.getByRole('status')).toHaveText(
+    'Access request withdrawn for Unavailable inventory app.',
+  );
+  expect(withdrawals).toBe(1);
+});
+
 test('a directory access request receives a recorded owner decision', async ({
   page,
 }) => {
