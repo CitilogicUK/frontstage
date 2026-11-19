@@ -1382,6 +1382,11 @@ export function GovernancePage() {
                         app.deliveryStage ?? null,
                       );
                       const review = appReview(app, now);
+                      const due = scheduledReviewDate(app);
+                      const daysOverdue =
+                        due && due.getTime() <= now
+                          ? Math.floor((now - due.getTime()) / 86_400_000)
+                          : undefined;
                       const waitingDays = firstDecisionQueue
                         ? firstDecisionWait.get(app.id)
                         : undefined;
@@ -1440,6 +1445,15 @@ export function GovernancePage() {
                                   Engineering co-owner decision requested
                                 </small>
                               )}
+                            {daysOverdue !== undefined && (
+                              <small>
+                                {daysOverdue === 0
+                                  ? 'Less than a day overdue'
+                                  : `${daysOverdue} ${
+                                      daysOverdue === 1 ? 'day' : 'days'
+                                    } overdue`}
+                              </small>
+                            )}
                             {waitingDays !== undefined && (
                               <small>
                                 {waitingDays.toLocaleString('en-US', {

@@ -382,6 +382,8 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.nth(0)).toContainText('Attestation overdue');
   await expect(rows.nth(1)).toContainText('Attestation due soon');
   await expect(rows.nth(2)).toContainText('Attestation current');
+  await expect(rows.nth(0)).toContainText('1 day overdue');
+  await expect(rows.nth(1)).not.toContainText('days overdue');
   const reviewStatus = page.getByRole('combobox', { name: 'Review status' });
   await page
     .getByRole('link', { name: '2 of your apps need review attention' })
@@ -484,6 +486,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Another owner’s app');
   await expect(rows.first()).toContainText('Attestation overdue');
+  await expect(rows.first()).toContainText('5 days overdue');
   await rows
     .first()
     .getByRole('button', { name: /Another owner/ })
