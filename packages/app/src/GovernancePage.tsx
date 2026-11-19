@@ -26,6 +26,8 @@ import {
   appClassifications as classes,
   appLifecycles,
   appRiskTierNames as tierNames,
+  appRegistrationSources,
+  registrationSource,
 } from './appDimensions';
 import { deliveryStages, parseDeliveryStage } from './deliveryStages';
 import {
@@ -92,6 +94,7 @@ type App = {
   type?: string;
   platform: string;
   sourceUrl: string;
+  discoverySource?: string;
   owner: string;
   team: string;
   backupOwner?: string;
@@ -1042,6 +1045,12 @@ export function GovernancePage() {
   const accountableOwnerFilter =
     view === 'Inventory' ? params.get('accountableOwner') : null;
   const modelFilter = view === 'Inventory' ? params.get('model') : null;
+  const registrationSourceFilter =
+    view === 'Inventory'
+      ? Object.keys(appRegistrationSources).find(
+          value => value === params.get('registrationSource'),
+        )
+      : undefined;
   const declaredModels = [...new Set(apps.flatMap(app => app.models))].sort(
     (a, b) => a.localeCompare(b),
   );
@@ -1065,6 +1074,7 @@ export function GovernancePage() {
       platformFilter ||
       teamFilter ||
       accountableOwnerFilter ||
+      registrationSourceFilter ||
       modelFilter,
   );
   const filteredApps = scopedApps.filter(
@@ -1093,6 +1103,8 @@ export function GovernancePage() {
       (!platformFilter || app.platform === platformFilter) &&
       (!teamFilter || app.team === teamFilter) &&
       (!accountableOwnerFilter || app.owner === accountableOwnerFilter) &&
+      (!registrationSourceFilter ||
+        registrationSource(app.discoverySource) === registrationSourceFilter) &&
       (!modelFilter || app.models.includes(modelFilter)),
   );
 
@@ -1106,6 +1118,7 @@ export function GovernancePage() {
       | 'platform'
       | 'team'
       | 'accountableOwner'
+      | 'registrationSource'
       | 'model'
       | 'tier',
     value: string,
@@ -1439,6 +1452,29 @@ export function GovernancePage() {
                     </select>
                   </label>
                   <label>
+                    <span className="gov-visually-hidden">
+                      Registration source
+                    </span>
+                    <select
+                      value={registrationSourceFilter ?? ''}
+                      onChange={event =>
+                        setAppListFilter(
+                          'registrationSource',
+                          event.target.value,
+                        )
+                      }
+                    >
+                      <option value="">All registration sources</option>
+                      {Object.entries(appRegistrationSources).map(
+                        ([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <label>
                     <span className="gov-visually-hidden">Platform</span>
                     <select
                       value={platformFilter ?? ''}
@@ -1704,6 +1740,8 @@ export function GovernancePage() {
                           classificationFilter ||
                           platformFilter ||
                           teamFilter ||
+                          accountableOwnerFilter ||
+                          registrationSourceFilter ||
                           modelFilter ||
                           tier
                         ) {
@@ -1716,6 +1754,7 @@ export function GovernancePage() {
                             next.delete('platform');
                             next.delete('team');
                             next.delete('accountableOwner');
+                            next.delete('registrationSource');
                             next.delete('model');
                             next.delete('tier');
                             if (inventoryReviewFilter) next.delete('review');

@@ -388,6 +388,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
           {
             ...base,
             id: 'current',
+            discoverySource: 'bulk import',
             name: 'Current app',
             platform: 'Hosted workspace & tools',
             effectiveClassification: 'confidential',
@@ -400,6 +401,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
           {
             ...base,
             id: 'soon',
+            discoverySource: 'git',
             name: 'Due soon app',
             models: ['gpt-4.1-mini', 'gpt-4.1-mini'],
             nextReview: dateInDays(30),
@@ -407,6 +409,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
           {
             ...base,
             id: 'overdue',
+            discoverySource: 'registered',
             name: 'Overdue app',
             deliveryStage: 'production',
             nextReview: dateInDays(0),
@@ -667,6 +670,27 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page).toHaveURL(/lifecycle=deprecated$/);
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Current app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('registrationSource');
+  const sourceReport = page.getByRole('region', {
+    name: 'Apps by registration source',
+  });
+  await expect(
+    sourceReport.getByRole('link', { name: 'Unrecorded: 1 app' }),
+  ).toBeVisible();
+  await sourceReport.getByRole('link', { name: 'Bulk import: 1 app' }).click();
+  await expect(
+    page.getByRole('combobox', { name: 'Registration source' }),
+  ).toHaveValue('bulk import');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Current app');
+  const sourceDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const sourceCsv = await readFile(await (await sourceDownload).path(), 'utf8');
+  expect(sourceCsv.split('\r\n')[0]).toContain('registration_source');
+  expect(sourceCsv.trimEnd().endsWith(',"bulk import"')).toBe(true);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })
