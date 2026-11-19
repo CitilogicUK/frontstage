@@ -1142,6 +1142,149 @@ describe('governance record access', () => {
     },
   );
 
+  it('notifies only an eligible backup once per observed ownership gap and retries delivery', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    const inactive = new Set<string>();
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: {
+              'governance.backstage.io/active': inactive.has(ref)
+                ? 'false'
+                : 'true',
+            },
+          },
+        })),
+      }));
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
+    const scheduleTask = jest.fn<
+      Promise<void>,
+      Parameters<SchedulerService['scheduleTask']>
+    >();
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        notifications.factory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.scheduler.mock({ scheduleTask }).factory,
+        mockServices.rootConfig.factory({
+          data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
+            governance: {
+              reviewers: [reviewer],
+              ownershipObservationIntervalMinutes: 15,
+              notifyBackupOwnersOnOwnershipGap: true,
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const declaration = {
+      name: 'Synthetic ownership handover',
+      purpose: 'Verify the private handover notification.',
+      type: 'app',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/ownership-handover',
+      owner,
+      team: 'group:default/platform',
+      lifecycle: 'active',
+      audience: 'personal',
+      classification: 'internal',
+      usesAiAtRuntime: false,
+    };
+    const { body: app } = await api
+      .post(apps)
+      .set('Authorization', auth(owner))
+      .send({ ...declaration, backupOwner: backup })
+      .expect(201);
+    await api
+      .post(apps)
+      .set('Authorization', auth(owner))
+      .send({ ...declaration, sourceUrl: 'https://example.com/without-backup' })
+      .expect(201);
+
+    const task = scheduleTask.mock.calls.find(
+      ([item]) => item.id === 'governance-ownership-observation',
+    )?.[0];
+    expect(task).toBeDefined();
+    const run = () => task!.fn(new AbortController().signal);
+    const started = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(started);
+    await run();
+    inactive.add(owner);
+    inactive.add(backup);
+    await run();
+    expect(notifications.send).not.toHaveBeenCalled();
+
+    inactive.delete(backup);
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notification unavailable'),
+    );
+    await run();
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    const expected = {
+      recipients: { type: 'entity', entityRef: backup },
+      payload: {
+        title: 'Backup owner handover available',
+        description: 'Open the app in Inventory to review the handover.',
+        link: `https://portal.example.com/workspace?app=${app.id}`,
+        topic: 'AI App Governance',
+        scope: expect.stringMatching(
+          /^governance-backup-owner-handover-[a-f0-9]{64}$/,
+        ),
+      },
+    };
+    expect(notifications.send).toHaveBeenLastCalledWith(expected);
+    clock.mockReturnValue(started + 60 * 60 * 1000);
+    await run();
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(2);
+    expect(notifications.send.mock.calls[1][0]).toEqual(
+      notifications.send.mock.calls[0][0],
+    );
+
+    inactive.delete(owner);
+    await run();
+    inactive.add(owner);
+    clock.mockReturnValue(started + 2 * 60 * 60 * 1000);
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(3);
+    expect(notifications.send).toHaveBeenLastCalledWith(expected);
+    expect(notifications.send.mock.calls[2][0].payload.scope).not.toBe(
+      notifications.send.mock.calls[1][0].payload.scope,
+    );
+
+    const link = new URL(notifications.send.mock.calls[2][0].payload.link!);
+    const handover = `${apps}/${link.searchParams.get('app')}/backup-handover`;
+    await api.get(handover).set('Authorization', auth(backup)).expect(200, {
+      available: true,
+      backupRequired: false,
+    });
+    await api
+      .post(handover)
+      .set('Authorization', auth(backup))
+      .send({ expectedUpdatedAt: app.updatedAt })
+      .expect(200)
+      .expect(({ body }) => expect(body.owner).toBe(backup));
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(3);
+  });
+
   it('summarizes only the current owner’s active scorecard issues', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';

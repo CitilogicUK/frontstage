@@ -1,3 +1,4 @@
+import { sendBackupHandoverNotifications } from './backupHandoverNotifications';
 import {
   clearOwnerObservation,
   ownershipObservationMigration,
@@ -444,6 +445,20 @@ export const governancePlugin = createBackendPlugin({
               'governance.ownershipObservationIntervalMinutes',
             ),
           );
+        const notifyBackupOwnersOnOwnershipGap =
+          config.getOptionalBoolean(
+            'governance.notifyBackupOwnersOnOwnershipGap',
+          ) ?? false;
+        if (
+          notifyBackupOwnersOnOwnershipGap &&
+          ownershipObservationIntervalMinutes === undefined
+        )
+          throw new Error(
+            'governance.notifyBackupOwnersOnOwnershipGap requires governance.ownershipObservationIntervalMinutes.',
+          );
+        const handoverNotificationBaseUrl = notifyBackupOwnersOnOwnershipGap
+          ? config.getString('app.baseUrl')
+          : undefined;
         const reviewReminderIntervalMinutes = z
           .number()
           .int()
@@ -3555,27 +3570,48 @@ export const governancePlugin = createBackendPlugin({
                 )
                 .orderBy('id');
               const apps = rows.flatMap(row => {
-                const { id, owner, lifecycle } = JSON.parse(
-                  row.payload,
-                ) as GovernanceRecord;
-                return lifecycle === 'retired'
+                const record = JSON.parse(row.payload) as GovernanceRecord;
+                return record.lifecycle === 'retired'
                   ? []
-                  : [{ id, owner, revision: row.revision }];
+                  : [{ record, revision: row.revision }];
               });
               const unavailable = await unavailableOwners(
-                [...new Set(apps.map(app => app.owner))],
+                [...new Set(apps.map(({ record }) => record.owner))],
                 true,
               );
               if (signal.aborted) return;
+              const scanTime = new Date(Date.now());
               try {
                 await saveOwnerObservations(
                   db,
                   table,
-                  apps,
+                  apps.map(({ record, revision }) => ({
+                    id: record.id,
+                    owner: record.owner,
+                    revision,
+                  })),
                   unavailable,
-                  new Date(Date.now()).toISOString(),
+                  scanTime.toISOString(),
                   signal,
                 );
+                if (handoverNotificationBaseUrl) {
+                  await sendBackupHandoverNotifications({
+                    db,
+                    appsTable: table,
+                    apps,
+                    unavailableOwners: unavailable,
+                    activeCatalogEntities: refs =>
+                      activeCatalogEntities(refs, true),
+                    canHandOver: (record, actor, active) =>
+                      !isAcceptedCoOwner(record, actor) &&
+                      backupCanTakeOwnership(record, actor, active),
+                    notifications,
+                    logger,
+                    appBaseUrl: handoverNotificationBaseUrl,
+                    signal,
+                    scanTime,
+                  });
+                }
               } catch (error) {
                 if (!signal.aborted) throw error;
               }

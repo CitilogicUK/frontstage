@@ -36,6 +36,11 @@
           "maximum": 10080,
           "description": "Optional interval for recording when current accountable owners are first observed unavailable in the catalog."
         },
+        "notifyBackupOwnersOnOwnershipGap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Notify an eligible backup when the accountable owner is observed unavailable. Requires scheduled ownership observation."
+        },
         "retirementReviewIntervalMinutes": {
           "type": "integer",
           "minimum": 15,
