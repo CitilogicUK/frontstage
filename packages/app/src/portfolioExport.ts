@@ -322,6 +322,7 @@ export function missingReviewTicketsCsv(
     team: string;
     reviewStatus: string;
     signoffs?: ReviewSignoffs;
+    firstDecisionWait?: number;
     nextReview: string | null;
   }>,
   baseUrl: string,
@@ -337,6 +338,7 @@ export function missingReviewTicketsCsv(
       'next_review_utc',
       'app_url',
       'review_sign_offs',
+      'first_decision_wait_weekdays',
     ],
     apps.map(app => [
       app.id,
@@ -347,6 +349,7 @@ export function missingReviewTicketsCsv(
       app.nextReview ?? '',
       appRecordUrl(baseUrl, app.id).href,
       reviewSignoffLines(tracks, app.signoffs).join(' | '),
+      app.firstDecisionWait ?? '',
     ]),
   );
 }
