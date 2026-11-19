@@ -28,7 +28,7 @@ The AI App Governance Platform spec describes four phases. Frontstage demonstrat
 | Gateway share | Estimated live gateway spend divided by that estimate plus manually supplied outside spend for the same window. A pilot measurement needs complete billing data for both amounts. |
 | Orphaned apps | Current accountable-owner gaps first observed more than 30 days ago. The first observation depends on the Catalog check schedule and missing observations are reported separately. |
 | Overdue reviews | Non-retired Tier 2 and Tier 3 apps with an overdue scheduled review or attestation divided by non-retired Tier 2 and Tier 3 apps. |
-| Time to register | The form emits elapsed seconds and tier through Backstage Analytics after a successful save. A pilot needs an analytics destination and a Tier 1 median. |
+| Time to register | The opt-in local measure shows the median time to submit a successful Tier 1 form and its sample count over 30 UTC calendar days. Backstage Analytics also emits timing through successful save when an analytics destination is configured. |
 | Time to decision | Median UTC weekdays from first pending Tier 3 submission to the first overall approval or request for changes. Pending decisions appear in the queue. |
 | Builder satisfaction | The form emits an optional three-point response through Backstage Analytics after registration. Pilot reporting needs a baseline and response rate. |
 

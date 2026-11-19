@@ -421,6 +421,10 @@ export function GovernancePage() {
   );
   const [actor, setActor] = useState('');
   const [canReview, setCanReview] = useState(false);
+  const [
+    collectTierOneRegistrationTiming,
+    setCollectTierOneRegistrationTiming,
+  ] = useState(false);
   const [graduationEnabled, setGraduationEnabled] = useState(false);
   const [reviewTracks, setReviewTracks] = useState<ReviewTrack[]>([]);
   const [reviewerTracks, setReviewerTracks] = useState<ReviewTrack[]>([]);
@@ -917,6 +921,9 @@ export function GovernancePage() {
         );
         setActor(result.actor ?? '');
         setCanReview(result.canReview);
+        setCollectTierOneRegistrationTiming(
+          result.collectTierOneRegistrationTiming === true,
+        );
         setGraduationEnabled(result.graduationEnabled === true);
         setReviewTracks(result.reviewTracks ?? []);
         setReviewerTracks(result.reviewerTracks ?? []);
@@ -3610,6 +3617,7 @@ export function GovernancePage() {
         <PortfolioReport
           apps={apps}
           appSaveVersion={appSaveVersion}
+          collectTierOneRegistrationTiming={collectTierOneRegistrationTiming}
           discoveries={discoveries}
           discoveryUnavailable={Boolean(discoveryError)}
           onRetryDiscovery={() =>
@@ -3791,6 +3799,17 @@ export function GovernancePage() {
                   value('deliveryStage'),
                 );
                 const startedAt = registrationStartedAt.current;
+                const elapsedSeconds =
+                  startedAt === undefined
+                    ? undefined
+                    : Math.round((performance.now() - startedAt) / 1000);
+                const registrationElapsedSeconds =
+                  collectTierOneRegistrationTiming &&
+                  elapsedSeconds !== undefined &&
+                  elapsedSeconds >= 0 &&
+                  elapsedSeconds <= 86_400
+                    ? elapsedSeconds
+                    : undefined;
                 const usageSignal = usageRegistrationSession.current?.signal;
                 const registered: App = await api(endpoint, {
                   name: value('name'),
@@ -3809,6 +3828,7 @@ export function GovernancePage() {
                   usesAiAtRuntime,
                   deliveryStage,
                   starterId: descriptor?.starterId ?? starter?.id,
+                  registrationElapsedSeconds,
                   models: usesAiAtRuntime
                     ? value('models')
                         .split(',')
