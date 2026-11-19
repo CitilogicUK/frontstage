@@ -6967,6 +6967,9 @@ test('a nominated owner can accept a planned handover', async ({ page }) => {
     },
   );
   const path = '/?app=planned-owner-handover';
+  const pendingHandovers = page.getByRole('link', {
+    name: '1 owner handover awaits your decision',
+  });
   const details = page.getByRole('dialog', { name: app.name });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await page.goto(path);
@@ -6979,6 +6982,7 @@ test('a nominated owner can accept a planned handover', async ({ page }) => {
   await expect(
     details.getByText(`Awaiting a decision from ${nominee}.`),
   ).toBeVisible();
+  await expect(pendingHandovers).toHaveCount(0);
 
   actor = nominee;
   await page.goto(path);
@@ -6988,6 +6992,18 @@ test('a nominated owner can accept a planned handover', async ({ page }) => {
   await expect(
     details.getByText('Edit app details', { exact: true }),
   ).toHaveCount(0);
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await pendingHandovers.click();
+  await expect(page).toHaveURL(/review=handover$/);
+  await page
+    .getByRole('combobox', { name: 'Ownership', exact: true })
+    .selectOption('me');
+  await expect(page).toHaveURL(/owner=me$/);
+  await page
+    .getByRole('combobox', { name: 'Review status' })
+    .selectOption('handover');
+  await expect(page).toHaveURL(/review=handover$/);
+  await page.getByRole('button', { name: app.name }).click();
   await details
     .getByRole('textbox', { name: 'Replacement backup owner' })
     .fill(backup);
@@ -6995,6 +7011,9 @@ test('a nominated owner can accept a planned handover', async ({ page }) => {
   await expect(
     details.getByText('Edit app details', { exact: true }),
   ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(pendingHandovers).toHaveCount(0);
+  await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
 });
 
 test('a backup owner can confirm handover when the app is eligible', async ({

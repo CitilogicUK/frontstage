@@ -249,6 +249,14 @@ function nomineeCanDecideGraduation(app: App, actor: string) {
   );
 }
 
+function isOwnerHandoverNominee(app: App, actor: string) {
+  return (
+    Boolean(actor) &&
+    app.lifecycle !== 'retired' &&
+    actor === app.ownerHandover?.nominee
+  );
+}
+
 function ownerCanDecideRetirement(app: App, actor: string) {
   return (
     actor === app.owner &&
@@ -419,7 +427,9 @@ export function GovernancePage() {
   const view = viewParameters.get(params.get('view') ?? '') ?? 'Inventory';
   const ownerParam = params.get('owner');
   const ownershipScope =
-    view === 'Inventory' && (ownerParam === 'me' || ownerParam === 'backup')
+    view === 'Inventory' &&
+    params.get('review') !== 'handover' &&
+    (ownerParam === 'me' || ownerParam === 'backup')
       ? ownerParam
       : 'all';
   function setOwnershipScope(value: string) {
@@ -429,11 +439,12 @@ export function GovernancePage() {
       else next.delete('owner');
       const review = next.get('review');
       if (
-        value !== 'me' &&
-        (review === 'workspace' ||
-          review === 'scorecard' ||
-          review === 'fulfillment' ||
-          (review === 'reassess' && !canReview))
+        review === 'handover' ||
+        (value !== 'me' &&
+          (review === 'workspace' ||
+            review === 'scorecard' ||
+            review === 'fulfillment' ||
+            (review === 'reassess' && !canReview)))
       )
         next.delete('review');
       return next;
@@ -1293,6 +1304,10 @@ export function GovernancePage() {
             app.owner === actor && appsWithPendingAccessRequests.has(app.id),
         ).length
       : 0;
+  const myOwnerHandoverCount =
+    view === 'Inventory'
+      ? apps.filter(app => isOwnerHandoverNominee(app, actor)).length
+      : 0;
   const myAccessFulfillmentAppCount =
     view === 'Inventory' && actor
       ? apps.filter(
@@ -1365,6 +1380,7 @@ export function GovernancePage() {
       inventoryReview === 'retirement' ||
       inventoryReview === 'access' ||
       inventoryReview === 'fulfillment' ||
+      inventoryReview === 'handover' ||
       inventoryReview === 'workspace' ||
       inventoryReview === 'scorecard' ||
       (inventoryReview === 'reassess' && canFilterReassessment))
@@ -1436,6 +1452,8 @@ export function GovernancePage() {
         (app.owner === actor && appsWithPendingAccessRequests.has(app.id))) &&
       (inventoryReviewFilter !== 'fulfillment' ||
         (app.owner === actor && appsAwaitingAccessFulfillment.has(app.id))) &&
+      (inventoryReviewFilter !== 'handover' ||
+        isOwnerHandoverNominee(app, actor)) &&
       (inventoryReviewFilter !== 'workspace' ||
         ownerWorkspaceIssues.has(app.id)) &&
       (inventoryReviewFilter !== 'scorecard' ||
@@ -1473,6 +1491,7 @@ export function GovernancePage() {
       const next = new URLSearchParams(previous);
       if (value) next.set(key, value);
       else next.delete(key);
+      if (key === 'review' && value === 'handover') next.delete('owner');
       if (
         key === 'review' &&
         (value === 'workspace' ||
@@ -1649,6 +1668,12 @@ export function GovernancePage() {
     emptyMessage = 'Try another search or clear the filters.';
   }
 
+  if (inventoryReviewFilter === 'handover' && myOwnerHandoverCount === 0) {
+    emptyTitle = 'No pending owner handovers';
+    emptyMessage =
+      'Apps that nominate you as accountable owner will appear here.';
+  }
+
   const showRegistrationFeedback =
     registrationFeedback &&
     (registrationFeedback.detailId
@@ -1758,6 +1783,15 @@ export function GovernancePage() {
                 {myAccessRequestAppCount === 1
                   ? '1 of your apps has pending access requests'
                   : `${myAccessRequestAppCount} of your apps have pending access requests`}
+              </Link>
+            </p>
+          )}
+          {!loading && !error && myOwnerHandoverCount > 0 && (
+            <p className="gov-notice">
+              <Link to="/?review=handover">
+                {myOwnerHandoverCount === 1
+                  ? '1 owner handover awaits your decision'
+                  : `${myOwnerHandoverCount} owner handovers await your decision`}
               </Link>
             </p>
           )}
@@ -2023,6 +2057,9 @@ export function GovernancePage() {
                       <option value="access">My pending access requests</option>
                       <option value="fulfillment">
                         My access fulfillment queue
+                      </option>
+                      <option value="handover">
+                        My pending owner handovers
                       </option>
                       <option value="retirement">
                         My retirement decisions
