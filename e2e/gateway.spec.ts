@@ -169,7 +169,14 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     );
     expect(await workspaces.json()).toEqual({
       configured: true,
-      workspaces: [{ provider: 'Example AI', workspace: 'Company sandbox' }],
+      workspaces: [
+        {
+          provider: 'Example AI',
+          workspace: 'Company sandbox',
+          allowedSharing: ['private', 'named people'],
+          allowedDataAccess: ['none'],
+        },
+      ],
     });
 
     const connectors = await request.get(`${api}/approved-connectors`, {
