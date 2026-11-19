@@ -414,29 +414,38 @@ export function PortfolioReport({
     role => role === requestedOwnershipRole,
   ) as keyof typeof ownershipRoles | undefined;
   const ownershipIssues =
-    ownership?.issues.flatMap(issue => {
-      const app = byId.get(issue.appId);
-      const details =
-        issue.unavailableDetails ??
-        issue.unavailable.map(ref => ({
-          ref,
-          role: undefined,
-          reason: undefined,
-        }));
-      const unavailable = details.flatMap(
-        ({ ref, role: reportedRole, reason }) => {
-          let role = reportedRole;
-          if (!role) {
-            if (ref === app?.owner) role = 'owner';
-            else if (ref === app?.backupOwner) role = 'backup';
-            else if (ref === app?.team) role = 'team';
-          }
-          if (ownershipRole && role !== ownershipRole) return [];
-          return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
-        },
-      );
-      return unavailable.length ? [{ ...issue, unavailable }] : [];
-    }) ?? [];
+    ownership?.issues
+      .flatMap(issue => {
+        const app = byId.get(issue.appId);
+        const details =
+          issue.unavailableDetails ??
+          issue.unavailable.map(ref => ({
+            ref,
+            role: undefined,
+            reason: undefined,
+          }));
+        const unavailable = details.flatMap(
+          ({ ref, role: reportedRole, reason }) => {
+            let role = reportedRole;
+            if (!role) {
+              if (ref === app?.owner) role = 'owner';
+              else if (ref === app?.backupOwner) role = 'backup';
+              else if (ref === app?.team) role = 'team';
+            }
+            if (ownershipRole && role !== ownershipRole) return [];
+            return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
+          },
+        );
+        if (unavailable.length === 0) return [];
+        const lacksOwnerCoverage =
+          !issue.availableBackupOwner &&
+          unavailable.some(({ role }) => role === ownershipRoles.owner);
+        return [{ ...issue, unavailable, lacksOwnerCoverage }];
+      })
+      .sort(
+        (first, second) =>
+          Number(second.lacksOwnerCoverage) - Number(first.lacksOwnerCoverage),
+      ) ?? [];
   const inventory = apps.filter(app => app.lifecycle !== 'retired');
   const needsReassessment = canReview
     ? inventory.filter(needsRiskReassessment).length
@@ -1032,6 +1041,9 @@ export function PortfolioReport({
                           })
                           .join(' · ')}
                       </p>
+                      {issue.lacksOwnerCoverage && (
+                        <p>No active backup owner</p>
+                      )}
                       {issue.availableBackupOwner && (
                         <p>Active backup owner: {issue.availableBackupOwner}</p>
                       )}
