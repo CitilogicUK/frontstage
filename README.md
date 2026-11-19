@@ -182,6 +182,19 @@ The gateway stores app key hashes and usage metadata. The app panel shows input 
 
 Successful gateway responses include a `Server-Timing` header. The `frontstage` duration covers key and request-field validation through usage recording, with the upstream interval excluded. Live responses also include `provider`, measured from the upstream request through reading and validating its response body. Both durations are in milliseconds. Sandbox calls include only `frontstage`. The Gateway playground shows these durations beside the response label when the header is available. When the gateway supplies a retry hint, the playground shows how long to wait before sending again. The browser waits up to 75 seconds for a prompt response and stops waiting when you close the panel or change the key environment.
 
+### Measure sandbox gateway latency
+
+Issue a sandbox key for a dedicated test app and set `FRONTSTAGE_PROBE_SANDBOX_KEY` in your shell. Choose an approved model for that app and run the probe from the network you want to measure.
+
+```sh
+FRONTSTAGE_PROBE_URL=http://localhost:7007 \
+  FRONTSTAGE_PROBE_MODEL=gpt-4.1-mini \
+  FRONTSTAGE_PROBE_SAMPLES=10 \
+  yarn gateway:probe-sandbox
+```
+
+The probe sends sequential synthetic sandbox calls and prints JSON with nearest-rank p50, p95 and maximum durations in milliseconds. Client duration includes connection and response parsing. Frontstage duration comes from the gateway's `Server-Timing` header. Save the output with the deployment revision, date and probe location for comparisons. Use a fresh test app or stay within its rate limit because samples appear in sandbox usage. The probe accepts 1–30 samples and stops on the first failure without retrying. It requires HTTPS for remote origins and never follows redirects. Sandbox results measure simulated gateway latency. Measure live provider latency and availability separately in the target deployment.
+
 ## Separate critical sign-offs
 
 To require two independent sign-offs, configure `governance.reviewTracks.security` and `governance.reviewTracks.dataProtection` as disjoint lists of Backstage user references. Reviewers can record a decision only for their assigned track. Both approvals must be current before launch. The default local demo uses a combined reviewer decision.
