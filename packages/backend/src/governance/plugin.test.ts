@@ -1069,11 +1069,21 @@ describe('governance record access', () => {
       const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
       const iso = (offset: number) => new Date(now + offset).toISOString();
       inactive.add(owner);
-      expect((await readReport()).body.issues[0]).not.toHaveProperty(
+      const beforeObservation = (await readReport()).body;
+      expect(beforeObservation.ownerObservation).toEqual({
+        enabled: true,
+        unobservedOwnerCount: 1,
+      });
+      expect(beforeObservation.issues[0]).not.toHaveProperty(
         'ownerUnavailableObservedSince',
       );
       await run();
-      expect((await readReport()).body.issues[0]).toHaveProperty(
+      const afterObservation = (await readReport()).body;
+      expect(afterObservation.ownerObservation).toEqual({
+        enabled: true,
+        unobservedOwnerCount: 0,
+      });
+      expect(afterObservation.issues[0]).toHaveProperty(
         'ownerUnavailableObservedSince',
         iso(0),
       );
@@ -5619,6 +5629,7 @@ describe('governance record access', () => {
       .expect('Cache-Control', 'no-store')
       .expect(200);
     expect(issues.body).toEqual({
+      ownerObservation: { enabled: false, unobservedOwnerCount: 1 },
       issues: [
         {
           appId: created.body.id,
