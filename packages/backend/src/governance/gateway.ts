@@ -952,7 +952,7 @@ export function registerGatewayRoutes(options: {
       checks.push({
         name: 'Gateway access',
         status: 'attention',
-        detail: attestationPauseBlock.message,
+        detail: attestationBlock.message,
       });
     }
     res.set('Cache-Control', 'no-store').json({ checks });
