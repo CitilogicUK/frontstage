@@ -3215,6 +3215,35 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
       json: { actor: reviewer, canReview: true, apps: [] },
     });
   });
+  await page.route('**/api/governance/apps/known-hosted-app', route => {
+    expect(route.request().method()).toBe('GET');
+    return route.fulfill({
+      json: {
+        id: 'known-hosted-app',
+        name: known.name,
+        sourceUrl: known.sourceUrl,
+        purpose: 'Review synthetic project notes.',
+        type: 'provider-hosted app',
+        owner: reviewer,
+        team: 'group:default/platform',
+        platform: known.provider,
+        audience: 'personal',
+        classification: 'internal',
+        lifecycle: 'experimental',
+        reviewStatus: 'not required',
+        tier: 1,
+        models: ['example-model'],
+        usesAiAtRuntime: true,
+        updatedAt: '2026-11-01T00:00:00.000Z',
+        hosted: {
+          provider: known.provider,
+          workspace: 'Previous workspace',
+          sharing: 'private',
+          dataAccess: 'none',
+        },
+      },
+    });
+  });
   await page.route('**/api/governance/discovery/github', route =>
     route.fulfill({
       json: {
@@ -3283,9 +3312,6 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
     buffer: Buffer.from(JSON.stringify(snapshot)),
   });
   await preview.click();
-  await expect(
-    page.getByRole('link', { name: 'View app record' }),
-  ).toHaveAttribute('href', /app=known-hosted-app/);
   const knownRow = page.getByRole('row', { name: /Hosted review/ });
   await expect(
     knownRow.getByText('Snapshot: Example AI · Enterprise'),
@@ -3304,6 +3330,23 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(
     knownRow.getByRole('button', { name: 'Register app' }),
   ).toHaveCount(0);
+  const reviewSettings = knownRow.getByRole('link', {
+    name: 'Review registered settings',
+  });
+  await expect(reviewSettings).toHaveAttribute('href', /app=known-hosted-app/);
+  await expect(reviewSettings).toHaveAttribute('href', /[?&]edit=1(?:&|$)/);
+  await reviewSettings.click();
+  const registeredSettings = page.getByRole('dialog', { name: known.name });
+  const savedSharing = registeredSettings.getByLabel('Sharing scope');
+  await expect(savedSharing).toBeVisible();
+  await expect(savedSharing).toHaveValue('private');
+  await registeredSettings
+    .getByRole('button', { name: 'Close app details' })
+    .click();
+  await expect(reviewSettings).toBeVisible();
+  await expect(knownRow.getByText('Sharing: public link')).toBeVisible();
+  expect(previewCount).toBe(1);
+
   await page.getByRole('button', { name: 'Recheck snapshot' }).click();
   await expect(knownRow.getByText('Registered', { exact: true })).toBeVisible();
   await expect(knownRow.getByText('Previous workspace')).toHaveCount(0);
@@ -3311,6 +3354,9 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(knownRow.getByText('Registered sharing: private')).toHaveCount(
     0,
   );
+  const viewRecord = knownRow.getByRole('link', { name: 'View app record' });
+  await expect(viewRecord).toHaveAttribute('href', /app=known-hosted-app/);
+  await expect(viewRecord).not.toHaveAttribute('href', /[?&]edit=1(?:&|$)/);
   expect(previewCount).toBe(2);
   await page.getByRole('button', { name: 'Register app', exact: true }).click();
 
