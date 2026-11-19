@@ -905,11 +905,10 @@ export function registerGatewayRoutes(options: {
       const approved = options.hostedWorkspaceApproved(record);
       let detail = 'No approved workspace list is configured.';
       if (approved === true) {
-        detail =
-          'The declared provider and workspace are on the approved list.';
+        detail = 'The declaration meets the provider workspace policy.';
       } else if (approved === false) {
         detail =
-          'The declared provider and workspace are missing from the approved list.';
+          'Choose an approved workspace and use its permitted sharing and data access settings.';
       }
       checks.push({
         name: 'Declared provider workspace',

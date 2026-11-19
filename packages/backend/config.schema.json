@@ -52,13 +52,34 @@
         },
         "approvedHostedWorkspaces": {
           "type": "array",
-          "description": "Approved provider and workspace pairs for declared-workspace scorecard checks.",
+          "description": "Approved provider and workspace pairs and optional sharing and data access restrictions.",
           "items": {
             "type": "object",
             "required": ["provider", "workspace"],
             "properties": {
               "provider": { "type": "string", "minLength": 1 },
-              "workspace": { "type": "string", "minLength": 1 }
+              "workspace": { "type": "string", "minLength": 1 },
+              "allowedSharing": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "enum": ["private", "named people", "company", "public link"]
+                },
+                "description": "Permitted sharing settings. Unset allows any sharing setting."
+              },
+              "allowedDataAccess": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "none",
+                    "stores input",
+                    "reads connected data",
+                    "both"
+                  ]
+                },
+                "description": "Permitted data access settings. Unset allows any data access setting."
+              }
             }
           }
         },

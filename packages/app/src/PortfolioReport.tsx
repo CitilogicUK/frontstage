@@ -93,6 +93,7 @@ export type HostedWorkspaceReport = {
     lifecycle: string;
     provider?: string;
     workspace?: string;
+    settingsMismatch?: boolean;
   }>;
 };
 
@@ -1036,6 +1037,12 @@ export function PortfolioReport({
                       {issue.workspace ?? 'Workspace unspecified'} ·{' '}
                       {issue.lifecycle}
                     </p>
+                    {issue.settingsMismatch && (
+                      <p>
+                        Declared sharing or data access violates workspace
+                        policy.
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -250,7 +250,15 @@ test('workspace screens share navigation and fit the viewport', async ({
     route.fulfill({
       json: {
         configured: true,
-        workspaces: [{ provider: 'Example AI', workspace: 'Company sandbox' }],
+        workspaces: [
+          {
+            provider: 'Example AI',
+            workspace: 'Company sandbox',
+            allowedSharing: ['private', 'named people'],
+            allowedDataAccess: ['none'],
+          },
+          { provider: 'Example AI', workspace: 'Internal sandbox' },
+        ],
       },
     }),
   );
@@ -262,9 +270,21 @@ test('workspace screens share navigation and fit the viewport', async ({
   ).toBeVisible();
   const guide = page.getByRole('region', { name: 'Approved gateway models' });
   await expect(guide.getByText('1,024 tokens', { exact: true })).toHaveCount(2);
-  await expect(
-    page.getByRole('region', { name: 'Approved provider workspaces' }),
-  ).toContainText('Example AI · Company sandbox');
+  const workspaces = page.getByRole('region', {
+    name: 'Approved provider workspaces',
+  });
+  const scopedWorkspace = workspaces.getByRole('listitem').filter({
+    hasText: 'Example AI · Company sandbox',
+  });
+  await expect(scopedWorkspace).toContainText(
+    'Allowed sharing: private, named people',
+  );
+  await expect(scopedWorkspace).toContainText('Allowed data access: none');
+  const unrestrictedWorkspace = workspaces.getByRole('listitem').filter({
+    hasText: 'Example AI · Internal sandbox',
+  });
+  await expect(unrestrictedWorkspace).toBeVisible();
+  await expect(unrestrictedWorkspace).not.toContainText('Allowed');
   await guide
     .getByRole('link', { name: 'View apps declaring gpt-4.1-mini' })
     .click();
