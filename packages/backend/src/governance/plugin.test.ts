@@ -862,6 +862,7 @@ describe('governance record access', () => {
       .get(`${laterPath}/usage`)
       .set('Authorization', ownerAuth)
       .expect(200);
+    expect(usage.body.gatewayPause).toBe('attestation-overdue');
     expect(usage.body.blocks).toContainEqual({
       reason: 'attestation-overdue',
       calls: 1,
@@ -873,6 +874,13 @@ describe('governance record access', () => {
       .expect(200);
     await call().expect(200);
     expect(await gatewayAccess()).toBeUndefined();
+    await api
+      .get(`${laterPath}/usage`)
+      .set('Authorization', ownerAuth)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).not.toHaveProperty('gatewayPause');
+      });
   });
 
   it('summarizes only the current owner’s active scorecard issues', async () => {
