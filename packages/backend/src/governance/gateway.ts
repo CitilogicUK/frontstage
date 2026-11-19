@@ -652,6 +652,8 @@ export function registerGatewayRoutes(options: {
     throw new Error('OpenAI gateway mode requires a provider key.');
   }
   const providerKey = config.openaiApiKey;
+  const readinessEnvironment: KeyEnvironment =
+    config.mode === 'openai' ? 'production' : 'sandbox';
 
   function assertEnabled() {
     if (!config.enabled)
@@ -843,8 +845,8 @@ export function registerGatewayRoutes(options: {
           name: 'Gateway key',
           status: Boolean(issuedKey),
           detail: issuedKey
-            ? 'A gateway key is issued for this app.'
-            : 'Ask the app owner or a reviewer to issue a gateway key.',
+            ? `A ${readinessEnvironment} gateway key is issued for this app.`
+            : `Ask the app owner or a reviewer to issue a ${readinessEnvironment} gateway key.`,
         });
       }
     } else if (record.type === 'provider-hosted app') {
@@ -921,7 +923,9 @@ export function registerGatewayRoutes(options: {
         .distinct<{ execution_mode: string | null }[]>('execution_mode');
       if (record.lifecycle === 'active') {
         issuedKey = Boolean(
-          await db(keysTable).where({ app_id: record.id }).first('app_id'),
+          await db(keysTable)
+            .where({ app_id: record.id, environment: readinessEnvironment })
+            .first('app_id'),
         );
       }
     }
@@ -947,6 +951,7 @@ export function registerGatewayRoutes(options: {
     const issuedKeys = new Set<string>();
     for (let offset = 0; offset < gatewayIds.length; offset += 100) {
       const keys = await db(keysTable)
+        .where({ environment: readinessEnvironment })
         .whereIn('app_id', gatewayIds.slice(offset, offset + 100))
         .select<{ app_id: string }[]>('app_id');
       keys.forEach(key => issuedKeys.add(key.app_id));
