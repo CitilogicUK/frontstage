@@ -7,6 +7,7 @@ import {
   TestDatabases,
 } from '@backstage/backend-test-utils';
 import { CatalogClient } from '@backstage/catalog-client';
+import type { Entity } from '@backstage/catalog-model';
 import request from 'supertest';
 import { stringify } from 'yaml';
 import { governancePlugin } from './plugin';
@@ -610,6 +611,411 @@ describe('governance record access', () => {
     await feed(otherRequester).expect(200, {
       apps: [{ ...entry, requestStatus: 'declined' }],
     });
+  });
+
+  it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const replacement = 'user:default/replacement';
+    const reviewer = 'user:default/reviewer';
+    const engineer = 'user:default/engineer';
+    const team = 'group:default/operations';
+    const engineeringGroup = 'group:default/engineering';
+    const inactive = new Set<string>();
+    const missing = new Set<string>();
+    const catalogEntity = (ref: string): Entity | undefined => {
+      if (missing.has(ref)) return undefined;
+      return {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: ref.startsWith('group:') ? 'Group' : 'User',
+        metadata: {
+          name: ref.split('/')[1],
+          annotations: {
+            'governance.backstage.io/active': inactive.has(ref)
+              ? 'false'
+              : 'true',
+          },
+        },
+        relations:
+          ref === engineer
+            ? [{ type: 'memberOf', targetRef: engineeringGroup }]
+            : [],
+      };
+    };
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(catalogEntity),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Approved workspace' },
+              ],
+              graduationGroups: [engineeringGroup],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const appInput = {
+      purpose: 'Maintain a staff workflow.',
+      type: 'app',
+      platform: 'GitHub',
+      owner,
+      backupOwner: backup,
+      team,
+      lifecycle: 'active',
+      audience: 'team',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const create = (name: string, changes: Record<string, unknown> = {}) =>
+      api
+        .post(collection)
+        .set('Authorization', auth(owner))
+        .send({
+          ...appInput,
+          name,
+          sourceUrl: `https://example.com/${name}`,
+          ...changes,
+        })
+        .expect(201);
+    const { body: shared } = await create('Shared');
+    const criticalInput = {
+      lifecycle: 'experimental',
+      audience: 'external',
+      deliveryStage: 'production',
+    };
+    const { body: critical } = await create('Critical', criticalInput);
+    const { body: overlappingRoles } = await create('Overlapping-roles', {
+      ...criticalInput,
+      backupOwner: engineer,
+    });
+    const { body: personal } = await create('Personal', {
+      audience: 'personal',
+    });
+    const { body: retiredApp } = await create('Retired', {
+      audience: 'personal',
+    });
+    const priorHostedConfig = {
+      type: 'provider-hosted app',
+      lifecycle: 'experimental',
+      hosted: {
+        provider: 'Example AI',
+        workspace: 'Removed workspace',
+        sharing: 'private',
+        dataAccess: 'none',
+      },
+    };
+    const { body: oldHosted } = await create('Old-hosted', {
+      ...priorHostedConfig,
+      audience: 'personal',
+    });
+    const { body: oldCriticalHosted } = await create('Critical-hosted', {
+      ...priorHostedConfig,
+      audience: 'external',
+    });
+    for (const previouslyActive of [oldHosted, oldCriticalHosted]) {
+      // Represent apps that were activated before their workspace approval was removed.
+      await db('governance_apps')
+        .where({ id: previouslyActive.id })
+        .update({
+          payload: JSON.stringify({ ...previouslyActive, lifecycle: 'active' }),
+        });
+    }
+    const path = (id: string) => `${collection}/${id}`;
+    const handover = (id: string) => `${path(id)}/backup-handover`;
+    const status = (id: string, actor = backup) =>
+      api.get(handover(id)).set('Authorization', auth(actor));
+    const takeOwnership = (
+      id: string,
+      expectedUpdatedAt: string,
+      newBackup?: string,
+      actor = backup,
+    ) =>
+      api
+        .post(handover(id))
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt, backupOwner: newBackup });
+    const issue = (id: string) =>
+      api
+        .post(`${path(id)}/gateway-key`)
+        .set('Authorization', auth(owner))
+        .expect(201);
+    const { body: sharedKey } = await issue(shared.id);
+    const { body: attested } = await api
+      .post(`${path(shared.id)}/attestation`)
+      .set('Authorization', auth(owner))
+      .send({ confirmed: true, expectedUpdatedAt: shared.updatedAt })
+      .expect(200);
+    async function activateAndGraduate(app: { id: string; updatedAt: string }) {
+      const { body: approved } = await api
+        .post(`${path(app.id)}/reviews`)
+        .set('Authorization', auth(reviewer))
+        .send({
+          status: 'approved',
+          notes: 'Reviewed.',
+          expectedUpdatedAt: app.updatedAt,
+        })
+        .expect(200);
+      const { body: activated } = await api
+        .patch(`${path(app.id)}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle: 'active', expectedUpdatedAt: approved.updatedAt })
+        .expect(200);
+      const { body: key } = await issue(app.id);
+      const { body: nomination } = await api
+        .post(`${path(app.id)}/graduation`)
+        .set('Authorization', auth(owner))
+        .send({ nominee: engineer, expectedUpdatedAt: activated.updatedAt })
+        .expect(200);
+      const { body: graduated } = await api
+        .patch(`${path(app.id)}/graduation`)
+        .set('Authorization', auth(engineer))
+        .send({ decision: 'accept', expectedUpdatedAt: nomination.updatedAt })
+        .expect(200);
+      return { key, graduated };
+    }
+    const { key: criticalKey, graduated } = await activateAndGraduate(critical);
+    const { key: overlappingKey, graduated: overlappingGraduation } =
+      await activateAndGraduate(overlappingRoles);
+    const { body: retired } = await api
+      .patch(`${path(retiredApp.id)}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: retiredApp.updatedAt })
+      .expect(200);
+
+    const day = 86_400_000;
+    const startedAt = Date.parse(shared.activeSince);
+    jest.spyOn(Date, 'now').mockReturnValue(startedAt + 91 * day);
+    await db('governance_gateway_usage').insert({
+      id: 'old-handover-usage',
+      app_id: shared.id,
+      model: 'test-model',
+      execution_mode: 'openai',
+      created_at: new Date(startedAt + 1),
+      estimated_cost_nanos_usd: 0,
+    });
+    const { body: awaitingRetirement } = await api
+      .post(`${path(shared.id)}/retirement-review`)
+      .set('Authorization', auth(reviewer))
+      .send({ expectedUpdatedAt: attested.updatedAt })
+      .expect(200);
+    expect(awaitingRetirement.retirementReview.status).toBe('pending');
+    const before = awaitingRetirement.updatedAt;
+
+    await status(shared.id, owner).expect(403);
+    await status(shared.id, reviewer).expect(403);
+    await takeOwnership(shared.id, before, replacement, reviewer).expect(403);
+    await status(shared.id)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, { available: false, backupRequired: true });
+    await takeOwnership(shared.id, before, replacement).expect(409);
+
+    catalog.mockImplementationOnce(async ({ entityRefs }) => ({
+      items: entityRefs.map(ref =>
+        ref === owner ? (false as unknown as Entity) : catalogEntity(ref),
+      ),
+    }));
+    await status(shared.id).expect(503);
+    catalog.mockImplementationOnce(async ({ entityRefs }) => ({
+      items: entityRefs.map(ref =>
+        ref === owner ? (false as unknown as Entity) : catalogEntity(ref),
+      ),
+    }));
+    await takeOwnership(shared.id, before, replacement).expect(503);
+
+    inactive.add(owner);
+    inactive.add(team);
+    await status(shared.id).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(shared.id, before, replacement).expect(409);
+    inactive.delete(team);
+    inactive.add(backup);
+    await status(shared.id).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(shared.id, before, replacement).expect(409);
+    inactive.delete(backup);
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await status(shared.id).expect(503);
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await takeOwnership(shared.id, before, replacement).expect(503);
+    await status(shared.id).expect(200, {
+      available: true,
+      backupRequired: true,
+    });
+    await takeOwnership(shared.id, attested.updatedAt, replacement).expect(409);
+    await takeOwnership(shared.id, before).expect(400);
+    await takeOwnership(shared.id, before, backup).expect(400);
+    await takeOwnership(shared.id, before, owner).expect(400);
+    inactive.add(replacement);
+    await takeOwnership(shared.id, before, replacement).expect(400);
+    inactive.delete(replacement);
+
+    const { body: transferred } = await takeOwnership(
+      shared.id,
+      before,
+      replacement,
+    ).expect(200);
+    expect(transferred).toMatchObject({
+      owner: backup,
+      backupOwner: replacement,
+      team,
+      lifecycle: 'active',
+      tier: 2,
+      lastReview: null,
+      nextReview: transferred.updatedAt,
+      activeSince: shared.activeSince,
+      classification: shared.classification,
+      models: shared.models,
+    });
+    expect(transferred).not.toHaveProperty('retirementReview');
+    await status(shared.id).expect(403);
+    await status(shared.id, replacement).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+
+    inactive.delete(owner);
+    missing.add(owner);
+    await status(oldHosted.id).expect(200, {
+      available: false,
+      backupRequired: false,
+    });
+    await takeOwnership(oldHosted.id, oldHosted.updatedAt).expect(409);
+    await status(oldCriticalHosted.id).expect(200, {
+      available: true,
+      backupRequired: true,
+    });
+    const { body: hostedReopened } = await takeOwnership(
+      oldCriticalHosted.id,
+      oldCriticalHosted.updatedAt,
+      replacement,
+    ).expect(200);
+    expect(hostedReopened).toMatchObject({
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      owner: backup,
+    });
+    const { body: reassigned } = await takeOwnership(
+      critical.id,
+      graduated.updatedAt,
+      replacement,
+    ).expect(200);
+    expect(reassigned).toMatchObject({
+      owner: backup,
+      backupOwner: replacement,
+      team,
+      lifecycle: 'experimental',
+      tier: 3,
+      reviewStatus: 'pending',
+      lastReview: null,
+      nextReview: null,
+      deliveryStage: 'production',
+    });
+    expect(reassigned).not.toHaveProperty('graduation');
+    expect(reassigned).not.toHaveProperty('activeSince');
+
+    await status(personal.id).expect(200, {
+      available: true,
+      backupRequired: false,
+    });
+    const { body: personalHandover } = await takeOwnership(
+      personal.id,
+      personal.updatedAt,
+    ).expect(200);
+    expect(personalHandover.owner).toBe(backup);
+    expect(personalHandover).not.toHaveProperty('backupOwner');
+    await status(retired.id).expect(200, {
+      available: false,
+      backupRequired: false,
+    });
+    await takeOwnership(retired.id, retired.updatedAt).expect(409);
+
+    for (const { key } of [sharedKey, criticalKey]) {
+      await api
+        .post('/api/governance/gateway/chat')
+        .set('Authorization', `Bearer ${key}`)
+        .send({
+          model: 'test-model',
+          prompt: 'Verify the former key is closed.',
+        })
+        .expect(401);
+    }
+    const { body: history } = await api
+      .get(`${path(shared.id)}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(JSON.parse(history.events.at(-1).event)).toMatchObject({
+      action: 'ownership-handover',
+      actor: backup,
+      record: { owner: backup, backupOwner: replacement, team },
+    });
+    expect(history.keyEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'revoked', actor: backup }),
+      ]),
+    );
+
+    await status(overlappingRoles.id, engineer).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(
+      overlappingRoles.id,
+      overlappingGraduation.updatedAt,
+      replacement,
+      engineer,
+    ).expect(403);
+    const { body: unchanged } = await api
+      .get(path(overlappingRoles.id))
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(unchanged).toMatchObject({
+      owner,
+      backupOwner: engineer,
+      updatedAt: overlappingGraduation.updatedAt,
+      lifecycle: 'active',
+      reviewStatus: 'approved',
+      graduation: { nominee: engineer, status: 'accepted' },
+    });
+
+    missing.delete(owner);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${overlappingKey.key}`)
+      .send({
+        model: 'test-model',
+        prompt: 'Verify the existing key still works.',
+      })
+      .expect(200);
   });
 
   const approvedConnector = {
