@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 const timeoutMs = 5_000;
+const maxDescriptorBytes = 64 * 1024;
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 function readConfig() {
@@ -24,7 +25,12 @@ function readConfig() {
     throw new Error('Set FRONTSTAGE_MCP_TOKEN to a valid bearer token.');
   }
   backend.pathname = backend.pathname.replace(/\/?$/, '/');
-  return { appsUrl: new URL('api/governance/apps', backend), token };
+  return {
+    appsUrl: new URL('api/governance/apps', backend),
+    repositoryUrl: new URL('api/governance/repository', backend),
+    token,
+    writeEnabled: process.env.FRONTSTAGE_MCP_WRITE_ENABLED === 'true',
+  };
 }
 
 const appId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
@@ -48,6 +54,35 @@ const appSummary = z.object({
 const inventory = z.object({ apps: z.array(appSummary) });
 const appResult = z.object({ app: appSummary });
 
+const descriptorInput = z.object({
+  content: z
+    .string()
+    .refine(
+      value => value.trim().length > 0,
+      'Supply a nonblank YAML descriptor.',
+    )
+    .refine(
+      value => Buffer.byteLength(value, 'utf8') <= maxDescriptorBytes,
+      'The YAML descriptor must be at most 64 KiB.',
+    ),
+});
+const descriptorPreview = z.object({
+  apps: z.array(
+    appSummary
+      .pick({
+        name: true,
+        tier: true,
+        owner: true,
+        team: true,
+        deliveryStage: true,
+        usesAiAtRuntime: true,
+        effectiveClassification: true,
+        starterId: true,
+      })
+      .required({ tier: true, owner: true, team: true }),
+  ),
+});
+
 function safeSummary(app) {
   if (!app.sourceUrl) return app;
   // Legacy registration allowed URLs with embedded credentials.
@@ -65,15 +100,18 @@ function safeSummary(app) {
   return app;
 }
 
-async function fetchCatalog(url, token, schema) {
+async function fetchCatalog(url, token, schema, descriptor) {
+  const submitting = descriptor !== undefined;
   let response;
   try {
     response = await fetch(url, {
-      method: 'GET',
+      method: submitting ? 'POST' : 'GET',
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
+        ...(submitting && { 'Content-Type': 'application/json' }),
       },
+      ...(submitting && { body: JSON.stringify({ content: descriptor }) }),
       redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -86,7 +124,11 @@ async function fetchCatalog(url, token, schema) {
       throw new Error('Frontstage returned an unexpected redirect.');
     if (response.status === 401 || response.status === 403)
       throw new Error('Frontstage authentication failed.');
-    if (response.status === 404 && schema === appSummary)
+    if (submitting && response.status === 400)
+      throw new Error('Frontstage could not validate the descriptor.');
+    if (submitting && response.status === 409)
+      throw new Error('Frontstage found a conflicting app registration.');
+    if (!submitting && response.status === 404 && schema === appSummary)
       throw new Error('App not found.');
     throw new Error(`Frontstage request failed (HTTP ${response.status}).`);
   }
@@ -106,7 +148,7 @@ function toolResult(structuredContent) {
 }
 
 async function start() {
-  const { appsUrl, token } = readConfig();
+  const { appsUrl, repositoryUrl, token, writeEnabled } = readConfig();
   const server = new McpServer({
     name: 'frontstage-catalog',
     version: '1.0.0',
@@ -152,6 +194,47 @@ async function start() {
       return toolResult({ app: safeSummary(app) });
     },
   );
+  if (writeEnabled) {
+    const previewUrl = new URL(repositoryUrl);
+    previewUrl.searchParams.set('dryRun', 'true');
+    server.registerTool(
+      'preview_descriptor',
+      {
+        description:
+          'Validate an AIApp repository descriptor and preview its registration.',
+        inputSchema: descriptorInput,
+        outputSchema: descriptorPreview,
+        annotations: { readOnlyHint: true },
+      },
+      async ({ content }) =>
+        toolResult(
+          await fetchCatalog(previewUrl, token, descriptorPreview, content),
+        ),
+    );
+    server.registerTool(
+      'register_descriptor',
+      {
+        description:
+          'Register an AIApp from its repository descriptor after user approval.',
+        inputSchema: descriptorInput,
+        outputSchema: appResult,
+        annotations: {
+          readOnlyHint: false,
+          idempotentHint: false,
+          destructiveHint: false,
+        },
+      },
+      async ({ content }) => {
+        const app = await fetchCatalog(
+          repositoryUrl,
+          token,
+          appSummary,
+          content,
+        );
+        return toolResult({ app: safeSummary(app) });
+      },
+    );
+  }
   await server.connect(new StdioServerTransport());
 }
 

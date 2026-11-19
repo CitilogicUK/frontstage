@@ -1245,6 +1245,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
           env: {
             FRONTSTAGE_MCP_BACKEND_URL: backendUrl,
             FRONTSTAGE_MCP_TOKEN: identity.backstageIdentity.token,
+            FRONTSTAGE_MCP_WRITE_ENABLED: 'true',
           },
         }),
       );
@@ -1273,6 +1274,70 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       expect(search.structuredContent).not.toHaveProperty('apps.0.evidence');
       expect(detail.structuredContent).not.toHaveProperty('app.reviewNotes');
       expect(detail.structuredContent).not.toHaveProperty('app.evidence');
+
+      const mcpAppName = 'MCP inventory reconciliation';
+      const content = (
+        await readFile(
+          join(startersRoot, 'internal-api/catalog-info.yaml'),
+          'utf8',
+        )
+      )
+        .replace('  name: internal-api', '  name: mcp-inventory-reconciliation')
+        .replace('  name: Internal API', `  name: ${mcpAppName}`)
+        .replace(
+          'https://github.com/example-org/internal-api',
+          'https://example.com/gateway-test/mcp-inventory-reconciliation',
+        )
+        .replace(
+          '  usesAiAtRuntime: false',
+          '  usesAiAtRuntime: false\n  starterId: internal-api',
+        );
+      const appSummary = {
+        name: mcpAppName,
+        tier: 1,
+        starterId: 'internal-api',
+        usesAiAtRuntime: false,
+      };
+      const searchRegistered = () =>
+        catalogMcp.callTool({
+          name: 'search_apps',
+          arguments: { query: mcpAppName },
+        });
+      const preview = await catalogMcp.callTool({
+        name: 'preview_descriptor',
+        arguments: { content },
+      });
+      expect(preview.isError).not.toBe(true);
+      expect(preview.structuredContent).toMatchObject({ apps: [appSummary] });
+      expect(preview.structuredContent).not.toHaveProperty('apps.0.id');
+      const afterPreview = await searchRegistered();
+      expect(afterPreview.isError).not.toBe(true);
+      expect(afterPreview.structuredContent).toEqual({ apps: [] });
+
+      const registration = await catalogMcp.callTool({
+        name: 'register_descriptor',
+        arguments: { content },
+      });
+      expect(registration.isError).not.toBe(true);
+      expect(registration.structuredContent).toMatchObject({
+        app: { ...appSummary, id: expect.any(String) },
+      });
+      const registeredApp = registration.structuredContent?.app as {
+        id: string;
+      };
+      const afterRegistration = await searchRegistered();
+      expect(afterRegistration.isError).not.toBe(true);
+      expect(afterRegistration.structuredContent).toMatchObject({
+        apps: [{ ...appSummary, id: registeredApp.id }],
+      });
+      const stored = await catalogMcp.callTool({
+        name: 'get_app',
+        arguments: { id: registeredApp.id },
+      });
+      expect(stored.isError).not.toBe(true);
+      expect(stored.structuredContent).toMatchObject({
+        app: { ...appSummary, id: registeredApp.id },
+      });
     } finally {
       await catalogMcp.close();
     }
