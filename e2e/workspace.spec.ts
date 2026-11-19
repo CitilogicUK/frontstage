@@ -4224,6 +4224,14 @@ test('Builder guide shows connector approval limits and registry states', async 
       docsUrl,
     },
     {
+      id: 'public-reference',
+      name: 'Public reference',
+      kind: 'data',
+      description: 'Read public reference records.',
+      access: 'read',
+      maxClassification: 'public',
+    },
+    {
       id: 'sandbox-orders',
       name: 'Sandbox orders',
       kind: 'data',
@@ -4310,6 +4318,42 @@ test('Builder guide shows connector approval limits and registry states', async 
       .getByRole('link', { name: 'Builder guide', exact: true })
       .click();
   }
+  await guidance
+    .getByRole('link', { name: 'registration', exact: true })
+    .click();
+  const access = page.getByRole('combobox', {
+    name: 'Connected system access',
+  });
+  const classification = page.getByRole('combobox', {
+    name: 'Highest data classification',
+  });
+  await classification.selectOption('public');
+  await access.selectOption('read');
+  const appConnectors = page.getByRole('region', {
+    name: 'Approved connectors for this app',
+  });
+  await expect(
+    appConnectors.getByText('Catalog search', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    appConnectors.getByText('Public reference', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    appConnectors.getByText('Sandbox orders', { exact: true }),
+  ).toHaveCount(0);
+  await classification.selectOption('internal');
+  await expect(
+    appConnectors.getByText('Catalog search', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    appConnectors.getByText('Public reference', { exact: true }),
+  ).toHaveCount(0);
+  await classification.selectOption('confidential');
+  await expect(appConnectors.getByText(/No approved connectors/)).toBeVisible();
+  await expect(
+    appConnectors.getByText('Catalog search', { exact: true }),
+  ).toHaveCount(0);
+
   state = 'unconfigured';
   await reopenGuide();
   await expect(

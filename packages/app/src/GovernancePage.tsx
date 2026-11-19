@@ -67,7 +67,10 @@ import {
   AppRenewalException,
   type RenewalException,
 } from './AppRenewalException';
-import { ApprovedConnectorsGuide } from './ApprovedConnectorsGuide';
+import {
+  ApprovedConnectorsGuide,
+  RegistrationConnectorGuidance,
+} from './ApprovedConnectorsGuide';
 import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
 import {
   HostedSnapshotPreview,
@@ -1153,17 +1156,16 @@ export function GovernancePage() {
               ),
           )
       : [];
+  const registrationAccesses = [
+    draft.connections,
+    ...additionalConnections.map(
+      ({ access }, index) => draft[`connectionAccess-${index}`] ?? access,
+    ),
+  ].filter(Boolean);
   const answers = JSON.stringify({
     audience: draft.audience || audiences[0],
     classification: registrationClass,
-    connections: [
-      draft.connections,
-      ...additionalConnections.map(
-        ({ access }, index) => draft[`connectionAccess-${index}`] ?? access,
-      ),
-    ]
-      .filter(Boolean)
-      .map(access => ({ access })),
+    connections: registrationAccesses.map(access => ({ access })),
     takesActions: !!draft.takesActions,
     affectsPeople: !!draft.affectsPeople,
     personalData: !!draft.personalData,
@@ -3939,6 +3941,19 @@ export function GovernancePage() {
                   </>
                 )}
               </div>
+              {registrationAccesses.length > 0 && (
+                <RegistrationConnectorGuidance
+                  accesses={registrationAccesses}
+                  classification={
+                    hosted &&
+                    registrationDataAccess !== 'none' &&
+                    classes.indexOf(registrationHostedClass) >
+                      classes.indexOf(registrationClass)
+                      ? registrationHostedClass
+                      : registrationClass
+                  }
+                />
+              )}
               <label>
                 <input
                   type="checkbox"
