@@ -30,6 +30,7 @@ import {
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 import { NoLiveCallsSinceActivation } from './AppRetirementReview';
+import { findStarter } from './AppTemplates';
 
 type AppSummary = {
   id: string;
@@ -47,6 +48,7 @@ type AppSummary = {
   classification: string;
   effectiveClassification?: string;
   deliveryStage?: string;
+  starterId?: string;
   discoverySource?: string;
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
@@ -310,6 +312,15 @@ export function PortfolioReport({
       label: 'Registration source',
       values: Object.keys(appRegistrationSources),
       valuesOf: (app: AppSummary) => [registrationSource(app.discoverySource)],
+    },
+    starter: {
+      label: 'Starter',
+      values: [
+        ...new Set(apps.flatMap(app => (app.starterId ? [app.starterId] : []))),
+      ]
+        .sort()
+        .concat('none'),
+      valuesOf: (app: AppSummary) => [app.starterId ?? 'none'],
     },
     model: {
       label: 'Declared model',
@@ -827,6 +838,11 @@ export function PortfolioReport({
                 label = appRiskTierNames[Number(value) - 1];
               if (inventoryGroup === 'registrationSource')
                 label = appRegistrationSources[registrationSource(value)];
+              if (inventoryGroup === 'starter')
+                label =
+                  value === 'none'
+                    ? 'No starter recorded'
+                    : findStarter(value)?.name ?? value;
               return (
                 <div key={value}>
                   <dt>{label}</dt>
