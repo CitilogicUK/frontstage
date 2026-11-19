@@ -313,9 +313,18 @@ function GatewayEnvironmentPanel({
           expectedEnvironment: environment,
         }),
       });
+      const requestId = response.headers.get('X-Frontstage-Request-Id');
+      const reference =
+        response.status === 503 &&
+        requestId &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+          requestId,
+        )
+          ? `Support reference ${requestId}.`
+          : undefined;
       const result = await readResponse<GatewayResponse>(
         response,
-        gatewayRetryHint(response),
+        [gatewayRetryHint(response), reference].filter(Boolean).join(' '),
       );
       signal.throwIfAborted();
       const timing = response.headers.get('Server-Timing');
