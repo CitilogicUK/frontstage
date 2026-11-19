@@ -3733,11 +3733,12 @@ test('the assigned owner can act on a scheduled retirement request', async ({
     models: ['gpt-4.1-mini'],
     reviewStatus: 'not required',
     updatedAt: requestedAt,
+    activeSince: '2025-01-01T00:00:00.000Z',
     retirementReview: {
       owner,
       requestedBy: 'plugin:governance',
       requestedAt,
-      lastLiveCall: '2025-01-01T00:00:00.000Z',
+      lastLiveCall: null,
       status: 'pending',
     },
   };
@@ -3750,6 +3751,13 @@ test('the assigned owner can act on a scheduled retirement request', async ({
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   const review = details.getByRole('region', { name: 'Retirement review' });
+  await expect(
+    review.getByText(/No live calls since activation/),
+  ).toBeVisible();
+  await expect(review.locator('time').first()).toHaveAttribute(
+    'datetime',
+    app.activeSince,
+  );
   await expect(
     review.getByText('Requested by Scheduled inactivity check on 2025-05-02.'),
   ).toBeVisible();

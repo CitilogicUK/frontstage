@@ -124,6 +124,7 @@ type App = {
   nextReview: string | null;
   lastReview: string | null;
   updatedAt: string;
+  activeSince?: string;
   reviewNotes?: string;
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
@@ -2862,6 +2863,9 @@ export function GovernancePage() {
                 key={`retirement-review-${selected.updatedAt}`}
                 owner={selected.owner}
                 candidateLastLiveCall={retirementCandidate?.lastLiveCall}
+                activeSince={
+                  retirementCandidate?.activeSince ?? selected.activeSince
+                }
                 review={selected.retirementReview}
                 canDecide={ownerCanDecideRetirement(selected, actor)}
                 busy={busy}

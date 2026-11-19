@@ -3288,11 +3288,37 @@ describe('governance record access', () => {
         estimated_cost_nanos_usd: 0,
       });
     await gatewayKey().expect(201);
-    const start = app.body.updatedAt;
+    let start = app.body.updatedAt;
     const old = currentTime - 90 * day;
     await usage('simulation-only', old, 'simulation');
     await open(start).expect(400);
+    await db('governance_gateway_keys').insert({
+      app_id: app.body.id,
+      environment: 'production',
+      digest: 'a'.repeat(64),
+    });
+    const zeroTrafficCutoff = Date.parse(app.body.activeSince) + 90 * day;
+    clock.mockReturnValue(zeroTrafficCutoff - 1);
+    expect((await usageReport()).body.retirementReview.apps).toEqual([]);
+    await open(start).expect(400);
+    clock.mockReturnValue(zeroTrafficCutoff);
+    expect((await usageReport()).body.retirementReview.apps).toEqual([
+      {
+        appId: app.body.id,
+        lastLiveCall: null,
+        activeSince: app.body.activeSince,
+      },
+    ]);
+    const zeroTrafficReview = await open(start).expect(200);
+    expect(zeroTrafficReview.body.retirementReview.lastLiveCall).toBeNull();
     await usage('just-too-recent', old + 1);
+    await decide('retire', zeroTrafficReview.body.updatedAt).expect(409);
+    const keptAfterFirstCall = await decide(
+      'keep',
+      zeroTrafficReview.body.updatedAt,
+    ).expect(200);
+    start = keptAfterFirstCall.body.updatedAt;
+    clock.mockReturnValue(currentTime);
     await open(start).expect(400);
     clock.mockReturnValue(currentTime + 1);
     await open(start, owner).expect(403);

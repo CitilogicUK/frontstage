@@ -69,9 +69,10 @@ export function isOldEnoughForRetirement(timestamp: string, now = Date.now()) {
 
 export function isRetirementCandidate(
   app: GovernanceRecord,
-  lastLiveCall: string,
+  lastLiveCall: string | null,
   now = Date.now(),
 ) {
+  const baseline = lastLiveCall ?? app.activeSince;
   const review = app.retirementReview;
   const recentKeep =
     review?.status === 'kept' &&
@@ -82,11 +83,22 @@ export function isRetirementCandidate(
     app.lifecycle === 'active' &&
     app.usesAiAtRuntime !== false &&
     app.type !== 'provider-hosted app' &&
-    isOldEnoughForRetirement(lastLiveCall, now) &&
+    baseline !== undefined &&
+    isOldEnoughForRetirement(baseline, now) &&
     (app.activeSince === undefined ||
       isOldEnoughForRetirement(app.activeSince, now)) &&
     !recentKeep
   );
+}
+
+export async function hasProductionGatewayKey(
+  db: Database,
+  appId: string,
+): Promise<boolean> {
+  const key = await db(keysTable)
+    .where({ app_id: appId, environment: 'production' })
+    .first('app_id');
+  return Boolean(key);
 }
 
 export async function lastSuccessfulLiveCall(db: Database, appId: string) {
@@ -110,25 +122,46 @@ export async function readRetirementCandidates(
     .select('app_id')
     .max('created_at as last_live_call')
     .as('live');
+  const productionKeys = db(keysTable)
+    .where('environment', 'production')
+    .select('app_id')
+    .as('production');
   const retirementRows = await db(`${appsTable} as app`)
-    .join(lastLiveCalls, 'live.app_id', 'app.id')
-    .where('live.last_live_call', '<=', retirementCutoff)
-    .orderBy('live.last_live_call')
-    .orderBy('app.id')
+    .leftJoin(lastLiveCalls, 'live.app_id', 'app.id')
+    .leftJoin(productionKeys, 'production.app_id', 'app.id')
+    .where(query => {
+      query
+        .where('live.last_live_call', '<=', retirementCutoff)
+        .orWhere(zeroTraffic =>
+          zeroTraffic
+            .whereNull('live.last_live_call')
+            .whereNotNull('production.app_id'),
+        );
+    })
     .select<
       Array<{
         payload: string;
         revision: number;
-        lastLiveCall: Date | string | number;
+        lastLiveCall: Date | string | number | null;
       }>
     >('app.payload', 'app.revision', 'live.last_live_call as lastLiveCall');
-  return retirementRows.flatMap(row => {
-    const record = JSON.parse(row.payload) as GovernanceRecord;
-    const lastLiveCall = new Date(row.lastLiveCall).toISOString();
-    return isRetirementCandidate(record, lastLiveCall, now)
-      ? [{ record, revision: row.revision, lastLiveCall }]
-      : [];
-  });
+  return retirementRows
+    .flatMap(row => {
+      const record = JSON.parse(row.payload) as GovernanceRecord;
+      const lastLiveCall =
+        row.lastLiveCall === null
+          ? null
+          : new Date(row.lastLiveCall).toISOString();
+      return isRetirementCandidate(record, lastLiveCall, now)
+        ? [{ record, revision: row.revision, lastLiveCall }]
+        : [];
+    })
+    .sort(
+      (a, b) =>
+        Date.parse(a.lastLiveCall ?? a.record.activeSince ?? '') -
+          Date.parse(b.lastLiveCall ?? b.record.activeSince ?? '') ||
+        a.record.id.localeCompare(b.record.id),
+    );
 }
 
 const chatPath = '/gateway/chat';
@@ -1403,6 +1436,7 @@ export function registerGatewayRoutes(options: {
         apps: retirementCandidates.map(({ record, lastLiveCall }) => ({
           appId: record.id,
           lastLiveCall,
+          ...(lastLiveCall === null && { activeSince: record.activeSince }),
         })),
       },
       blocks: blocks.map(row => ({ ...row, calls: Number(row.calls) })),
