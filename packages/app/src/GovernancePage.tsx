@@ -50,6 +50,7 @@ import {
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 import { ReviewTicketContext } from './ReviewTicketContext';
+import { EditConnections } from './EditConnections';
 import { AppAuditHistory } from './AppAuditHistory';
 import {
   AppDirectory,
@@ -2676,8 +2677,9 @@ export function GovernancePage() {
                 <summary ref={editorSummary}>Edit app details</summary>
                 {selected.tier === 3 && (
                   <p>
-                    Changes to purpose, ownership, or review evidence require a
-                    new review. Moving to production also requires a new review.
+                    Changes to purpose, ownership, connected systems, or review
+                    evidence require a new review. Moving to production also
+                    requires a new review.
                   </p>
                 )}
                 {actorIsAcceptedCoOwner && (
@@ -2690,11 +2692,19 @@ export function GovernancePage() {
                 <form
                   onSubmit={event =>
                     submit(event, async data => {
+                      const connectionAccesses =
+                        data.getAll('connectionAccess');
                       const updated = await api(
                         `/apps/${selected.id}`,
                         {
                           ...selected,
                           purpose: data.get('purpose'),
+                          connections: data
+                            .getAll('connectionName')
+                            .map((name, index) => ({
+                              name: String(name).trim(),
+                              access: connectionAccesses[index],
+                            })),
                           hosted: selected.hosted && {
                             ...selected.hosted,
                             provider: data.get('hostedProvider'),
@@ -2900,6 +2910,7 @@ export function GovernancePage() {
                       gateway key.
                     </p>
                   )}
+                  <EditConnections connections={selected.connections} />
                   <fieldset className="gov-fieldset">
                     <legend>Review evidence</legend>
                     {evidenceFields.map(([field, label]) => (

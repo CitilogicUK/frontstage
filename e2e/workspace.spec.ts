@@ -4245,8 +4245,11 @@ test('Builder guide shows connector approval limits and registry states', async 
     name: 'Connector review app',
     purpose: 'Review synthetic integration declarations.',
     owner: 'user:default/owner',
+    backupOwner: 'user:default/backup',
     team: 'group:default/platform',
     platform: 'GitHub',
+    type: 'app',
+    audience: 'team',
     sourceUrl: 'https://example.com/connector-review',
     classification: 'internal',
     lifecycle: 'experimental',
@@ -4261,9 +4264,31 @@ test('Builder guide shows connector approval limits and registry states', async 
       { name: 'Unlisted CRM', access: 'read' },
     ],
   };
+  const updatedConnections = [
+    ...app.connections.slice(1),
+    { name: 'New reporting feed', access: 'read' },
+  ];
+  let current = app;
+  await page.route('**/api/governance/apps/connector-review', route => {
+    expect(route.request().method()).toBe('PUT');
+    expect(route.request().postDataJSON()).toMatchObject({
+      connections: updatedConnections,
+      expectedUpdatedAt: app.updatedAt,
+    });
+    current = {
+      ...app,
+      connections: updatedConnections,
+      updatedAt: '2026-11-02T00:00:00.000Z',
+    };
+    return route.fulfill({ json: current });
+  });
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
-      json: { apps: [app], actor: 'user:default/reviewer', canReview: true },
+      json: {
+        apps: [current],
+        actor: 'user:default/reviewer',
+        canReview: true,
+      },
     }),
   );
   let releaseRegistry: () => void = () => {};
@@ -4409,6 +4434,37 @@ test('Builder guide shows connector approval limits and registry states', async 
     });
     await expect(connection).toContainText(status);
   }
+  await details.getByText('Edit app details', { exact: true }).click();
+  const systems = details.getByRole('group', { name: 'Connected systems' });
+  await expect(
+    systems.getByLabel('Connected system 1', { exact: true }),
+  ).toHaveValue('Catalog search');
+  await expect(
+    systems.getByRole('combobox', {
+      name: 'Connected system 1 access',
+      exact: true,
+    }),
+  ).toHaveValue('read');
+  await systems
+    .getByRole('button', { name: 'Remove connected system 1' })
+    .click();
+  await expect(
+    systems.getByLabel('Connected system 1', { exact: true }),
+  ).toHaveValue('Sandbox orders');
+  await systems.getByRole('button', { name: 'Add connected system' }).click();
+  await systems
+    .getByLabel('Connected system 3', { exact: true })
+    .fill(updatedConnections[2].name);
+  await systems
+    .getByRole('combobox', { name: 'Connected system 3 access', exact: true })
+    .selectOption('read');
+  await details.getByRole('button', { name: 'Save app details' }).click();
+  await expect(
+    details.getByText('App updated.', { exact: true }),
+  ).toBeVisible();
+  await expect(connections.getByRole('listitem')).toHaveCount(3);
+  await expect(connections).toContainText(updatedConnections[2].name);
+  await expect(connections).not.toContainText('Catalog search');
   await details.getByRole('button', { name: 'Close app details' }).click();
 
   state = 'unconfigured';
