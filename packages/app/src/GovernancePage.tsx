@@ -620,11 +620,10 @@ export function GovernancePage() {
     reviewDecision?.appId === selected?.id ? reviewDecision?.status : undefined;
   const missingReviewEvidence = selected?.missingCriticalReviewEvidence ?? [];
   const approvalBlocked = missingReviewEvidence.length > 0;
-  const decisionStatus = approvalBlocked
-    ? reviewStatus === 'changes needed'
-      ? reviewStatus
-      : ''
-    : reviewStatus ?? 'approved';
+  const decisionStatus =
+    approvalBlocked && reviewStatus !== 'changes needed'
+      ? ''
+      : reviewStatus ?? 'approved';
   const requiresHumanApproval =
     selected?.humanApprovalEvidenceRequired && decisionStatus === 'approved';
   const canRecordReview =

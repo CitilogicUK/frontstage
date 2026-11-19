@@ -1965,7 +1965,24 @@ test('reviewers can download the spreadsheet import sample', async ({
 
 test('critical reviews can request changes while required evidence is missing', async ({
   page,
+  request,
 }) => {
+  await expect
+    .poll(
+      async () => {
+        const health = await request
+          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
+            timeout: 2_000,
+          })
+          .catch(() => undefined);
+        if (!health) return 0;
+        const status = health.status();
+        await health.dispose();
+        return status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(200);
   const app = {
     id: 'critical-evidence',
     name: 'Critical evidence demo',
