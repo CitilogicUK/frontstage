@@ -208,6 +208,9 @@ describe('governance record access', () => {
       api.get(accessPath).set('Authorization', auth(reviewer)).expect(200);
     expect((await readQueue()).body.canApprove).toBe(true);
 
+    const unavailableRequests = [
+      { id: app.id, name: app.name, requestStatus: 'pending' },
+    ];
     const clock = jest
       .spyOn(Date, 'now')
       .mockReturnValue(Date.parse(approved.body.nextReview));
@@ -217,7 +220,7 @@ describe('governance record access', () => {
       .set('Authorization', auth(reviewer))
       .send({ status: 'approved' })
       .expect(409);
-    await list().expect(200, { apps: [] });
+    await list().expect(200, { apps: [], unavailableRequests });
     await publish(edited.body.updatedAt).expect(400);
     const removed = await unpublish(edited.body.updatedAt, reviewer).expect(
       200,
@@ -229,7 +232,7 @@ describe('governance record access', () => {
     const paused = await setLifecycle('deprecated', republished.body.updatedAt);
     expect(paused.body).not.toHaveProperty('directoryListing');
     const restarted = await setLifecycle('active', paused.body.updatedAt);
-    await list().expect(200, { apps: [] });
+    await list().expect(200, { apps: [], unavailableRequests });
     const afterRestart = await publish(restarted.body.updatedAt).expect(200);
     const rejected = await review(
       afterRestart.body.updatedAt,
@@ -237,7 +240,7 @@ describe('governance record access', () => {
     );
     expect(rejected.body.lifecycle).toBe('experimental');
     expect(rejected.body).not.toHaveProperty('directoryListing');
-    await list().expect(200, { apps: [] });
+    await list().expect(200, { apps: [], unavailableRequests });
     clock.mockRestore();
 
     const personalInput = {
@@ -258,7 +261,7 @@ describe('governance record access', () => {
       .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
       .expect(200);
     inactive.add(owner);
-    await list().expect(200, { apps: [] });
+    await list().expect(200, { apps: [], unavailableRequests });
     await api
       .put(`${personalPath}/directory`)
       .set('Authorization', auth(reviewer))
@@ -267,6 +270,7 @@ describe('governance record access', () => {
     inactive.delete(owner);
     await list().expect(200, {
       apps: [{ id: personalApp.id, name: personalApp.name, ...listing }],
+      unavailableRequests,
     });
     const personalQueue = `${personalPath}/directory-requests`;
     const { body: pendingTransferRequest } = await api
@@ -285,7 +289,7 @@ describe('governance record access', () => {
       .expect(200);
     expect(transferred.body.lifecycle).toBe('active');
     expect(transferred.body).not.toHaveProperty('directoryListing');
-    await list().expect(200, { apps: [] });
+    await list().expect(200, { apps: [], unavailableRequests });
 
     await api.get(personalQueue).set('Authorization', auth(owner)).expect(403);
     const { body: transferredQueue } = await api
@@ -334,7 +338,7 @@ describe('governance record access', () => {
           directoryListing: listing,
         }),
       });
-    await list().expect(200, { apps: [] });
+    await list().expect(200, { apps: [], unavailableRequests });
     await api
       .get(`${collection}/${hosted.id}`)
       .set('Authorization', auth(owner))

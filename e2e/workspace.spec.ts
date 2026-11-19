@@ -4583,9 +4583,7 @@ test('a directory access request receives a recorded owner decision', async ({
   const myRequests = directory.getByRole('button', { name: /My requests/ });
   const allApps = directory.getByRole('button', { name: /All apps/ });
   await myRequests.click();
-  await expect(
-    directory.getByText('No access requests for listed apps'),
-  ).toBeVisible();
+  await expect(directory.getByText('No access requests')).toBeVisible();
   await allApps.click();
   await directory
     .getByRole('row', { name: /Inventory reconciliation/ })
