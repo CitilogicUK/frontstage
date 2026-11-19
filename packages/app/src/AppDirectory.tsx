@@ -4,7 +4,12 @@ import {
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
-import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
+import { useSearchParams } from 'react-router-dom';
+import {
+  WorkspaceEmptyState,
+  WorkspaceFilterTabs,
+  WorkspaceSearch,
+} from './WorkspaceLayout';
 import {
   DirectoryRequestAction,
   type DirectoryRequestStatus,
@@ -22,6 +27,8 @@ export function AppDirectory() {
   const { fetch } = useApi(fetchApiRef);
   const [apps, setApps] = useState<DirectoryApp[]>();
   const [query, setQuery] = useState('');
+  const [params, setParams] = useSearchParams();
+  const requestView = params.get('directoryAccess') === 'mine';
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -43,9 +50,20 @@ export function AppDirectory() {
   }, [attempt, discovery, fetch]);
 
   const needle = query.trim().toLowerCase();
-  const matches = apps?.filter(app =>
+  const myRequests = apps?.filter(app => app.requestStatus);
+  const matches = (requestView ? myRequests : apps)?.filter(app =>
     [app.name, app.summary].some(value => value.toLowerCase().includes(needle)),
   );
+  let emptyTitle = 'No apps listed';
+  let emptyDescription;
+  if (requestView) {
+    emptyTitle = 'No access requests for listed apps';
+    emptyDescription = 'Open All apps to find an app and request access.';
+  }
+  if (needle && (requestView ? myRequests?.length : apps?.length)) {
+    emptyTitle = 'No matching apps';
+    emptyDescription = 'Try a different name or summary.';
+  }
 
   return (
     <section className="gov-panel" aria-label="Directory apps">
@@ -56,6 +74,24 @@ export function AppDirectory() {
         onChange={setQuery}
         count={matches?.length}
       />
+      {apps && (
+        <WorkspaceFilterTabs
+          label="Directory view"
+          value={requestView ? 'mine' : 'all'}
+          onChange={value =>
+            setParams(previous => {
+              const next = new URLSearchParams(previous);
+              if (value === 'mine') next.set('directoryAccess', 'mine');
+              else next.delete('directoryAccess');
+              return next;
+            })
+          }
+          options={[
+            { value: 'all', label: 'All apps', count: apps.length },
+            { value: 'mine', label: 'My requests', count: myRequests?.length },
+          ]}
+        />
+      )}
       {failed && (
         <div className="gov-empty">
           <p role="alert">The app directory could not load.</p>
@@ -72,8 +108,8 @@ export function AppDirectory() {
       {matches?.length === 0 && (
         <WorkspaceEmptyState
           icon={null}
-          title={needle ? 'No matching apps' : 'No apps listed'}
-          description={needle ? 'Try a different name or summary.' : undefined}
+          title={emptyTitle}
+          description={emptyDescription}
         />
       )}
       {!!matches?.length && (
