@@ -71,7 +71,13 @@ test(
   { timeout: 15_000 },
   async () => {
     const requests = [];
-    const server = createServer((request, response) => {
+    const riskRequests = [];
+    const riskAssessment = {
+      tier: 3,
+      reasons: ['takes-actions'],
+      effectiveClassification: 'confidential',
+    };
+    const server = createServer(async (request, response) => {
       requests.push({
         path: request.url,
         method: request.method,
@@ -84,6 +90,16 @@ test(
         return;
       }
       switch (request.url) {
+        case '/workspace/api/governance/tier-preview': {
+          const chunks = [];
+          for await (const chunk of request) chunks.push(chunk);
+          riskRequests.push({
+            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            contentType: request.headers['content-type'],
+          });
+          response.end(JSON.stringify({ ...riskAssessment, ...hiddenFields }));
+          break;
+        }
         case '/workspace/api/governance/apps':
           response.end(
             JSON.stringify({ apps: records, internal: hiddenFields }),
@@ -129,7 +145,29 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'preview_risk',
         'search_apps',
+      ]);
+      const riskInput = {
+        audience: 'team',
+        classification: 'internal',
+        takesActions: true,
+        connections: [{ access: 'write' }],
+        hosted: { sharing: 'private', dataClassification: 'confidential' },
+      };
+      const invalidRisk = await call('preview_risk', {
+        ...riskInput,
+        classification: 'not-a-classification',
+      });
+      assert.equal(invalidRisk.isError, true);
+      assert.deepEqual(requests, []);
+      const risk = await call('preview_risk', riskInput);
+      assert.equal(risk.isError ?? false, false);
+      assert.deepEqual(risk.structuredContent, riskAssessment);
+      assert.deepEqual(JSON.parse(risk.content[0].text), riskAssessment);
+      assertPrivateFieldsAbsent(risk);
+      assert.deepEqual(riskRequests, [
+        { body: riskInput, contentType: 'application/json' },
       ]);
 
       const search = await call('search_apps', {
@@ -192,6 +230,7 @@ test(
       assert.deepEqual(
         requests.map(request => request.path),
         [
+          '/workspace/api/governance/tier-preview',
           '/workspace/api/governance/apps',
           '/workspace/api/governance/apps/order-workflow',
           '/workspace/api/governance/apps/missing',
@@ -200,11 +239,12 @@ test(
           '/workspace/api/governance/apps/redirected',
         ],
       );
+      assert.deepEqual(
+        requests.map(request => request.method),
+        ['POST', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET'],
+      );
       assert.ok(
-        requests.every(
-          request =>
-            request.method === 'GET' && request.bearer === `Bearer ${token}`,
-        ),
+        requests.every(request => request.bearer === `Bearer ${token}`),
       );
     } finally {
       try {
@@ -300,6 +340,7 @@ test(
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
         'preview_descriptor',
+        'preview_risk',
         'register_descriptor',
         'search_apps',
       ]);
