@@ -12,6 +12,7 @@ const backendPort = localPort('FRONTSTAGE_DEMO_BACKEND_PORT', 7007);
 const origin = `http://localhost:${appPort}`;
 const backend = `http://localhost:${backendPort}`;
 const governance = `${backend}/api/governance`;
+const demoOwner = 'user:default/guest';
 
 const identity = await fetch(`${backend}/api/auth/guest/refresh`, {
   headers: { Origin: origin, 'X-Requested-With': 'XMLHttpRequest' },
@@ -38,10 +39,10 @@ async function request(path, body) {
   return result;
 }
 
-const { apps, canReview } = await request('/apps');
-if (!canReview)
+const { apps, actor, canReview } = await request('/apps');
+if (!canReview || !actor || actor === demoOwner)
   throw new Error(
-    'Restart Backstage with app-config.reviewer.yaml to seed the demo scenarios.',
+    'Restart Backstage with app-config.reviewer.yaml and a reviewer identity other than the demo app owner.',
   );
 async function waitForDemoCatalog() {
   const refs = [
@@ -81,7 +82,7 @@ await waitForDemoCatalog();
 const base = {
   type: 'assistant',
   platform: 'Code repo',
-  owner: 'user:default/guest',
+  owner: demoOwner,
   team: 'group:default/platform',
   models: ['gpt-4.1-mini', 'gpt-4.1-nano'],
   audience: 'personal',
