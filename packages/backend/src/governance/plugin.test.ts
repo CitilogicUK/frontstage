@@ -377,6 +377,136 @@ describe('governance record access', () => {
     );
   });
 
+  it('summarizes only the current owner’s active scorecard issues', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    const backup = 'user:default/backup';
+    const team = 'group:default/platform';
+    const inactive = new Set<string>();
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const appsPath = '/api/governance/apps';
+    const summaryPath = '/api/governance/owner-scorecard';
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const register = async (
+      name: string,
+      appOwner: string,
+      lifecycle: 'active' | 'experimental',
+    ) => {
+      const { body } = await api
+        .post(appsPath)
+        .set('Authorization', auth(appOwner))
+        .send({
+          name,
+          purpose: 'Test owner scorecard summary.',
+          type: 'app',
+          platform: 'GitHub',
+          sourceUrl: `https://example.com/${name}`,
+          owner: appOwner,
+          backupOwner: backup,
+          team,
+          audience: 'personal',
+          classification: 'internal',
+          lifecycle,
+          models: ['test-model'],
+        })
+        .expect(201);
+      return body.id as string;
+    };
+    const monitored = await register('monitored', owner, 'active');
+    const healthy = await register('healthy', owner, 'active');
+    await register('experimental', owner, 'experimental');
+    await register('other-owner', reviewer, 'active');
+    await api
+      .post(`${appsPath}/${healthy}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+
+    const summary = () =>
+      api.get(summaryPath).set('Authorization', auth(owner));
+    catalog.mockClear();
+    await summary()
+      .expect('Cache-Control', 'no-store')
+      .expect(200, {
+        issues: [{ appId: monitored, checks: ['Gateway key'] }],
+        catalogUnavailable: false,
+      });
+    expect(catalog).toHaveBeenCalledTimes(1);
+    expect(catalog.mock.calls[0][0].entityRefs.sort()).toEqual(
+      [owner, backup, team].sort(),
+    );
+    await api.get(summaryPath).set('Authorization', auth(backup)).expect(200, {
+      issues: [],
+      catalogUnavailable: false,
+    });
+    await api
+      .get(summaryPath)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
+
+    inactive.add(backup);
+    const { body: detail } = await api
+      .get(`${appsPath}/${monitored}/scorecard`)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    const { body: degradedOwnership } = await summary().expect(200);
+    expect(degradedOwnership.issues).toEqual(
+      expect.arrayContaining([
+        { appId: healthy, checks: ['Catalog ownership'] },
+        {
+          appId: monitored,
+          checks: detail.checks
+            .filter((check: { status: string }) => check.status === 'attention')
+            .map((check: { name: string }) => check.name),
+        },
+      ]),
+    );
+    catalog.mockResolvedValueOnce({ items: [] });
+    await summary().expect(200, {
+      issues: [{ appId: monitored, checks: ['Gateway key'] }],
+      catalogUnavailable: true,
+    });
+  });
+
   it('keeps durable directory access requests private and applies only permitted decisions', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';

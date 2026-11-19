@@ -502,6 +502,9 @@ export function registerGatewayRoutes(options: {
   meetsGatewayReviewRequirements: (app: GovernanceRecord) => boolean;
   evaluateTier: (app: GovernanceRecord) => number;
   ownersAreActive: (app: GovernanceRecord) => Promise<boolean>;
+  batchCatalogOwnership: (
+    apps: GovernanceRecord[],
+  ) => Promise<Map<string, boolean>>;
   isReviewer: (principal: BackstageUserPrincipal) => boolean;
 }) {
   const {
@@ -651,19 +654,23 @@ export function registerGatewayRoutes(options: {
     return undefined;
   }
 
-  router.get('/apps/:id/scorecard', async (req, res) => {
-    const { principal } = await httpAuth.credentials(req, { allow: ['user'] });
-    const { record } = await load(req.params.id);
-    if (
-      principal.userEntityRef !== record.owner &&
-      principal.userEntityRef !== record.backupOwner &&
-      !isReviewer(principal)
-    ) {
-      throw new NotAllowedError(
-        'Only the owner, backup owner, or a reviewer can view this scorecard.',
-      );
-    }
-    const ownership = await ownersAreActive(record).catch(() => undefined);
+  function isScorecardGatewayApp(record: GovernanceRecord) {
+    return (
+      config.enabled &&
+      record.usesAiAtRuntime !== false &&
+      record.type !== 'provider-hosted app'
+    );
+  }
+
+  function scorecardChecks(
+    record: GovernanceRecord,
+    evidence: {
+      ownership?: boolean;
+      issuedKey: boolean;
+      recentModes?: { execution_mode: string | null }[];
+    },
+  ) {
+    const { ownership, issuedKey, recentModes } = evidence;
     const tier = evaluateTier(record);
     const reviewed =
       tier === record.tier &&
@@ -672,10 +679,7 @@ export function registerGatewayRoutes(options: {
           !!record.nextReview &&
           Date.parse(record.nextReview) > Date.now()) ||
         (tier === 3 && meetsLaunchRequirements(record)));
-    const gatewayApp =
-      config.enabled &&
-      record.usesAiAtRuntime !== false &&
-      record.type !== 'provider-hosted app';
+    const gatewayApp = isScorecardGatewayApp(record);
     let reviewDetail = reviewed
       ? 'The current risk tier has no outstanding review requirement.'
       : 'The app needs reassessment or a current review.';
@@ -708,18 +712,10 @@ export function registerGatewayRoutes(options: {
       },
     ];
     if (gatewayApp) {
-      const recentModes = await db(usageTable)
-        .where({ app_id: record.id })
-        .andWhere(
-          'created_at',
-          '>=',
-          new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-        )
-        .distinct<{ execution_mode: string | null }[]>('execution_mode');
-      const hasLiveActivity = recentModes.some(
+      const hasLiveActivity = recentModes?.some(
         row => row.execution_mode === 'openai',
       );
-      const hasSimulation = recentModes.some(
+      const hasSimulation = recentModes?.some(
         row => row.execution_mode === 'simulation',
       );
       const blockedModels = record.models.filter(
@@ -762,9 +758,6 @@ export function registerGatewayRoutes(options: {
         },
       );
       if (active) {
-        const issuedKey = await db(keysTable)
-          .where({ app_id: record.id })
-          .first('app_id');
         checks.push({
           name: 'Gateway key',
           status: Boolean(issuedKey),
@@ -790,7 +783,8 @@ export function registerGatewayRoutes(options: {
       });
       const nextDue = record.hostedAttestation?.nextDue;
       const current = !!nextDue && Date.parse(nextDue) > Date.now();
-      let attestationDetail = 'Workspace attestation is due from the app owner.';
+      let attestationDetail =
+        'Workspace attestation is due from the app owner.';
       if (record.lifecycle === 'retired')
         attestationDetail = 'The app is retired.';
       else if (nextDue) {
@@ -814,11 +808,80 @@ export function registerGatewayRoutes(options: {
           : 'Gateway evidence is unavailable for this app.',
       });
     }
+    return checks.map(check => ({
+      ...check,
+      status: getCheckStatus(check.status),
+    }));
+  }
+
+  router.get('/apps/:id/scorecard', async (req, res) => {
+    const { principal } = await httpAuth.credentials(req, { allow: ['user'] });
+    const { record } = await load(req.params.id);
+    if (
+      principal.userEntityRef !== record.owner &&
+      principal.userEntityRef !== record.backupOwner &&
+      !isReviewer(principal)
+    ) {
+      throw new NotAllowedError(
+        'Only the owner, backup owner, or a reviewer can view this scorecard.',
+      );
+    }
+    const ownership = await ownersAreActive(record).catch(() => undefined);
+    let recentModes;
+    let issuedKey = false;
+    if (isScorecardGatewayApp(record)) {
+      recentModes = await db(usageTable)
+        .where({ app_id: record.id })
+        .andWhere(
+          'created_at',
+          '>=',
+          new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+        )
+        .distinct<{ execution_mode: string | null }[]>('execution_mode');
+      if (record.lifecycle === 'active') {
+        issuedKey = Boolean(
+          await db(keysTable).where({ app_id: record.id }).first('app_id'),
+        );
+      }
+    }
     res.set('Cache-Control', 'no-store').json({
-      checks: checks.map(check => ({
-        ...check,
-        status: getCheckStatus(check.status),
-      })),
+      checks: scorecardChecks(record, { ownership, issuedKey, recentModes }),
+    });
+  });
+
+  router.get('/owner-scorecard', async (req, res) => {
+    const { principal } = await httpAuth.credentials(req, { allow: ['user'] });
+    const rows = await db(appsTable).select<{ payload: string }[]>('payload');
+    const apps = rows
+      .map(row => JSON.parse(row.payload) as GovernanceRecord)
+      .filter(
+        app =>
+          app.owner === principal.userEntityRef && app.lifecycle === 'active',
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const ownership = await options
+      .batchCatalogOwnership(apps)
+      .catch(() => undefined);
+    const gatewayIds = apps.filter(isScorecardGatewayApp).map(app => app.id);
+    const issuedKeys = new Set<string>();
+    for (let offset = 0; offset < gatewayIds.length; offset += 100) {
+      const keys = await db(keysTable)
+        .whereIn('app_id', gatewayIds.slice(offset, offset + 100))
+        .select<{ app_id: string }[]>('app_id');
+      keys.forEach(key => issuedKeys.add(key.app_id));
+    }
+    const issues = apps.flatMap(app => {
+      const checks = scorecardChecks(app, {
+        ownership: ownership?.get(app.id),
+        issuedKey: issuedKeys.has(app.id),
+      })
+        .filter(check => check.status === 'attention')
+        .map(check => check.name);
+      return checks.length ? [{ appId: app.id, checks }] : [];
+    });
+    res.set('Cache-Control', 'no-store').json({
+      issues,
+      catalogUnavailable: ownership === undefined,
     });
   });
 
