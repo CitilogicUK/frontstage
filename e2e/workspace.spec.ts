@@ -5356,7 +5356,24 @@ test('resumed live gateway activity leaves only the keep decision available', as
 
 test('an engineering co-owner nominee can accept without gaining app controls', async ({
   page,
+  request,
 }) => {
+  await expect
+    .poll(
+      async () => {
+        const health = await request
+          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
+            timeout: 2_000,
+          })
+          .catch(() => undefined);
+        if (!health) return 0;
+        const status = health.status();
+        await health.dispose();
+        return status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(200);
   const owner = 'user:default/owner';
   const nominee = 'user:default/engineering';
   const reviewer = 'user:default/reviewer';
@@ -5376,6 +5393,7 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     classification: 'internal',
     lifecycle: 'experimental',
     deliveryStage: 'production',
+    requiresProductionEngineeringCoOwner: true,
     tier: 3,
     type: 'assistant',
     models: ['gpt-4.1-mini'],
@@ -5473,10 +5491,14 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   const details = page.getByRole('dialog', { name: app.name });
   const panel = details.getByRole('region', { name: 'Engineering co-owner' });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  const prerequisite = panel.getByText(
+    /must accept the handoff before this app/,
+  );
 
   await page.goto('/?app=graduation-candidate');
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await expect(prerequisite).toBeVisible();
   await panel.getByRole('textbox', { name: 'Co-owner nominee' }).fill(nominee);
   await panel
     .getByRole('button', { name: 'Nominate engineering co-owner' })
@@ -5526,6 +5548,7 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
     panel.getByText(`Accepted by ${nominee} on 2025-05-03.`),
   ).toBeVisible();
   await expect(panel.getByText(reason)).toBeVisible();
+  await expect(prerequisite).toHaveCount(0);
   await expect(
     details.getByText('Edit app details', { exact: true }),
   ).toHaveCount(0);

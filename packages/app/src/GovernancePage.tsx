@@ -144,6 +144,7 @@ type App = {
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  requiresProductionEngineeringCoOwner?: true;
   directoryListing?: DirectoryListing;
   directoryLaunchEligible?: boolean;
   reviewTicketUrl?: string;
@@ -637,6 +638,10 @@ export function GovernancePage() {
   const reviewDate = selected && scheduledReviewDate(selected);
   const actorIsAcceptedCoOwner =
     selected !== undefined && isAcceptedEngineeringCoOwner(selected, actor);
+  const needsProductionHandoff =
+    selected?.requiresProductionEngineeringCoOwner === true &&
+    selected.lifecycle !== 'active' &&
+    selected.graduation?.status !== 'accepted';
   const canNominateCoOwner =
     selected &&
     graduationEnabled &&
@@ -3078,10 +3083,13 @@ export function GovernancePage() {
                 }
               />
             )}
-            {(canNominateCoOwner || selected.graduation) && (
+            {(canNominateCoOwner ||
+              selected.graduation ||
+              needsProductionHandoff) && (
               <AppGraduation
                 key={`graduation-${selected.updatedAt}`}
                 graduation={selected.graduation}
+                needsProductionHandoff={needsProductionHandoff}
                 canNominate={canNominateCoOwner === true}
                 canRemove={
                   (actor === selected.owner || canReview) &&

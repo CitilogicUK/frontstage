@@ -475,6 +475,14 @@ export const governancePlugin = createBackendPlugin({
           .default([])
           .parse(config.getOptional('governance.graduationGroups'));
         const graduationEnabled = graduationGroups.length > 0;
+        const requireProductionEngineeringCoOwner =
+          config.getOptionalBoolean(
+            'governance.requireProductionEngineeringCoOwner',
+          ) ?? false;
+        if (requireProductionEngineeringCoOwner && !graduationEnabled)
+          throw new Error(
+            'governance.requireProductionEngineeringCoOwner requires governance.graduationGroups.',
+          );
         const firstDecisionTargetWeekdays = z
           .number()
           .int()
@@ -1297,6 +1305,10 @@ export const governancePlugin = createBackendPlugin({
             ...(missing.length > 0 && {
               missingCriticalReviewEvidence: missing,
             }),
+            ...(requireProductionEngineeringCoOwner &&
+              isGraduationStage(record) && {
+                requiresProductionEngineeringCoOwner: true,
+              }),
             riskAssessment: evaluateTierPolicy(record, tierPolicy),
             ...(humanApprovalEvidenceRequired(record) && {
               humanApprovalEvidenceRequired: true,
@@ -1389,6 +1401,28 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Choose an active catalog user who is a direct member of an active configured engineering group.',
             );
+        }
+
+        async function assertProductionEngineeringHandoff(
+          previous: GovernanceRecord,
+          current: GovernanceRecord,
+        ) {
+          if (
+            !requireProductionEngineeringCoOwner ||
+            current.lifecycle !== 'active' ||
+            !isGraduationStage(current) ||
+            (previous.lifecycle === 'active' && isGraduationStage(previous))
+          )
+            return;
+
+          if (current.graduation?.status !== 'accepted')
+            throw new InputError(
+              'An engineering co-owner must accept the handoff before this Tier 3 production app can be activated.',
+            );
+          await assertEligibleNominee(
+            current.graduation.nominee,
+            current.owner,
+          );
         }
 
         function assertCanEdit(
@@ -2642,6 +2676,7 @@ export const governancePlugin = createBackendPlugin({
           updated.directoryListing = directoryListingAfterEdit(record, updated);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
+          await assertProductionEngineeringHandoff(record, updated);
           await save(updated, revision, principal, 'updated', {
             lifecycleReason: reason.data || undefined,
           });
@@ -2779,6 +2814,7 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError('The registered source URL is fixed.');
           await validateOwners(app);
           const updated = recordAfterAppEdit(record, app, principal);
+          await assertProductionEngineeringHandoff(record, updated);
           const ownerChanged = record.owner !== updated.owner;
           await save(updated, revision, principal, 'updated', { ownerChanged });
           res.json(visibleRecord(updated, principal));
@@ -2904,6 +2940,7 @@ export const governancePlugin = createBackendPlugin({
               'Choose an active catalog user as the replacement backup owner.',
             );
           const updated = recordAfterAppEdit(record, app, principal);
+          await assertProductionEngineeringHandoff(record, updated);
           await save(updated, revision, principal, 'ownership-handover', {
             ownerChanged: true,
           });
