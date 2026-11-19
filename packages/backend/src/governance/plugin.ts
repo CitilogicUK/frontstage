@@ -1783,8 +1783,11 @@ export const governancePlugin = createBackendPlugin({
           if (!reviewers.includes(principal.userEntityRef))
             throw new NotAllowedError('Reviewer access is required.');
           res.set('Cache-Control', 'no-store');
-          if (reviewManagerEscalationDays === undefined) {
-            res.json({ apps: [] });
+          if (
+            reviewReminderIntervalMinutes === undefined ||
+            reviewManagerEscalationDays === undefined
+          ) {
+            res.json({ escalationDays: null, apps: [] });
             return;
           }
           const rows = await db(table).select<{ payload: string }[]>('payload');
@@ -1813,6 +1816,7 @@ export const governancePlugin = createBackendPlugin({
             candidates,
           );
           res.json({
+            escalationDays: reviewManagerEscalationDays,
             apps: candidates
               .filter(app => sent.has(app.appId))
               .sort(

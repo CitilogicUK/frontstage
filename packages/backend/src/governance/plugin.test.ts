@@ -856,6 +856,7 @@ describe('governance record access', () => {
       const { body } = await escalationReport()
         .expect('Cache-Control', 'no-store')
         .expect(200);
+      expect(body.escalationDays).toBe(14);
       return body.apps.find(
         ({ appId }: { appId: string }) => appId === later.id,
       );
@@ -937,6 +938,36 @@ describe('governance record access', () => {
         expect(body).not.toHaveProperty('gatewayPause');
       });
   });
+
+  it.each([
+    { reviewManagerEscalationDays: 14 },
+    { reviewReminderIntervalMinutes: 15 },
+  ])(
+    'reports manager escalations disabled when a required setting is missing: %j',
+    async governance => {
+      const reviewer = 'user:default/reviewer';
+      const db = await databases.init('SQLITE_3');
+      const { server } = await startTestBackend({
+        features: [
+          governancePlugin,
+          mockServices.database.factory({ knex: db }),
+          mockServices.scheduler.mock({ scheduleTask: jest.fn() }).factory,
+          mockServices.rootConfig.factory({
+            data: {
+              app: { baseUrl: 'https://portal.example.com/internal/' },
+              governance: { ...governance, reviewers: [reviewer] },
+            },
+          }),
+        ],
+      });
+      const response = await request(server)
+        .get('/api/governance/reports/manager-escalations')
+        .set('Authorization', mockCredentials.user.header(reviewer))
+        .expect('Cache-Control', 'no-store')
+        .expect(200);
+      expect(response.body).toEqual({ escalationDays: null, apps: [] });
+    },
+  );
 
   it('summarizes only the current owner’s active scorecard issues', async () => {
     const owner = 'user:default/owner';

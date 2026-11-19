@@ -13,6 +13,11 @@ type Escalation = {
   due: string;
 };
 
+type EscalationReport = {
+  escalationDays: number | null;
+  apps: Escalation[];
+};
+
 export function ManagerEscalations({
   appLink,
 }: {
@@ -21,7 +26,7 @@ export function ManagerEscalations({
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [attempt, setAttempt] = useState(0);
-  const [escalations, setEscalations] = useState<Escalation[] | null>();
+  const [report, setReport] = useState<EscalationReport | null>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,10 +37,10 @@ export function ManagerEscalations({
           signal: controller.signal,
         });
         if (!response.ok) throw new Error('Manager escalations unavailable');
-        const { apps }: { apps: Escalation[] } = await response.json();
-        if (!controller.signal.aborted) setEscalations(apps);
+        const result: EscalationReport = await response.json();
+        if (!controller.signal.aborted) setReport(result);
       } catch {
-        if (!controller.signal.aborted) setEscalations(null);
+        if (!controller.signal.aborted) setReport(null);
       }
     }
     void load();
@@ -49,29 +54,39 @@ export function ManagerEscalations({
     >
       <div className="gov-report-heading">
         <h2 id="manager-escalations">Manager escalations</h2>
-        <p>Manager notifications sent for currently overdue renewals.</p>
+        {report?.escalationDays != null && (
+          <p>
+            Manager notifications are scheduled after {report.escalationDays}{' '}
+            overdue calendar {report.escalationDays === 1 ? 'day' : 'days'}.
+          </p>
+        )}
       </div>
       <button
         type="button"
         className="gov-button"
-        disabled={escalations === undefined}
+        disabled={report === undefined}
         onClick={() => {
-          setEscalations(undefined);
+          setReport(undefined);
           setAttempt(value => value + 1);
         }}
       >
         Refresh manager escalations
       </button>
-      {escalations === undefined && (
+      {report === undefined && (
         <p role="status">Loading manager escalations…</p>
       )}
-      {escalations === null && (
+      {report === null && (
         <p role="alert">Manager escalations could not load.</p>
       )}
-      {escalations?.length === 0 && <p>No current manager escalations.</p>}
-      {!!escalations?.length && (
+      {report?.escalationDays === null && (
+        <p>Scheduled manager escalations are disabled.</p>
+      )}
+      {report?.escalationDays != null && report.apps.length === 0 && (
+        <p>No current manager escalations.</p>
+      )}
+      {!!report?.apps.length && (
         <ul>
-          {escalations.map(app => (
+          {report.apps.map(app => (
             <li key={app.appId}>
               <Link to={appLink(app.appId)}>{app.name}</Link>
               <p>
