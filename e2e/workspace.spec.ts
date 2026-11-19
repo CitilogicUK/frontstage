@@ -1362,6 +1362,20 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     blockReport.getByRole('link', { name: renewal.name }),
   ).toBeVisible();
+  const blockDownloadPending = page.waitForEvent('download');
+  const exportBlocks = blockReport.getByRole('button', {
+    name: 'Download policy blocks CSV',
+  });
+  await exportBlocks.click();
+  const blockDownload = await blockDownloadPending;
+  expect(blockDownload.suggestedFilename()).toBe(
+    'frontstage-gateway-policy-blocks.csv',
+  );
+  const blockCsv = await readFile(await blockDownload.path(), 'utf8');
+  expect(blockCsv.trimEnd().split('\r\n')).toHaveLength(2);
+  expect(blockCsv).toContain(`"${renewal.id}","${renewal.name}"`);
+  expect(blockCsv).toContain('"simulation","","review",0,4,0');
+  expect(blockCsv).not.toContain('missing-app');
   await blockReason.selectOption('ownership');
   await expect(missingAppRow).toBeVisible();
   await expect(
@@ -1372,6 +1386,7 @@ test('audit history shows production review and ownership handoff', async ({
     blockReport.getByText('No policy blocks match this reason'),
   ).toBeVisible();
   await expect(blockReason).toHaveValue('ownership');
+  await expect(exportBlocks).toHaveCount(0);
   await blockReason.selectOption('');
   await expect(page).toHaveURL(/usageTeam=group%3Adefault%2Fprocurement$/);
   await expect(page.getByRole('combobox', { name: 'Usage team' })).toHaveValue(
