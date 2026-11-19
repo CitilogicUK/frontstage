@@ -403,13 +403,13 @@ export function GovernancePage() {
       : undefined;
   const canManageRenewalException =
     canReview && !!selected && isIndependentReviewer(selected, actor);
-  const canDownloadReminder =
+  const canDownloadReminders =
     selected &&
-    reviewDate &&
     (actor === selected.owner || actor === selected.backupOwner || canReview);
+  const hostedAttestationDue = selected?.hostedAttestation?.nextDue;
 
   function downloadReviewReminders(
-    reminders: Array<{ app: App; due: Date }>,
+    reminders: Parameters<typeof reviewCalendar>[0],
     filename: string,
   ) {
     const calendar = reviewCalendar(reminders, config.getString('app.baseUrl'));
@@ -1606,7 +1606,7 @@ export function GovernancePage() {
             {selected.nextReview && (
               <p>Next review due {selected.nextReview.slice(0, 10)}.</p>
             )}
-            {canDownloadReminder && (
+            {canDownloadReminders && reviewDate && (
               <button
                 type="button"
                 onClick={() =>
@@ -1671,6 +1671,27 @@ export function GovernancePage() {
                 ) : (
                   <p>Workspace settings have not been confirmed.</p>
                 )}
+                {canDownloadReminders &&
+                  hostedAttestationDue &&
+                  Number.isFinite(Date.parse(hostedAttestationDue)) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadReviewReminders(
+                          [
+                            {
+                              app: selected,
+                              due: new Date(hostedAttestationDue),
+                              kind: 'hosted-attestation',
+                            },
+                          ],
+                          'frontstage-workspace-attestation.ics',
+                        )
+                      }
+                    >
+                      Download workspace reminder
+                    </button>
+                  )}
                 {actor === selected.owner &&
                   selected.hostedWorkspaceAllowed === false && (
                     <p>

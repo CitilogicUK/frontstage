@@ -1535,6 +1535,24 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   await expect(attestation).toContainText('Last confirmed');
   await expect(attestation).toContainText('Next due');
 
+  const reminderPending = page.waitForEvent('download');
+  await attestation
+    .getByRole('button', { name: 'Download workspace reminder' })
+    .click();
+  const reminder = await reminderPending;
+  expect(reminder.suggestedFilename()).toBe(
+    'frontstage-workspace-attestation.ics',
+  );
+  const calendar = await readFile(await reminder.path(), 'utf8');
+  const dueDate = app.hostedAttestation?.nextDue.slice(0, 10).replace(/-/g, '');
+  expect(calendar).toContain(`DTSTART;VALUE=DATE:${dueDate}`);
+  expect(calendar).toContain('UID:hosted-app-hosted-attestation@');
+  expect(calendar).toContain(
+    'SUMMARY:Hosted workspace attestation: Hosted demo app',
+  );
+  expect(calendar).toContain(`URL:${workspaceUrl}/?app=hosted-app`);
+  expect(calendar).toContain('TRIGGER:-P7D');
+
   await details.getByText('Audit history', { exact: true }).click();
   await expect(
     details.getByText(/Next workspace attestation due/),
