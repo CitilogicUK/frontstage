@@ -252,6 +252,7 @@ export function PortfolioReport({
     discoveryLinkLabel = `Review ${unowned} unowned repositories`;
   const windowLabel = usageDays === 1 ? '24 hours' : `${usageDays} days`;
   const [query, setQuery] = useState('');
+  const [blockQuery, setBlockQuery] = useState('');
   const [params, setParams] = useSearchParams();
   const selectedTeam = params.get('usageTeam') ?? '';
   const selectedBlockReason = params.get('blockReason') ?? '';
@@ -511,13 +512,21 @@ export function PortfolioReport({
   blockReasons.sort((a, b) =>
     gatewayBlockReason(a).localeCompare(gatewayBlockReason(b)),
   );
+  const blockSearch = blockQuery.trim().toLowerCase();
   const blocks = teamBlocks
-    ?.filter(row => !selectedBlockReason || row.reason === selectedBlockReason)
+    ?.filter(
+      row =>
+        (!selectedBlockReason || row.reason === selectedBlockReason) &&
+        [row.appId, byId.get(row.appId)?.name].some(value =>
+          value?.toLowerCase().includes(blockSearch),
+        ),
+    )
     .sort((a, b) => b.calls - a.calls);
   let emptyBlockTitle = 'No policy blocks recorded';
   if (selectedTeam) emptyBlockTitle = 'No policy blocks for this team';
   if (selectedBlockReason)
     emptyBlockTitle = 'No policy blocks match this reason';
+  if (blockSearch) emptyBlockTitle = 'No matching policy blocks';
   const rows = report?.usage
     .map(row => ({
       ...row,
@@ -1385,6 +1394,30 @@ export function PortfolioReport({
               Requests blocked in the last {windowLabel}
               {selectedTeam && ` for ${selectedTeam}`}.
             </p>
+            {report && blocks.length > 0 && (
+              <button
+                type="button"
+                className="gov-button"
+                onClick={() =>
+                  downloadCsv(
+                    portfolioCsv(
+                      blocks.map(row => exportBlock(report.from, row)),
+                    ),
+                    'frontstage-gateway-policy-blocks.csv',
+                  )
+                }
+              >
+                Download policy blocks CSV
+              </button>
+            )}
+          </div>
+          <WorkspaceSearch
+            label="Search policy blocks"
+            placeholder="Search by app name or ID…"
+            value={blockQuery}
+            onChange={setBlockQuery}
+            count={blocks.length}
+          >
             {blockReasons.length > 0 && (
               <label>
                 Block reason
@@ -1403,23 +1436,7 @@ export function PortfolioReport({
                 </select>
               </label>
             )}
-            {report && blocks.length > 0 && (
-              <button
-                type="button"
-                className="gov-button"
-                onClick={() =>
-                  downloadCsv(
-                    portfolioCsv(
-                      blocks.map(row => exportBlock(report.from, row)),
-                    ),
-                    'frontstage-gateway-policy-blocks.csv',
-                  )
-                }
-              >
-                Download policy blocks CSV
-              </button>
-            )}
-          </div>
+          </WorkspaceSearch>
           {blocks.length === 0 && (
             <WorkspaceEmptyState
               icon={<AssessmentOutlinedIcon aria-hidden="true" />}
