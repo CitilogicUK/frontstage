@@ -669,8 +669,9 @@ export function registerGatewayRoutes(options: {
   ) {
     const { ownership, issuedKey, recentModes } = evidence;
     const tier = evaluateTier(record);
+    const tierChanged = tier !== record.tier;
     const reviewed =
-      tier === record.tier &&
+      !tierChanged &&
       (tier === 1 ||
         (tier === 2 &&
           !!record.nextReview &&
@@ -680,7 +681,9 @@ export function registerGatewayRoutes(options: {
     let reviewDetail = reviewed
       ? 'The current risk tier has no outstanding review requirement.'
       : 'The app needs reassessment or a current review.';
-    if (
+    if (tierChanged) {
+      reviewDetail = `Current policy assigns Tier ${tier}. Reassess this app to update its saved Tier ${record.tier}.`;
+    } else if (
       !reviewed &&
       gatewayApp &&
       record.renewalException &&
