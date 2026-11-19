@@ -761,6 +761,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await match.click();
   const details = page.getByRole('dialog', { name: app.name });
   await expect(details).toBeVisible();
+  await expect(
+    details.getByText('Registration source · Unrecorded', { exact: true }),
+  ).toBeVisible();
   await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(match).toBeVisible();
@@ -792,7 +795,16 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await page.getByLabel('Does the app use AI at runtime?').selectOption('no');
   await page.getByRole('button', { name: 'Register app', exact: true }).click();
   await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
-  await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
+  await report.getByRole('link', { name: draft.name }).click();
+  const registeredDetails = page.getByRole('dialog', { name: draft.name });
+  await expect(
+    registeredDetails.getByText('Registration source · Outside-gateway usage', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await registeredDetails
+    .getByRole('button', { name: 'Close app details' })
+    .click();
   await expect(startRegistration).toHaveCount(0);
   expect(previewCalls).toBe(3);
 
