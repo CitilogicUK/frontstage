@@ -6,7 +6,8 @@ import type { GovernanceRecord } from './plugin';
 
 const remindersTable = 'governance_review_reminders';
 const reminderBatchSize = 50;
-const leadTimeMs = 7 * 24 * 60 * 60 * 1000;
+const dayMs = 24 * 60 * 60 * 1000;
+const leadTimeMs = 7 * dayMs;
 const retryDelayMs = 60 * 60 * 1000;
 
 export function reviewRemindersMigration() {
@@ -26,6 +27,7 @@ export function reviewRemindersMigration() {
 
 type ReminderKind =
   | 'risk-renewal'
+  | 'manager-risk-renewal'
   | 'hosted-confirmation'
   | 'initial-hosted-confirmation'
   | 'hosted-reconfirmation';
@@ -36,6 +38,7 @@ type Reminder = {
   kind: ReminderKind;
   due: string | null;
   key: string;
+  ownerReminderKey?: string;
 };
 
 type ReminderPolicy = {
@@ -48,6 +51,7 @@ function candidatesFor(
   record: GovernanceRecord,
   policy: ReminderPolicy,
   now: number,
+  managerEscalationDays?: number,
 ): Reminder[] {
   if (record.lifecycle === 'retired') return [];
   const tier = policy.evaluateTier(record);
@@ -83,7 +87,21 @@ function candidatesFor(
     const dueTime = Date.parse(deadline ?? '');
     if (!Number.isFinite(dueTime) || dueTime > now + leadTimeMs) return [];
     const due = new Date(dueTime).toISOString();
-    return [createReminder(kind, due, due)];
+    const ownerReminder = createReminder(kind, due, due);
+    if (
+      kind === 'risk-renewal' &&
+      managerEscalationDays !== undefined &&
+      dueTime + managerEscalationDays * dayMs <= now
+    ) {
+      return [
+        ownerReminder,
+        {
+          ...createReminder('manager-risk-renewal', due, due),
+          ownerReminderKey: ownerReminder.key,
+        },
+      ];
+    }
+    return [ownerReminder];
   });
   if (
     record.lifecycle === 'active' &&
@@ -113,6 +131,10 @@ export async function sendReviewReminders(options: {
   appBaseUrl: string;
   signal: AbortSignal;
   now?: number;
+  managerEscalation?: {
+    days: number;
+    resolveManagers: (owners: string[]) => Promise<Map<string, string>>;
+  };
 }) {
   const {
     db,
@@ -125,12 +147,18 @@ export async function sendReviewReminders(options: {
     appBaseUrl,
     signal,
     now = Date.now(),
+    managerEscalation,
   } = options;
   if (signal.aborted) return;
   const rows = await db(appsTable).select<{ payload: string }[]>('payload');
   const candidates = rows
     .flatMap(({ payload }) =>
-      candidatesFor(JSON.parse(payload) as GovernanceRecord, policy, now),
+      candidatesFor(
+        JSON.parse(payload) as GovernanceRecord,
+        policy,
+        now,
+        managerEscalation?.days,
+      ),
     )
     .sort(
       (a, b) =>
@@ -150,20 +178,34 @@ export async function sendReviewReminders(options: {
     if (signal.aborted) return;
     const batch = candidates.slice(offset, offset + reminderBatchSize);
     const ledger = await db(remindersTable)
-      .whereIn(
+      .whereIn('reminder_key', [
+        ...new Set(
+          batch.flatMap(({ key, ownerReminderKey }) =>
+            ownerReminderKey ? [key, ownerReminderKey] : [key],
+          ),
+        ),
+      ])
+      .select<
+        {
+          reminder_key: string;
+          sent_at: string | Date | number | null;
+          can_retry: boolean | number;
+        }[]
+      >(
         'reminder_key',
-        batch.map(reminder => reminder.key),
-      )
-      .select<{ reminder_key: string; can_retry: boolean | number }[]>(
-        'reminder_key',
+        'sent_at',
         db.raw('sent_at is null and retry_after <= ? as can_retry', [scanTime]),
       );
-    const canRetryByKey = new Map(
-      ledger.map(row => [row.reminder_key, Boolean(row.can_retry)]),
-    );
+    const byKey = new Map(ledger.map(row => [row.reminder_key, row]));
     for (const reminder of batch) {
-      if (!canRetryByKey.has(reminder.key)) unattempted.push(reminder);
-      else if (canRetryByKey.get(reminder.key)) retries.push(reminder);
+      if (
+        reminder.ownerReminderKey &&
+        (byKey.get(reminder.ownerReminderKey)?.sent_at ?? null) === null
+      )
+        continue;
+      const delivery = byKey.get(reminder.key);
+      if (!delivery) unattempted.push(reminder);
+      else if (delivery.can_retry) retries.push(reminder);
     }
   }
 
@@ -176,14 +218,44 @@ export async function sendReviewReminders(options: {
     const unavailable = await unavailableOwners([
       ...new Set(batch.map(reminder => reminder.owner)),
     ]);
+    const managerOwners = [
+      ...new Set(
+        batch.flatMap(reminder =>
+          reminder.kind === 'manager-risk-renewal' &&
+          !unavailable.has(reminder.owner)
+            ? [reminder.owner]
+            : [],
+        ),
+      ),
+    ];
+    const managers =
+      managerEscalation && managerOwners.length
+        ? await managerEscalation.resolveManagers(managerOwners).catch(() => {
+            logger.warn('Could not resolve governance reminder managers');
+            return undefined;
+          })
+        : undefined;
     for (const reminder of batch) {
       if (signal.aborted || attempts >= reminderBatchSize) return;
       if (unavailable.has(reminder.owner)) continue;
       const { appId, due, key, kind, owner } = reminder;
+      const managerReminder = kind === 'manager-risk-renewal';
+      const recipient = managerReminder ? managers?.get(owner) : owner;
+      if (
+        !recipient ||
+        (managerReminder &&
+          (recipient === owner ||
+            !/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/.test(recipient)))
+      )
+        continue;
       try {
         const { record } = await load(appId);
         if (signal.aborted) return;
-        if (!candidatesFor(record, policy, now).some(item => item.key === key))
+        if (
+          !candidatesFor(record, policy, now, managerEscalation?.days).some(
+            item => item.key === key,
+          )
+        )
           continue;
         const link = new URL(appBaseUrl);
         link.search = new URLSearchParams({ app: appId }).toString();
@@ -191,14 +263,18 @@ export async function sendReviewReminders(options: {
           reminder.tier === 3 ? 'AI app review due' : 'AI app attestation due';
         const titles = {
           'risk-renewal': riskTitle,
+          'manager-risk-renewal': 'AI app renewal overdue',
           'hosted-confirmation': 'Hosted workspace confirmation due',
           'initial-hosted-confirmation': 'Confirm your hosted workspace',
           'hosted-reconfirmation': 'Reconfirm your hosted workspace',
         };
-        const description =
+        let description =
           kind === 'hosted-reconfirmation'
             ? `Confirm the current workspace and sharing settings for ${record.name}.`
             : `Confirm the approved workspace and sharing settings for ${record.name}.`;
+        if (due)
+          description = `${record.name} is due on ${due.slice(0, 10)} UTC.`;
+        if (managerReminder) description = 'An app renewal needs attention.';
         const retryAfter = new Date(now + retryDelayMs);
         const claimed = await db(remindersTable)
           .insert({ reminder_key: key, retry_after: retryAfter })
@@ -210,12 +286,10 @@ export async function sendReviewReminders(options: {
         if (!claimed.length || signal.aborted) continue;
         attempts += 1;
         await notifications.send({
-          recipients: { type: 'entity', entityRef: owner },
+          recipients: { type: 'entity', entityRef: recipient },
           payload: {
             title: titles[kind],
-            description: due
-              ? `${record.name} is due on ${due.slice(0, 10)} UTC.`
-              : description,
+            description,
             link: link.toString(),
             topic: 'AI App Governance',
             scope: `governance-review-reminder-${key}`,

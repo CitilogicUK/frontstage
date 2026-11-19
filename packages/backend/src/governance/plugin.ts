@@ -388,6 +388,13 @@ export const governancePlugin = createBackendPlugin({
           .parse(
             config.getOptional('governance.reviewReminderIntervalMinutes'),
           );
+        const reviewManagerEscalationDays = z
+          .number()
+          .int()
+          .min(1)
+          .max(365)
+          .optional()
+          .parse(config.getOptional('governance.reviewManagerEscalationDays'));
         const graduationGroups = graduationGroupsInput
           .default([])
           .parse(config.getOptional('governance.graduationGroups'));
@@ -577,6 +584,32 @@ export const governancePlugin = createBackendPlugin({
             if (!isActiveCatalogEntity(entity)) entities.delete(ref);
           }
           return entities;
+        }
+
+        async function resolveReviewManagers(owners: string[]) {
+          const people = await activeCatalogEntities(owners, true);
+          const managers = new Map<string, string>();
+          for (const [owner, person] of people) {
+            const manager =
+              person.metadata.annotations?.['governance.backstage.io/manager'];
+            if (
+              person.kind.toLowerCase() === 'user' &&
+              manager &&
+              manager !== owner &&
+              /^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/.test(manager)
+            ) {
+              managers.set(owner, manager);
+            }
+          }
+          const activeManagers = await activeCatalogEntities(
+            [...new Set(managers.values())],
+            true,
+          );
+          for (const [owner, manager] of managers) {
+            if (activeManagers.get(manager)?.kind.toLowerCase() !== 'user')
+              managers.delete(owner);
+          }
+          return managers;
         }
 
         async function unavailableOwners(
@@ -2927,6 +2960,13 @@ export const governancePlugin = createBackendPlugin({
                   hostedWorkspaceApproved,
                 },
                 load,
+                managerEscalation:
+                  reviewManagerEscalationDays === undefined
+                    ? undefined
+                    : {
+                        days: reviewManagerEscalationDays,
+                        resolveManagers: resolveReviewManagers,
+                      },
                 unavailableOwners: refs => unavailableOwners(refs, true),
                 notifications,
                 logger,
