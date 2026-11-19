@@ -17,6 +17,11 @@
           "default": false,
           "description": "Require reviewer verification and an HTTPS evidence link when approving a Tier 3 app that takes actions."
         },
+        "requireOwnerHandoverAcceptance": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require planned handover acceptance for direct accountable owner changes. Independent reviewers may recover apps whose current owner is unavailable in Catalog."
+        },
         "requiredCriticalReviewEvidence": {
           "type": "array",
           "items": {

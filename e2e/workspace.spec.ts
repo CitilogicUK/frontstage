@@ -6908,6 +6908,7 @@ test('a nominated owner can accept a planned handover', async ({ page }) => {
   const app = {
     id: 'planned-owner-handover',
     name: 'Shared planning app',
+    ownerHandoverRequired: true,
     owner,
     backupOwner: 'user:default/backup',
     team: 'group:default/operations',
@@ -6975,6 +6976,14 @@ test('a nominated owner can accept a planned handover', async ({ page }) => {
   await page.goto(path);
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await details.getByText('Edit app details', { exact: true }).click();
+  await expect(
+    details.getByRole('textbox', { name: 'Owner', exact: true }),
+  ).not.toBeEditable();
+  await expect(
+    details.getByRole('textbox', { name: 'Purpose', exact: true }),
+  ).toBeEditable();
+  await details.getByText('Edit app details', { exact: true }).click();
   await details
     .getByRole('textbox', { name: 'New accountable owner' })
     .fill(nominee);
