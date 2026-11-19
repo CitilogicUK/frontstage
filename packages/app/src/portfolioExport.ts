@@ -130,6 +130,26 @@ export function outsideGatewayUsageCsv(preview: OutsideGatewayUsagePreview) {
   );
 }
 
+export function discoveredRepositoriesCsv(
+  repositories: Array<{
+    name: string;
+    sourceUrl: string;
+    status: string;
+    appId: string | null;
+  }>,
+  baseUrl: string,
+) {
+  return encodeCsv(
+    ['repository', 'repository_url', 'status', 'app_url'],
+    repositories.map(repository => [
+      repository.name,
+      repository.sourceUrl,
+      repository.status,
+      repository.appId ? appRecordUrl(baseUrl, repository.appId).href : '',
+    ]),
+  );
+}
+
 export function hostedSnapshotCsv(apps: HostedSnapshotApp[]) {
   return encodeCsv(
     [

@@ -4048,6 +4048,21 @@ test('Discovery paginates search results and preserves the page when reopening a
   await expect(page).toHaveURL(/discoveryPage=2$/);
   await expect(pages.getByRole('status')).toHaveText('26 of 26');
   await expect(pages.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  const exportRepositories = queue.getByRole('button', {
+    name: 'Download repositories CSV',
+  });
+  const pendingExport = page.waitForEvent('download');
+  await exportRepositories.click();
+  const download = await pendingExport;
+  expect(download.suggestedFilename()).toBe(
+    'frontstage-discovered-repositories.csv',
+  );
+  const csv = await readFile(await download.path(), 'utf8');
+  expect(csv.trimEnd().split(/\r?\n/)).toHaveLength(27);
+  expect(csv).toContain('"Repository 1",');
+  expect(csv).toContain(
+    `"registered","${workspaceUrl}/?app=registered-page-two"`,
+  );
   await queue.getByRole('link', { name: 'Open app record' }).click();
   const details = page.getByRole('dialog', { name: 'Registered page two' });
   await details.getByRole('button', { name: 'Close app details' }).click();
@@ -4058,6 +4073,12 @@ test('Discovery paginates search results and preserves the page when reopening a
   await expect(page).toHaveURL(/view=discovery&discoveryStatus=all$/);
   await expect(queue.getByRole('row')).toHaveCount(2);
   await expect(pages).toHaveCount(0);
+  const pendingFilteredExport = page.waitForEvent('download');
+  await exportRepositories.click();
+  const filteredExport = await pendingFilteredExport;
+  const filteredCsv = await readFile(await filteredExport.path(), 'utf8');
+  expect(filteredCsv.trimEnd().split(/\r?\n/)).toHaveLength(2);
+  expect(filteredCsv).toContain('"Repository 26",');
   await page.reload();
   await expect(
     queue.getByRole('searchbox', { name: 'Search discoveries' }),

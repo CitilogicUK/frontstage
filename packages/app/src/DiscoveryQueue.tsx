@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { appRecordPath } from './appRecordPath';
 import { formatDiscoveryCoverage } from './discoveryCoverage';
+import { discoveredRepositoriesCsv, downloadCsv } from './portfolioExport';
 import SearchIcon from '@material-ui/icons/Search';
 import {
   WorkspaceEmptyState,
@@ -239,7 +240,27 @@ export function DiscoveryQueue({
           value={query}
           onChange={searchRepositories}
           count={matches?.length}
-        />
+        >
+          {canReview && matches && matches.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                downloadCsv(
+                  discoveredRepositoriesCsv(
+                    matches.map(repository => ({
+                      ...repository,
+                      status: repositoryStatus(repository),
+                    })),
+                    window.location.href,
+                  ),
+                  'frontstage-discovered-repositories.csv',
+                )
+              }
+            >
+              Download repositories CSV
+            </button>
+          )}
+        </WorkspaceSearch>
       )}
       {result?.source && (
         <WorkspaceFilterTabs
