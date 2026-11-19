@@ -547,7 +547,7 @@ async function callOpenai(
       upstreamStatus = response.status;
       if (upstreamStatus === 429 || upstreamStatus === 503)
         retryAfter = validRetryAfter(response.headers.get('Retry-After'));
-      await response.body?.cancel();
+      void response.body?.cancel().catch(() => {});
       throw new Error('Provider request was unsuccessful.');
     }
     kind = 'invalid-response';

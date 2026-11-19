@@ -3,7 +3,7 @@ export async function readBoundedResponseText(
   byteLimit: number,
 ) {
   if (Number(response.headers.get('content-length')) > byteLimit) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => {});
     return undefined;
   }
   if (!response.body) return '';
@@ -22,10 +22,8 @@ export async function readBoundedResponseText(
     }
     return content + decoder.decode();
   } finally {
-    try {
-      await reader.cancel();
-    } finally {
-      reader.releaseLock();
-    }
+    // Stream cleanup must not delay or replace the result of the read.
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
