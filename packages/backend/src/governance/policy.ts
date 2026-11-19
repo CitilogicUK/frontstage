@@ -8,9 +8,10 @@ export const classification = z.enum([
   'restricted',
 ]);
 const requiredText = z.string().trim().min(1);
-const sourceUrl = z
+export const sourceUrl = z
   .string()
-  .url()
+  // Preserve legacy source strings because edits compare them with the stored URL.
+  .refine(value => URL.canParse(value), { message: 'Invalid URL' })
   .refine(value => /^https?:\/\//i.test(value));
 
 export const reviewTicketUrlInput = sourceUrl.nullable();

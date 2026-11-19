@@ -2,6 +2,7 @@ import {
   calculateTier,
   effectiveClassification,
   nextReview,
+  sourceUrl,
   tierPolicyInput,
 } from './policy';
 
@@ -18,6 +19,13 @@ const personal = {
 const base = { ...personal, connections: [] };
 
 describe('governance policy', () => {
+  it('validates existing HTTP URLs without rewriting their stored value', () => {
+    const legacyUrl = 'https://example.com/legacy ';
+    expect(sourceUrl.parse(legacyUrl)).toBe(legacyUrl);
+    expect(sourceUrl.safeParse('ftp://example.com/file').success).toBe(false);
+    expect(sourceUrl.safeParse('https://').success).toBe(false);
+  });
+
   it('keeps personal tools with internal data in tier 1', () => {
     expect(calculateTier(base)).toBe(1);
   });

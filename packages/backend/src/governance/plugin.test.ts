@@ -3203,6 +3203,7 @@ describe('governance record access', () => {
     const reviewer = 'user:default/reviewer';
     const teammate = 'user:default/teammate';
     const evidence = { tests: 'https://example.com/restricted-evidence' };
+    const legacySourceUrl = 'https://example.com/purchase-orders ';
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockResolvedValue({
@@ -3271,7 +3272,7 @@ describe('governance record access', () => {
         purpose: 'Submit synthetic orders',
         type: 'app',
         platform: 'GitHub',
-        sourceUrl: 'https://example.com/purchase-orders',
+        sourceUrl: legacySourceUrl,
         owner,
         backupOwner: backup,
         team: 'group:default/platform',
@@ -3284,6 +3285,7 @@ describe('governance record access', () => {
       })
       .expect(201);
 
+    expect(created.body.sourceUrl).toBe(legacySourceUrl);
     const path = `${apps}/${created.body.id}`;
     const notes = 'Approval covers the sandbox only.';
     await api
@@ -3310,6 +3312,7 @@ describe('governance record access', () => {
         expectedUpdatedAt: approved.body.updatedAt,
       })
       .expect(200);
+    expect(linked.body.sourceUrl).toBe(legacySourceUrl);
     expect(linked.body).toMatchObject({
       reviewStatus: 'approved',
       reviewTicketUrl,
