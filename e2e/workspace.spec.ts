@@ -288,8 +288,11 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     tier: 2,
     reviewStatus: 'not required',
   };
+  const now = Date.now();
+  await page.clock.setFixedTime(now);
   const dateInDays = (days: number) =>
-    new Date(Date.now() + days * 86_400_000).toISOString();
+    new Date(now + days * 86_400_000).toISOString();
+  let includeRetirementDecision = false;
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -322,12 +325,15 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             name: 'Overdue app',
             deliveryStage: 'production',
             nextReview: dateInDays(-1),
+            retirementReview: includeRetirementDecision
+              ? { status: 'pending', owner: actor, requestedAt: dateInDays(-1) }
+              : undefined,
           },
           {
             ...base,
             id: 'other',
             name: 'Another owner’s app',
-            owner: 'user:default/another',
+            owner: includeRetirementDecision ? actor : 'user:default/another',
             backupOwner: actor,
             team: 'group:default/operations',
             nextReview: dateInDays(-5),
@@ -644,6 +650,12 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page.getByText('No matching apps')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows).toHaveCount(4);
+
+  includeRetirementDecision = true;
+  await page.goto('/?owner=me&review=overdue');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await expect(rows.last()).toContainText('Overdue app');
 });
 
 test('reviewers can download the spreadsheet import sample', async ({

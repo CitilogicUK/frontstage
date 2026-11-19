@@ -961,7 +961,11 @@ export function GovernancePage() {
     inventoryReviewFilter === 'overdue'
   ) {
     matching.sort((a, b) => {
-      if (view === 'Inventory' && ownershipScope === 'me') {
+      if (
+        view === 'Inventory' &&
+        ownershipScope === 'me' &&
+        inventoryReviewFilter !== 'overdue'
+      ) {
         const retirementPriority =
           Number(ownerCanDecideRetirement(b, actor)) -
           Number(ownerCanDecideRetirement(a, actor));
