@@ -80,6 +80,7 @@ export type OwnershipReport = {
       reason: 'missing' | 'inactive';
     }>;
     availableBackupOwner?: string;
+    ownerUnavailableObservedSince?: string;
   }>;
 };
 
@@ -435,7 +436,17 @@ export function PortfolioReport({
               else if (ref === app?.team) role = 'team';
             }
             if (ownershipRole && role !== ownershipRole) return [];
-            return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
+            return [
+              {
+                role: role ? ownershipRoles[role] : '',
+                ref,
+                reason,
+                observedSince:
+                  role === 'owner'
+                    ? issue.ownerUnavailableObservedSince
+                    : undefined,
+              },
+            ];
           },
         );
         if (unavailable.length === 0) return [];
@@ -1045,6 +1056,18 @@ export function PortfolioReport({
                           })
                           .join(' · ')}
                       </p>
+                      {issue.unavailable.map(
+                        ({ ref, observedSince }) =>
+                          observedSince && (
+                            <p key={ref}>
+                              Owner unavailability first observed on{' '}
+                              <time dateTime={observedSince}>
+                                {observedSince.slice(0, 10)}
+                              </time>{' '}
+                              UTC
+                            </p>
+                          ),
+                      )}
                       {issue.lacksOwnerCoverage && (
                         <p>No active backup owner</p>
                       )}

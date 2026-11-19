@@ -1,4 +1,10 @@
 import {
+  clearOwnerObservation,
+  ownershipObservationMigration,
+  readOwnerObservations,
+  saveOwnerObservations,
+} from './ownershipObservation';
+import {
   listOutsideGatewayUsage,
   outsideGatewayUsageMigration,
   parseOutsideGatewayUsage,
@@ -412,6 +418,17 @@ export const governancePlugin = createBackendPlugin({
           .parse(
             config.getOptional('governance.retirementReviewIntervalMinutes'),
           );
+        const ownershipObservationIntervalMinutes = z
+          .number()
+          .int()
+          .min(15)
+          .max(10_080)
+          .optional()
+          .parse(
+            config.getOptional(
+              'governance.ownershipObservationIntervalMinutes',
+            ),
+          );
         const reviewReminderIntervalMinutes = z
           .number()
           .int()
@@ -487,6 +504,7 @@ export const governancePlugin = createBackendPlugin({
             '016_review_reminders',
             '017_gateway_key_environments',
             '018_outside_gateway_usage',
+            '019_ownership_observations',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -494,6 +512,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '019_ownership_observations')
+              return ownershipObservationMigration(table);
             if (name === '018_outside_gateway_usage')
               return outsideGatewayUsageMigration();
             if (name === '017_gateway_key_environments')
@@ -967,6 +987,8 @@ export const governancePlugin = createBackendPlugin({
               throw new ConflictError(
                 'The app changed. Refresh and try again.',
               );
+            if (ownerChanged || record.lifecycle === 'retired')
+              await clearOwnerObservation(transaction, record.id);
             if (expectedRetirementActivity !== undefined) {
               const lastLiveCall = await lastSuccessfulLiveCall(
                 transaction,
@@ -1100,6 +1122,15 @@ export const governancePlugin = createBackendPlugin({
             else if (!isActiveCatalogEntity(entity))
               unavailable.set(ref, 'inactive');
           }
+          const observations =
+            ownershipObservationIntervalMinutes === undefined
+              ? undefined
+              : await readOwnerObservations(
+                  db,
+                  apps
+                    .filter(app => unavailable.has(app.owner))
+                    .map(app => app.id),
+                );
           const issues = apps.flatMap(app => {
             const unavailableDetails = ownershipAssignments(app).flatMap(
               assignment => {
@@ -1114,6 +1145,7 @@ export const governancePlugin = createBackendPlugin({
               !unavailable.has(app.backupOwner)
                 ? app.backupOwner
                 : undefined;
+            const observation = observations?.get(app.id);
             return [
               {
                 appId: app.id,
@@ -1121,6 +1153,11 @@ export const governancePlugin = createBackendPlugin({
                 unavailable: unavailableDetails.map(({ ref }) => ref),
                 unavailableDetails,
                 availableBackupOwner,
+                ...(observation?.owner_ref === app.owner &&
+                  unavailable.has(app.owner) && {
+                    ownerUnavailableObservedSince:
+                      observation.unavailable_since,
+                  }),
               },
             ];
           });
@@ -3412,6 +3449,50 @@ export const governancePlugin = createBackendPlugin({
                 appBaseUrl,
                 signal,
               });
+            },
+          });
+        }
+
+        if (ownershipObservationIntervalMinutes !== undefined) {
+          await scheduler.scheduleTask({
+            id: 'governance-ownership-observation',
+            scope: 'global',
+            frequency: { minutes: ownershipObservationIntervalMinutes },
+            initialDelay: { seconds: 5 },
+            timeout: { minutes: 2 },
+            async fn(signal) {
+              if (signal.aborted) return;
+              const rows = await db(table)
+                .select<Array<{ payload: string; revision: number }>>(
+                  'payload',
+                  'revision',
+                )
+                .orderBy('id');
+              const apps = rows.flatMap(row => {
+                const { id, owner, lifecycle } = JSON.parse(
+                  row.payload,
+                ) as GovernanceRecord;
+                return lifecycle === 'retired'
+                  ? []
+                  : [{ id, owner, revision: row.revision }];
+              });
+              const unavailable = await unavailableOwners(
+                [...new Set(apps.map(app => app.owner))],
+                true,
+              );
+              if (signal.aborted) return;
+              try {
+                await saveOwnerObservations(
+                  db,
+                  table,
+                  apps,
+                  unavailable,
+                  new Date(Date.now()).toISOString(),
+                  signal,
+                );
+              } catch (error) {
+                if (!signal.aborted) throw error;
+              }
             },
           });
         }

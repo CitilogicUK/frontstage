@@ -22,6 +22,12 @@
           "minimum": 1,
           "description": "Optional target in UTC weekdays for the first overall Tier 3 review decision."
         },
+        "ownershipObservationIntervalMinutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 10080,
+          "description": "Optional interval for recording when current accountable owners are first observed unavailable in the catalog."
+        },
         "retirementReviewIntervalMinutes": {
           "type": "integer",
           "minimum": 15,
