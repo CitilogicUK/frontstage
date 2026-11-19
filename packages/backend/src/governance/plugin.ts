@@ -57,6 +57,7 @@ import {
 import {
   gatewayMigration,
   gatewayKeyAuditMigration,
+  gatewayKeyEnvironmentsMigration,
   gatewayUsageModeMigration,
   gatewayUsageTokensMigration,
   gatewayBlocksMigration,
@@ -404,6 +405,7 @@ export const governancePlugin = createBackendPlugin({
             '014_discovery_visibility',
             '015_directory_requests',
             '016_review_reminders',
+            '017_gateway_key_environments',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -411,6 +413,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '017_gateway_key_environments')
+              return gatewayKeyEnvironmentsMigration(table);
             if (name === '016_review_reminders')
               return reviewRemindersMigration();
             if (name === '015_directory_requests')

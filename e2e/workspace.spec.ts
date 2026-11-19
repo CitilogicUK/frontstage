@@ -3791,13 +3791,14 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   await expect(details.getByText(endReason, { exact: false })).toBeVisible();
 });
 
-test('the playground clears a revealed key after ownership changes', async ({
+test('the playground clears a revealed key after environment or ownership changes', async ({
   page,
 }) => {
   const reviewer = 'user:default/reviewer';
   const newOwner = 'user:default/new-owner';
   const key = 'synthetic-gateway-key';
-  let issued = false;
+  const productionKey = 'synthetic-production-key';
+  const issued = { sandbox: false, production: false };
   let statusReads = 0;
   let app = {
     id: 'key-transfer',
@@ -3832,6 +3833,7 @@ test('the playground clears a revealed key after ownership changes', async ({
     route.fulfill({
       json: {
         enabled: true,
+        productionAvailable: true,
         models: [
           {
             id: 'gpt-4.1-mini',
@@ -3842,14 +3844,22 @@ test('the playground clears a revealed key after ownership changes', async ({
       },
     }),
   );
-  await page.route('**/api/governance/apps/key-transfer/gateway-key', route => {
+  await page.route(/\/key-transfer\/gateway-key(?:\?|$)/, route => {
+    const environment =
+      new URL(route.request().url()).searchParams.get('environment') ===
+      'production'
+        ? 'production'
+        : 'sandbox';
     if (route.request().method() === 'POST') {
-      issued = true;
-      return route.fulfill({ status: 201, json: { key } });
+      issued[environment] = true;
+      return route.fulfill({
+        status: 201,
+        json: { key: environment === 'production' ? productionKey : key },
+      });
     }
     expect(route.request().method()).toBe('GET');
     statusReads += 1;
-    return route.fulfill({ json: { issued } });
+    return route.fulfill({ json: { issued: issued[environment] } });
   });
   await page.route('**/api/governance/apps/key-transfer/reviews', route => {
     expect(route.request().postDataJSON()).toMatchObject({
@@ -3882,7 +3892,8 @@ test('the playground clears a revealed key after ownership changes', async ({
       owner: newOwner,
       expectedUpdatedAt: app.updatedAt,
     });
-    issued = false;
+    issued.sandbox = false;
+    issued.production = false;
     app = {
       ...app,
       owner: newOwner,
@@ -3922,6 +3933,18 @@ test('the playground clears a revealed key after ownership changes', async ({
   await expect(details.getByText('Lifecycle updated.')).toBeVisible();
   await expect(revealed).toBeVisible();
 
+  const environment = playground.getByRole('combobox', {
+    name: 'Gateway key environment',
+  });
+  await environment.selectOption('production');
+  await expect(revealed).toHaveCount(0);
+  await issue.click();
+  await playground.getByRole('button', { name: 'Show key' }).click();
+  const productionRevealed = playground.getByText(productionKey, {
+    exact: true,
+  });
+  await expect(productionRevealed).toBeVisible();
+
   const readsBeforeTransfer = statusReads;
   await details.getByText('Edit app details', { exact: true }).click();
   await details
@@ -3930,6 +3953,7 @@ test('the playground clears a revealed key after ownership changes', async ({
   await details.getByRole('button', { name: 'Save app details' }).click();
   await expect(issue).toBeEnabled();
   expect(statusReads).toBeGreaterThan(readsBeforeTransfer);
+  await expect(productionRevealed).toHaveCount(0);
   await expect(revealed).toHaveCount(0);
   await expect(
     playground.getByRole('button', { name: /Show key|Hide key|Rotate key/ }),

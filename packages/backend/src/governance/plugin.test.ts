@@ -4733,15 +4733,37 @@ describe('governance record access', () => {
       'App 3: Source URL also appears in App 2.',
     ]);
     const path = `/api/governance/apps/${app.body.id}`;
-    const issued = await api
-      .post(`${path}/gateway-key`)
+    const sandboxPath = `${path}/gateway-key`;
+    const productionPath = `${sandboxPath}?environment=production`;
+    const issue = (keyPath: string) =>
+      api.post(keyPath).set('Authorization', auth);
+    const keyStatus = (keyPath: string) =>
+      api.get(keyPath).set('Authorization', auth);
+    const draft = await api
+      .post('/api/governance/apps')
       .set('Authorization', auth)
+      .send({ ...secondApp, lifecycle: 'experimental' })
       .expect(201);
-    const call = () =>
+    await issue(
+      `/api/governance/apps/${draft.body.id}/gateway-key?environment=production`,
+    ).expect(403);
+    const sandbox = await issue(sandboxPath).expect(201);
+    const issued = await issue(productionPath).expect(201);
+    expect(issued.body.key).not.toBe(sandbox.body.key);
+    await keyStatus(sandboxPath).expect(200, { issued: true });
+    await keyStatus(productionPath).expect(200, { issued: true });
+    await keyStatus(`${sandboxPath}?environment=invalid`).expect(400);
+    const call = (key = issued.body.key) =>
       api
         .post('/api/governance/gateway/chat')
-        .set('Authorization', `Bearer ${issued.body.key}`)
+        .set('Authorization', `Bearer ${key}`)
         .send({ model: 'test-model', prompt: 'Synthetic prompt' });
+    await call(sandbox.body.key)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.simulated).toBe(true);
+      });
+    expect(provider).not.toHaveBeenCalled();
     provider.mockResolvedValueOnce(
       new Response('Synthetic upstream details', {
         status: 307,
@@ -4788,6 +4810,17 @@ describe('governance record access', () => {
       refused: true,
     });
     await call().expect(403);
+    const rotated = await issue(sandboxPath).expect(201);
+    await call(sandbox.body.key).expect(401);
+    await call(rotated.body.key)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.simulated).toBe(true);
+      });
+    await api.delete(productionPath).set('Authorization', auth).expect(204);
+    await keyStatus(sandboxPath).expect(200, { issued: true });
+    await keyStatus(productionPath).expect(200, { issued: false });
+    await call().expect(401);
     expect(provider).toHaveBeenCalledTimes(3);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(provider.mock.calls[1][1]?.body))).toMatchObject({
@@ -4800,6 +4833,7 @@ describe('governance record access', () => {
       .expect(200);
     expect(usage.body).toMatchObject({
       liveCalls: 2,
+      simulatedCalls: 2,
       liveTokens: { calls: 2, input: 2, output: 5 },
       monthlySpend: {
         liveEstimatedCostUsd: 2,
@@ -4808,5 +4842,15 @@ describe('governance record access', () => {
       },
       blocks: [{ reason: 'spend-threshold', calls: 1 }],
     });
+
+    await issue(productionPath).expect(201);
+    await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth)
+      .send({ lifecycle: 'retired' })
+      .expect(200);
+    await keyStatus(sandboxPath).expect(200, { issued: false });
+    await keyStatus(productionPath).expect(200, { issued: false });
+    await call(rotated.body.key).expect(401);
   });
 });

@@ -8,6 +8,7 @@ import {
 
 type ModelPolicy = {
   enabled: boolean;
+  productionAvailable?: boolean;
   models: Array<{
     id: string;
     allowedClassifications: string[];
