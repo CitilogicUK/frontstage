@@ -197,7 +197,7 @@ export async function sendReviewReminders(options: {
         };
         const description =
           kind === 'hosted-reconfirmation'
-            ? `Workspace settings changed for ${record.name}. Confirm the updated workspace and sharing settings.`
+            ? `Confirm the current workspace and sharing settings for ${record.name}.`
             : `Confirm the approved workspace and sharing settings for ${record.name}.`;
         const retryAfter = new Date(now + retryDelayMs);
         const claimed = await db(remindersTable)

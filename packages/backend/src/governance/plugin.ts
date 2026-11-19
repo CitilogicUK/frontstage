@@ -2124,8 +2124,9 @@ export const governancePlugin = createBackendPlugin({
             : undefined;
           if (
             remainsHosted &&
-            hostedSettingsChanged &&
-            record.hostedAttestation
+            ((record.hostedAttestation &&
+              (hostedSettingsChanged || ownerChanged)) ||
+              (record.hostedReconfirmationAt && ownerChanged))
           )
             updated.hostedReconfirmationAt = updated.updatedAt;
           if (ownerChanged && updated.tier === 2) {
