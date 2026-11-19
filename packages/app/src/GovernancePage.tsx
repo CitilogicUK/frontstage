@@ -354,6 +354,9 @@ export function GovernancePage() {
   const [message, setMessage] = useState('');
 
   const reviewDate = selected && scheduledReviewDate(selected);
+  const actorIsAcceptedCoOwner =
+    selected?.graduation?.status === 'accepted' &&
+    actor === selected.graduation.nominee;
   const canNominateCoOwner =
     selected &&
     graduationEnabled &&
@@ -1848,8 +1851,7 @@ export function GovernancePage() {
                 canNominate={canNominateCoOwner === true}
                 canRemove={
                   (actor === selected.owner || canReview) &&
-                  (selected.graduation?.status !== 'accepted' ||
-                    actor !== selected.graduation.nominee)
+                  !actorIsAcceptedCoOwner
                 }
                 canDecide={
                   graduationEnabled &&
@@ -1970,14 +1972,22 @@ export function GovernancePage() {
                 <label>
                   Lifecycle
                   <select name="lifecycle" defaultValue={selected.lifecycle}>
-                    {options(appLifecycles)}
+                    {options(
+                      actorIsAcceptedCoOwner
+                        ? appLifecycles.filter(value => value !== 'retired')
+                        : appLifecycles,
+                    )}
                   </select>
                 </label>
                 <label>
                   Reason for lifecycle change (optional)
                   <textarea name="reason" maxLength={500} />
                 </label>
-                <p>Retiring an app also revokes its gateway key.</p>
+                <p>
+                  {actorIsAcceptedCoOwner
+                    ? 'Ask the owner or another reviewer to retire this app.'
+                    : 'Retiring an app also revokes its gateway key.'}
+                </p>
                 <button disabled={busy}>Update lifecycle</button>
               </form>
             )}

@@ -2355,11 +2355,16 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   ).toBeVisible();
   const end = panel.getByRole('button', { name: 'End engineering handoff' });
   await expect(end).toHaveCount(0);
+  const lifecycle = details.getByRole('combobox', { name: 'Lifecycle' });
+  await expect(lifecycle).toBeVisible();
+  const retireOption = lifecycle.getByRole('option', { name: 'retired' });
+  await expect(retireOption).toHaveCount(0);
 
   actor = reviewer;
   await page.goto('/?app=graduation-candidate');
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await expect(retireOption).toHaveCount(1);
   await expect(
     panel.getByText(
       `Ending this handoff removes ${nominee} as engineering co-owner.`,
