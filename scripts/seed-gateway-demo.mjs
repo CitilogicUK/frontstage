@@ -42,9 +42,9 @@ const token = backstageIdentity?.token;
 if (!token)
   throw new Error('Backstage did not return local reviewer credentials.');
 
-async function request(path, body) {
+async function request(path, body, method = body ? 'POST' : 'GET') {
   const response = await demoFetch(`/api/governance${path}`, {
-    method: body ? 'POST' : 'GET',
+    method,
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -171,4 +171,43 @@ for (const scenario of scenarios) {
   console.log(
     `${record.name} — Tier ${record.tier}, ${record.lifecycle}, review ${record.reviewStatus}`,
   );
+}
+
+const directoryScenario = {
+  ...software,
+  name: 'Warehouse reconciliation demo',
+  purpose: 'Reconciles synthetic warehouse counts without calling models.',
+  sourceUrl: 'https://example.com/frontstage-demo/warehouse-reconciliation',
+  classification: 'internal',
+  deliveryStage: 'pilot',
+  lifecycle: 'active',
+};
+const existingDirectoryApp = apps.find(
+  app => app.sourceUrl === directoryScenario.sourceUrl,
+);
+if (!existingDirectoryApp) {
+  const app = await request('/apps', directoryScenario);
+  const appPath = `/apps/${encodeURIComponent(app.id)}`;
+  await request(
+    `${appPath}/directory`,
+    {
+      summary: 'Reconcile synthetic warehouse counts and flag discrepancies.',
+      url: 'https://example.com/frontstage-demo/warehouse-reconciliation',
+      expectedUpdatedAt: app.updatedAt,
+    },
+    'PUT',
+  );
+  await request(`${appPath}/directory-requests`, {
+    message: 'I need access to reconcile the weekly synthetic stock count.',
+  });
+  console.log(`${app.name} — published with a pending access request`);
+} else {
+  console.log(`${existingDirectoryApp.name} — existing demo record preserved`);
+  const { apps: listings } = await request('/directory');
+  const listing = listings.find(item => item.id === existingDirectoryApp.id);
+  if (!listing?.requestStatus) {
+    console.warn(
+      'The existing demo has no visible listing or seeded request for this reviewer. Use a fresh demo database to replay from the initial state.',
+    );
+  }
 }
