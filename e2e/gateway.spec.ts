@@ -1167,7 +1167,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     const secondSeed = seed();
     expect(secondSeed.status, secondSeed.stderr).toBe(0);
     const seeded = await readSeededInventory();
-    expect(seeded).toHaveLength(6);
+    expect(seeded).toHaveLength(7);
     expect(seeded).toEqual(initialSeeded);
     expect(seeded).toEqual(
       expect.arrayContaining([
@@ -1193,6 +1193,33 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         }),
       ]),
     );
+    const hostedSnapshot = JSON.parse(
+      await readFile(
+        resolve(backendRoot, '../app/public/examples/hosted-inventory.json'),
+        'utf8',
+      ),
+    );
+    const hostedPreview = await request.post(
+      `${api}/discovery/hosted/preview`,
+      { headers, data: hostedSnapshot },
+    );
+    await expectStatus(
+      hostedPreview,
+      200,
+      'Preview the seeded hosted inventory',
+    );
+    const { apps: previewedApps } = await hostedPreview.json();
+    expect(previewedApps).toMatchObject([
+      { name: 'Hosted project briefs demo', appId: expect.any(String) },
+      {
+        name: 'Hosted workspace demo',
+        appId: expect.any(String),
+        mismatch: 'workspace',
+      },
+      { name: 'Hosted meeting notes demo' },
+    ]);
+    const [, , unregistered] = previewedApps;
+    expect(unregistered).not.toHaveProperty('appId');
     const directoryDemo = seeded.find(
       (record: { name: string }) =>
         record.name === 'Warehouse reconciliation demo',
