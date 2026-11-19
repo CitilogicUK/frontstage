@@ -6,6 +6,7 @@ import {
 } from '@backstage/core-plugin-api';
 
 import { deliveryStages, parseDeliveryStage } from './deliveryStages';
+import { findStarter } from './AppTemplates';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 
 const hostedFields = {
@@ -29,6 +30,7 @@ type AuditRecord = {
   tier?: number;
   nextReview?: string | null;
   deliveryStage?: string;
+  starterId?: string;
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
   reviewTicketUrl?: string;
@@ -139,6 +141,13 @@ export function AppAuditHistory({
         entry.action === 'review-ticket-updated'
           ? 'Review ticket updated'
           : `App ${entry.action}`;
+      if (entry.action === 'registered' && record.starterId) {
+        details.push(
+          `Registered from starter ${
+            findStarter(record.starterId)?.name ?? record.starterId
+          }`,
+        );
+      }
       if (previous && previous.owner !== record.owner) {
         details.push(`Owner changed from ${previous.owner} to ${record.owner}`);
         if (record.tier === 2 && record.nextReview === record.updatedAt) {

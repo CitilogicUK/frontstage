@@ -343,6 +343,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     );
     const descriptor = strFromU8(files[`${id}/catalog-info.yaml`]);
     expect(descriptor).toContain('deliveryStage: poc');
+    expect(descriptor).toContain(`starterId: ${id}`);
     expect(descriptor).toContain(`usesAiAtRuntime: ${usesAi}`);
     expect(Boolean(files[`${id}/gateway.mjs`])).toBe(usesAi);
     expect(Boolean(files[`${id}/gateway.test.mjs`])).toBe(usesAi);
@@ -443,6 +444,37 @@ test('workspace screens share navigation and fit the viewport', async ({
     'restricted',
   );
   await expect(page.getByLabel('Models', { exact: true })).toHaveCount(0);
+
+  await page.route('**/api/governance/apps', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const payload = route.request().postDataJSON();
+    expect(payload).toMatchObject({
+      starterId: 'internal-web-app',
+      usesAiAtRuntime: false,
+    });
+    return route.fulfill({
+      status: 201,
+      json: {
+        ...payload,
+        id: 'starter-registration',
+        tier: 1,
+        reviewStatus: 'not required',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      },
+    });
+  });
+  await page.getByLabel('Highest data classification').selectOption('internal');
+  await page
+    .getByLabel('Purpose', { exact: true })
+    .fill('Review stock counts.');
+  await page.getByLabel('Source URL').fill('https://github.com/example/stock');
+  await page.getByLabel('Owner', { exact: true }).fill('user:default/guest');
+  await page.getByLabel('Owning team').fill('group:default/operations');
+  await page.getByRole('button', { name: 'Register app', exact: true }).click();
+  await expect(
+    page.getByText('App registered.', { exact: true }),
+  ).toBeVisible();
+
   await navigation
     .getByRole('link', { name: 'Templates', exact: true })
     .click();
@@ -3251,6 +3283,7 @@ test('repository descriptor preview requires an explicit apply and keeps claim i
   const actor = 'user:default/demo-owner';
   const app = {
     name: 'Stock count assistant',
+    starterId: 'gateway-assistant',
     purpose: 'Reconcile sandbox stock counts.',
     type: 'assistant',
     platform: 'Declared platform',
@@ -3367,7 +3400,11 @@ test('repository descriptor preview requires an explicit apply and keeps claim i
     .getByLabel('Connected system', { exact: true })
     .fill('Reconciled warehouse inventory');
   await page.getByRole('button', { name: 'Register app' }).click();
-  await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
+  const registeredApp = page.getByRole('dialog', { name: app.name });
+  await expect(registeredApp).toBeVisible();
+  await expect(
+    registeredApp.getByText('Registered from starter Gateway assistant'),
+  ).toBeVisible();
 });
 
 test('an independent reviewer can grant and revoke a renewal exception', async ({

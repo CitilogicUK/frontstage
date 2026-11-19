@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 export type RepositoryDescriptor = {
+  starterId?: string;
   name: string;
   purpose: string;
   type: string;

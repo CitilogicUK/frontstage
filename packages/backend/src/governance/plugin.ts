@@ -2027,6 +2027,7 @@ export const governancePlugin = createBackendPlugin({
           return {
             apps: rows.map(({ record }) => ({
               name: record.name,
+              starterId: record.starterId,
               tier: record.tier,
               deliveryStage: record.deliveryStage,
               usesAiAtRuntime: record.usesAiAtRuntime,
@@ -2483,6 +2484,7 @@ export const governancePlugin = createBackendPlugin({
               evidence: record.evidence,
               reviewTicketUrl: record.reviewTicketUrl,
               ...req.body,
+              starterId: record.starterId,
             },
             record,
           );
