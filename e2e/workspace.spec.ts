@@ -5711,9 +5711,15 @@ test('the focused review ticket form saves and removes the link without reopenin
   const createTicket = details.getByRole('link', {
     name: 'Open ticket creation page (new tab)',
   });
-  const createTicketUrl = process.env.APP_CONFIG_app_reviewTicketCreateUrl;
-  if (createTicketUrl) {
-    await expect(createTicket).toHaveAttribute('href', createTicketUrl);
+  const createTicketUrl = URL.parse(
+    process.env.APP_CONFIG_app_reviewTicketCreateUrl ?? '',
+  );
+  if (
+    createTicketUrl?.protocol === 'https:' &&
+    !createTicketUrl.username &&
+    !createTicketUrl.password
+  ) {
+    await expect(createTicket).toHaveAttribute('href', createTicketUrl.href);
     await expect(createTicket).toHaveAttribute('target', '_blank');
     await expect(createTicket).toHaveAttribute(
       'rel',
