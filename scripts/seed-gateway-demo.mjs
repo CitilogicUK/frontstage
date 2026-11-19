@@ -1,24 +1,49 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
-const origin = 'http://localhost:3000';
-const backendPort = Number(process.env.FRONTSTAGE_DEMO_BACKEND_PORT ?? 7007);
-if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535)
-  throw new Error('Set FRONTSTAGE_DEMO_BACKEND_PORT to a valid local port.');
-const backend = `http://localhost:${backendPort}`;
-const governance = `${backend}/api/governance`;
+function localPort(variable, fallback) {
+  const port = Number(process.env[variable] ?? fallback);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error(`Set ${variable} to a valid local port.`);
+  return port;
+}
 
-const identity = await fetch(`${backend}/api/auth/guest/refresh`, {
+const appPort = localPort('FRONTSTAGE_DEMO_APP_PORT', 3000);
+const backendPort = localPort('FRONTSTAGE_DEMO_BACKEND_PORT', 7007);
+const origin = `http://localhost:${appPort}`;
+const backend = `http://localhost:${backendPort}`;
+const demoOwner = 'user:default/guest';
+
+async function demoFetch(path, options) {
+  try {
+    return await fetch(`${backend}${path}`, {
+      ...options,
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (cause) {
+    throw new Error(
+      `Could not reach ${backend}${path}. Check the demo backend port and that Backstage is ready.`,
+      { cause },
+    );
+  }
+}
+
+const identity = await demoFetch('/api/auth/guest/refresh', {
   headers: { Origin: origin, 'X-Requested-With': 'XMLHttpRequest' },
 });
-if (!identity.ok)
-  throw new Error('Start Backstage with the local reviewer profile first.');
+if (
+  !identity.ok ||
+  !identity.headers.get('content-type')?.includes('application/json')
+)
+  throw new Error(
+    `Could not sign in at ${backend} from ${origin}. Check the local reviewer profile and both demo ports.`,
+  );
 const { backstageIdentity } = await identity.json();
 const token = backstageIdentity?.token;
 if (!token)
   throw new Error('Backstage did not return local reviewer credentials.');
 
 async function request(path, body) {
-  const response = await fetch(`${governance}${path}`, {
+  const response = await demoFetch(`/api/governance${path}`, {
     method: body ? 'POST' : 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -32,10 +57,10 @@ async function request(path, body) {
   return result;
 }
 
-const { apps, canReview } = await request('/apps');
-if (!canReview)
+const { apps, actor, canReview } = await request('/apps');
+if (!canReview || !actor || actor === demoOwner)
   throw new Error(
-    'Restart Backstage with app-config.reviewer.yaml to seed the demo scenarios.',
+    'Restart Backstage with app-config.reviewer.yaml and a reviewer identity other than the demo app owner.',
   );
 async function waitForDemoCatalog() {
   const refs = [
@@ -47,13 +72,9 @@ async function waitForDemoCatalog() {
   while (true) {
     const pending = [];
     for (const ref of refs) {
-      const response = await fetch(
-        `${backend}/api/catalog/entities/by-name/${ref}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(3_000),
-        },
-      );
+      const response = await demoFetch(`/api/catalog/entities/by-name/${ref}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       await response.body?.cancel();
       if (response.status === 404) pending.push(ref);
       else if (!response.ok)
@@ -75,7 +96,7 @@ await waitForDemoCatalog();
 const base = {
   type: 'assistant',
   platform: 'Code repo',
-  owner: 'user:default/guest',
+  owner: demoOwner,
   team: 'group:default/platform',
   models: ['gpt-4.1-mini', 'gpt-4.1-nano'],
   audience: 'personal',
