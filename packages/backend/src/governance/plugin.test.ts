@@ -8308,6 +8308,34 @@ describe('governance record access', () => {
       upstreamStatus: undefined,
       elapsedMs: expect.any(Number),
     });
+    const upstreamMarker = 'synthetic-malformed-provider-response-marker';
+    provider.mockResolvedValueOnce(
+      new Response(upstreamMarker, {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const malformed = await call().expect(503);
+    expect(malformed.body.error.message).toBe(
+      'The configured model provider is temporarily unavailable.',
+    );
+    expect(malformed.headers['server-timing']).toBeUndefined();
+    expect(warn).toHaveBeenLastCalledWith('Model provider request failed', {
+      requestId: malformed.headers['x-frontstage-request-id'],
+      appId: app.body.id,
+      model: 'test-model',
+      kind: 'invalid-response',
+      upstreamStatus: undefined,
+      elapsedMs: expect.any(Number),
+    });
+    const diagnosticOutput = JSON.stringify([malformed.body, warn.mock.calls]);
+    for (const sensitiveValue of [
+      'Synthetic prompt',
+      upstreamMarker,
+      'test-provider-key',
+      issued.body.key,
+    ]) {
+      expect(diagnosticOutput).not.toContain(sensitiveValue);
+    }
     await call()
       .expect('Server-Timing', /^frontstage;dur=\d+, provider;dur=\d+$/)
       .expect(200, {
@@ -8366,9 +8394,9 @@ describe('governance record access', () => {
     await keyStatus(sandboxPath).expect(200, { issued: true });
     await keyStatus(productionPath).expect(200, { issued: false });
     await call().expect(401);
-    expect(provider).toHaveBeenCalledTimes(8);
-    expect(warn).toHaveBeenCalledTimes(6);
-    expect(JSON.parse(String(provider.mock.calls[6][1]?.body))).toMatchObject({
+    expect(provider).toHaveBeenCalledTimes(9);
+    expect(warn).toHaveBeenCalledTimes(7);
+    expect(JSON.parse(String(provider.mock.calls[7][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
 
