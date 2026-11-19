@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { SchedulerService } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
@@ -6,6 +7,7 @@ import {
   TestDatabases,
 } from '@backstage/backend-test-utils';
 import { CatalogClient } from '@backstage/catalog-client';
+import type { Entity } from '@backstage/catalog-model';
 import request from 'supertest';
 import { stringify } from 'yaml';
 import { governancePlugin } from './plugin';
@@ -13,6 +15,1008 @@ import { governancePlugin } from './plugin';
 describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3'] });
   afterEach(() => jest.restoreAllMocks());
+
+  it('lists explicitly published apps with current launch approval and protects publication state', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    const teammate = 'user:default/teammate';
+    const inactive = new Set<string>();
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Approved workspace' },
+              ],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const directoryPath = '/api/governance/directory';
+    const collection = '/api/governance/apps';
+    const list = () =>
+      api.get(directoryPath).set('Authorization', auth(teammate));
+    const appInput = {
+      name: 'Staff assistant',
+      purpose: 'Help staff with a vetted workflow.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/source',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/operations',
+      lifecycle: 'experimental',
+      audience: 'external',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const { body: app } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `${collection}/${app.id}`;
+    const publishPath = `${path}/directory`;
+    const summary = 'Get help with the staff workflow.';
+    const url = 'https://tools.example.com/assistant?view=start#ready';
+    const listing = { summary, url };
+    const publish = (
+      expectedUpdatedAt: string,
+      actor = owner,
+      changes: { summary?: string; url?: string } = {},
+    ) =>
+      api
+        .put(publishPath)
+        .set('Authorization', auth(actor))
+        .send({ ...listing, ...changes, expectedUpdatedAt });
+    const unpublish = (expectedUpdatedAt: string, actor = owner) =>
+      api
+        .delete(publishPath)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt });
+    const review = (expectedUpdatedAt: string, status = 'approved') =>
+      api
+        .post(`${path}/reviews`)
+        .set('Authorization', auth(reviewer))
+        .send({ expectedUpdatedAt, status, notes: 'Reviewed for publication.' })
+        .expect(200);
+    const setLifecycle = (lifecycle: string, expectedUpdatedAt: string) =>
+      api
+        .patch(`${path}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle, expectedUpdatedAt })
+        .expect(200);
+
+    await api
+      .get(directoryPath)
+      .set('Authorization', mockCredentials.none.header())
+      .expect(401);
+    await api
+      .get(directoryPath)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
+    await list().expect('Cache-Control', 'no-store').expect(200, { apps: [] });
+    await publish(app.updatedAt).expect(400);
+
+    const approved = await review(app.updatedAt);
+    const activation = await setLifecycle('active', approved.body.updatedAt);
+    const before = activation.body.updatedAt;
+    await list().expect(200, { apps: [] });
+    await publish(before, backup).expect(403);
+    await publish(before, teammate).expect(403);
+    await publish(approved.body.updatedAt).expect(409);
+    for (const changes of [
+      { summary: '   ' },
+      { summary: 'x'.repeat(501) },
+      { url: 'http://tools.example.com/assistant' },
+      { url: `https://tools.example.com/${'x'.repeat(2048)}` },
+      { url: 'https://example:secret@tools.example.com/assistant' },
+    ]) {
+      await publish(before, owner, changes).expect(400);
+    }
+
+    const published = await publish(before, owner, {
+      summary: `  ${summary}  `,
+    }).expect(200);
+    expect(published.body.directoryListing).toEqual(listing);
+    expect(published.body.directoryLaunchEligible).toBe(true);
+    await list().expect(200, {
+      apps: [{ id: app.id, name: app.name, ...listing }],
+    });
+    for (const principal of [
+      mockCredentials.user.header(backup),
+      auth(teammate),
+      mockCredentials.service.header(),
+    ]) {
+      const { body } = await api
+        .get(path)
+        .set('Authorization', principal)
+        .expect(200);
+      expect(body).not.toHaveProperty('directoryListing');
+      expect(body).not.toHaveProperty('directoryLaunchEligible');
+    }
+    const { body: reviewerView } = await api
+      .get(path)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(reviewerView.directoryListing).toEqual(listing);
+
+    const {
+      body: { key },
+    } = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const edited = await publish(published.body.updatedAt, reviewer, {
+      summary: 'Revised launch instructions.',
+    }).expect(200);
+    expect(edited.body.directoryListing.summary).toBe(
+      'Revised launch instructions.',
+    );
+    await unpublish(edited.body.updatedAt, teammate).expect(403);
+    await unpublish(published.body.updatedAt).expect(409);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ model: 'test-model', prompt: 'Check access after publishing.' })
+      .expect(200);
+
+    const accessPath = `${path}/directory-requests`;
+    const { body: submitted } = await api
+      .post(accessPath)
+      .set('Authorization', auth(teammate))
+      .send({ message: 'Need access for staff support.' })
+      .expect(201);
+    const readQueue = () =>
+      api.get(accessPath).set('Authorization', auth(reviewer)).expect(200);
+    expect((await readQueue()).body.canApprove).toBe(true);
+
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(approved.body.nextReview));
+    expect((await readQueue()).body.canApprove).toBe(false);
+    await api
+      .patch(`${accessPath}/${submitted.id}`)
+      .set('Authorization', auth(reviewer))
+      .send({ status: 'approved' })
+      .expect(409);
+    await list().expect(200, { apps: [] });
+    await publish(edited.body.updatedAt).expect(400);
+    const removed = await unpublish(edited.body.updatedAt, reviewer).expect(
+      200,
+    );
+    expect(removed.body).not.toHaveProperty('directoryListing');
+
+    const renewed = await review(removed.body.updatedAt);
+    const republished = await publish(renewed.body.updatedAt).expect(200);
+    const paused = await setLifecycle('deprecated', republished.body.updatedAt);
+    expect(paused.body).not.toHaveProperty('directoryListing');
+    const restarted = await setLifecycle('active', paused.body.updatedAt);
+    await list().expect(200, { apps: [] });
+    const afterRestart = await publish(restarted.body.updatedAt).expect(200);
+    const rejected = await review(
+      afterRestart.body.updatedAt,
+      'changes needed',
+    );
+    expect(rejected.body.lifecycle).toBe('experimental');
+    expect(rejected.body).not.toHaveProperty('directoryListing');
+    await list().expect(200, { apps: [] });
+    clock.mockRestore();
+
+    const personalInput = {
+      ...appInput,
+      audience: 'personal',
+      lifecycle: 'active',
+      sourceUrl: 'https://example.com/personal-assistant',
+    };
+    const { body: personalApp } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(personalInput)
+      .expect(201);
+    const personalPath = `${collection}/${personalApp.id}`;
+    const publicPersonal = await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
+      .expect(200);
+    inactive.add(owner);
+    await list().expect(200, { apps: [] });
+    await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(reviewer))
+      .send({ ...listing, expectedUpdatedAt: publicPersonal.body.updatedAt })
+      .expect(400);
+    inactive.delete(owner);
+    await list().expect(200, {
+      apps: [{ id: personalApp.id, name: personalApp.name, ...listing }],
+    });
+    const personalQueue = `${personalPath}/directory-requests`;
+    const { body: pendingTransferRequest } = await api
+      .post(personalQueue)
+      .set('Authorization', auth(reviewer))
+      .send({ message: 'I need access for the review.' })
+      .expect(201);
+    const transferred = await api
+      .put(personalPath)
+      .set('Authorization', auth(owner))
+      .send({
+        ...personalInput,
+        owner: teammate,
+        expectedUpdatedAt: publicPersonal.body.updatedAt,
+      })
+      .expect(200);
+    expect(transferred.body.lifecycle).toBe('active');
+    expect(transferred.body).not.toHaveProperty('directoryListing');
+    await list().expect(200, { apps: [] });
+
+    await api.get(personalQueue).set('Authorization', auth(owner)).expect(403);
+    const { body: transferredQueue } = await api
+      .get(personalQueue)
+      .set('Authorization', auth(teammate))
+      .expect(200);
+    expect(transferredQueue).toMatchObject({
+      canApprove: false,
+      requests: [
+        {
+          id: pendingTransferRequest.id,
+          requester: reviewer,
+          status: 'pending',
+        },
+      ],
+    });
+    await api
+      .patch(`${personalQueue}/${pendingTransferRequest.id}`)
+      .set('Authorization', auth(teammate))
+      .send({ status: 'approved' })
+      .expect(409);
+
+    const { body: hosted } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        audience: 'personal',
+        type: 'provider-hosted app',
+        sourceUrl: 'https://example.com/hosted-assistant',
+        hosted: {
+          provider: 'Example AI',
+          workspace: 'Previously approved workspace',
+          sharing: 'private',
+          dataAccess: 'none',
+        },
+      })
+      .expect(201);
+    // Represent an existing publication whose workspace was removed from policy.
+    await db('governance_apps')
+      .where({ id: hosted.id })
+      .update({
+        payload: JSON.stringify({
+          ...hosted,
+          lifecycle: 'active',
+          directoryListing: listing,
+        }),
+      });
+    await list().expect(200, { apps: [] });
+    await api
+      .get(`${collection}/${hosted.id}`)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.directoryLaunchEligible).toBe(false);
+        expect(body.directoryListing).toEqual(listing);
+      });
+    await api
+      .put(`${collection}/${hosted.id}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ ...listing, expectedUpdatedAt: hosted.updatedAt })
+      .expect(400);
+    await api
+      .delete(`${collection}/${hosted.id}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: hosted.updatedAt })
+      .expect(200);
+
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = history.events.map((item: { event: string }) =>
+      JSON.parse(item.event),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'directory-published',
+          actor: owner,
+          record: expect.objectContaining({ directoryListing: listing }),
+        }),
+        expect.objectContaining({
+          action: 'directory-unpublished',
+          actor: reviewer,
+          record: expect.not.objectContaining({
+            directoryListing: expect.anything(),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('keeps durable directory access requests private and applies only permitted decisions', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    const requester = 'user:default/requester';
+    const otherRequester = 'user:default/other-requester';
+    const inactive = new Set<string>();
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const create = (name: string, sourceUrl: string) =>
+      api
+        .post(collection)
+        .set('Authorization', auth(owner))
+        .send({
+          name,
+          sourceUrl,
+          purpose: 'Assist with staff workflows.',
+          type: 'app',
+          platform: 'GitHub',
+          owner,
+          team: 'group:default/operations',
+          lifecycle: 'active',
+          audience: 'personal',
+          classification: 'internal',
+          usesAiAtRuntime: false,
+        })
+        .expect(201);
+    const { body: app } = await create(
+      'Staff tools',
+      'https://example.com/staff-tools',
+    );
+    const { body: anotherApp } = await create(
+      'Other app',
+      'https://example.com/other-app',
+    );
+    const path = `${collection}/${app.id}`;
+    const queue = `${path}/directory-requests`;
+    const listing = {
+      summary: 'Staff tools summary',
+      url: 'https://tools.example.com/staff',
+    };
+    const requestMessage = 'Need access for support.';
+    const createRequest = (user: string, message = requestMessage) =>
+      api.post(queue).set('Authorization', auth(user)).send({ message });
+    const feed = (user: string) =>
+      api.get('/api/governance/directory').set('Authorization', auth(user));
+    const publish = (expectedUpdatedAt: string) =>
+      api
+        .put(`${path}/directory`)
+        .set('Authorization', auth(owner))
+        .send({ ...listing, expectedUpdatedAt })
+        .expect(200);
+    const decide = (user: string, id: string, status: string) =>
+      api
+        .patch(`${queue}/${id}`)
+        .set('Authorization', auth(user))
+        .send({ status });
+
+    await createRequest(requester).expect(404);
+    const { body: published } = await publish(app.updatedAt);
+    await api
+      .post(queue)
+      .set('Authorization', mockCredentials.none.header())
+      .send({ message: requestMessage })
+      .expect(401);
+    await api
+      .post(queue)
+      .set('Authorization', mockCredentials.service.header())
+      .send({ message: requestMessage })
+      .expect(403);
+    await createRequest(requester, '   ').expect(400);
+    await createRequest(requester, 'x'.repeat(501)).expect(400);
+    const attempts = await Promise.all([
+      createRequest(requester, `  ${requestMessage}  `),
+      createRequest(requester),
+    ]);
+    expect(attempts.map(result => result.status).sort()).toEqual([201, 409]);
+    const created = attempts.find(result => result.status === 201)?.body;
+    expect(created).toEqual({ id: expect.any(String), status: 'pending' });
+    const { body: pending } = await createRequest(
+      otherRequester,
+      'Second private message.',
+    ).expect(201);
+
+    const entry = { id: app.id, name: app.name, ...listing };
+    await feed(requester)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, { apps: [{ ...entry, requestStatus: 'pending' }] });
+    await feed(reviewer).expect(200, { apps: [entry] });
+    await api.get(queue).set('Authorization', auth(requester)).expect(403);
+    const { body: reviewerQueue } = await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(reviewerQueue.requests).toEqual(
+      expect.arrayContaining([
+        {
+          id: created.id,
+          requester,
+          message: requestMessage,
+          status: 'pending',
+          requestedAt: expect.any(String),
+        },
+        {
+          id: pending.id,
+          requester: otherRequester,
+          message: 'Second private message.',
+          status: 'pending',
+          requestedAt: expect.any(String),
+        },
+      ]),
+    );
+    expect(reviewerQueue.requests).toHaveLength(2);
+    expect(reviewerQueue.canApprove).toBe(true);
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200, reviewerQueue);
+
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, {
+        ...reviewerQueue,
+        canApprove: false,
+        approvalCheckUnavailable: true,
+      });
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await decide(reviewer, created.id, 'approved').expect(503);
+
+    inactive.add(owner);
+    await feed(requester).expect(200, { apps: [] });
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, { ...reviewerQueue, canApprove: false });
+    await createRequest(reviewer).expect(404);
+    await decide(reviewer, created.id, 'approved').expect(409);
+    inactive.delete(owner);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, reviewerQueue);
+
+    await decide(requester, created.id, 'approved').expect(403);
+    await decide(owner, created.id, 'pending').expect(400);
+    await api
+      .patch(`${collection}/${anotherApp.id}/directory-requests/${created.id}`)
+      .set('Authorization', auth(owner))
+      .send({ status: 'declined' })
+      .expect(404);
+    const { body: approved } = await decide(
+      owner,
+      created.id,
+      'approved',
+    ).expect(200);
+    expect(approved).toEqual({
+      ...reviewerQueue.requests.find(
+        (row: { id: string }) => row.id === created.id,
+      ),
+      status: 'approved',
+      decidedBy: owner,
+      decidedAt: expect.any(String),
+    });
+    await decide(reviewer, created.id, 'declined').expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+
+    const { body: unpublished } = await api
+      .delete(`${path}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: published.updatedAt })
+      .expect(200);
+    await feed(requester).expect(200, { apps: [] });
+    await decide(reviewer, pending.id, 'approved').expect(409);
+    const { body: declined } = await decide(
+      reviewer,
+      pending.id,
+      'declined',
+    ).expect(200);
+    expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
+    await api
+      .get(queue)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.requests).toEqual(
+          expect.arrayContaining([approved, declined]),
+        );
+        expect(body.canApprove).toBe(false);
+      });
+
+    await publish(unpublished.updatedAt);
+    await createRequest(requester).expect(409);
+    await createRequest(otherRequester).expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'declined' }],
+    });
+  });
+
+  it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const replacement = 'user:default/replacement';
+    const reviewer = 'user:default/reviewer';
+    const engineer = 'user:default/engineer';
+    const team = 'group:default/operations';
+    const engineeringGroup = 'group:default/engineering';
+    const inactive = new Set<string>();
+    const missing = new Set<string>();
+    const catalogEntity = (ref: string): Entity | undefined => {
+      if (missing.has(ref)) return undefined;
+      return {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: ref.startsWith('group:') ? 'Group' : 'User',
+        metadata: {
+          name: ref.split('/')[1],
+          annotations: {
+            'governance.backstage.io/active': inactive.has(ref)
+              ? 'false'
+              : 'true',
+          },
+        },
+        relations:
+          ref === engineer
+            ? [{ type: 'memberOf', targetRef: engineeringGroup }]
+            : [],
+      };
+    };
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(catalogEntity),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Approved workspace' },
+              ],
+              graduationGroups: [engineeringGroup],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const appInput = {
+      purpose: 'Maintain a staff workflow.',
+      type: 'app',
+      platform: 'GitHub',
+      owner,
+      backupOwner: backup,
+      team,
+      lifecycle: 'active',
+      audience: 'team',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const create = (name: string, changes: Record<string, unknown> = {}) =>
+      api
+        .post(collection)
+        .set('Authorization', auth(owner))
+        .send({
+          ...appInput,
+          name,
+          sourceUrl: `https://example.com/${name}`,
+          ...changes,
+        })
+        .expect(201);
+    const { body: shared } = await create('Shared');
+    const criticalInput = {
+      lifecycle: 'experimental',
+      audience: 'external',
+      deliveryStage: 'production',
+    };
+    const { body: critical } = await create('Critical', criticalInput);
+    const { body: overlappingRoles } = await create('Overlapping-roles', {
+      ...criticalInput,
+      backupOwner: engineer,
+    });
+    const { body: personal } = await create('Personal', {
+      audience: 'personal',
+    });
+    const { body: retiredApp } = await create('Retired', {
+      audience: 'personal',
+    });
+    const priorHostedConfig = {
+      type: 'provider-hosted app',
+      lifecycle: 'experimental',
+      hosted: {
+        provider: 'Example AI',
+        workspace: 'Removed workspace',
+        sharing: 'private',
+        dataAccess: 'none',
+      },
+    };
+    const { body: oldHosted } = await create('Old-hosted', {
+      ...priorHostedConfig,
+      audience: 'personal',
+    });
+    const { body: oldCriticalHosted } = await create('Critical-hosted', {
+      ...priorHostedConfig,
+      audience: 'external',
+    });
+    for (const previouslyActive of [oldHosted, oldCriticalHosted]) {
+      // Represent apps that were activated before their workspace approval was removed.
+      await db('governance_apps')
+        .where({ id: previouslyActive.id })
+        .update({
+          payload: JSON.stringify({ ...previouslyActive, lifecycle: 'active' }),
+        });
+    }
+    const path = (id: string) => `${collection}/${id}`;
+    const handover = (id: string) => `${path(id)}/backup-handover`;
+    const status = (id: string, actor = backup) =>
+      api.get(handover(id)).set('Authorization', auth(actor));
+    const takeOwnership = (
+      id: string,
+      expectedUpdatedAt: string,
+      newBackup?: string,
+      actor = backup,
+    ) =>
+      api
+        .post(handover(id))
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt, backupOwner: newBackup });
+    const issue = (id: string) =>
+      api
+        .post(`${path(id)}/gateway-key`)
+        .set('Authorization', auth(owner))
+        .expect(201);
+    const { body: sharedKey } = await issue(shared.id);
+    const { body: attested } = await api
+      .post(`${path(shared.id)}/attestation`)
+      .set('Authorization', auth(owner))
+      .send({ confirmed: true, expectedUpdatedAt: shared.updatedAt })
+      .expect(200);
+    async function activateAndGraduate(app: { id: string; updatedAt: string }) {
+      const { body: approved } = await api
+        .post(`${path(app.id)}/reviews`)
+        .set('Authorization', auth(reviewer))
+        .send({
+          status: 'approved',
+          notes: 'Reviewed.',
+          expectedUpdatedAt: app.updatedAt,
+        })
+        .expect(200);
+      const { body: activated } = await api
+        .patch(`${path(app.id)}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle: 'active', expectedUpdatedAt: approved.updatedAt })
+        .expect(200);
+      const { body: key } = await issue(app.id);
+      const { body: nomination } = await api
+        .post(`${path(app.id)}/graduation`)
+        .set('Authorization', auth(owner))
+        .send({ nominee: engineer, expectedUpdatedAt: activated.updatedAt })
+        .expect(200);
+      const { body: graduated } = await api
+        .patch(`${path(app.id)}/graduation`)
+        .set('Authorization', auth(engineer))
+        .send({ decision: 'accept', expectedUpdatedAt: nomination.updatedAt })
+        .expect(200);
+      return { key, graduated };
+    }
+    const { key: criticalKey, graduated } = await activateAndGraduate(critical);
+    const { key: overlappingKey, graduated: overlappingGraduation } =
+      await activateAndGraduate(overlappingRoles);
+    const { body: retired } = await api
+      .patch(`${path(retiredApp.id)}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: retiredApp.updatedAt })
+      .expect(200);
+
+    const day = 86_400_000;
+    const startedAt = Date.parse(shared.activeSince);
+    jest.spyOn(Date, 'now').mockReturnValue(startedAt + 91 * day);
+    await db('governance_gateway_usage').insert({
+      id: 'old-handover-usage',
+      app_id: shared.id,
+      model: 'test-model',
+      execution_mode: 'openai',
+      created_at: new Date(startedAt + 1),
+      estimated_cost_nanos_usd: 0,
+    });
+    const { body: awaitingRetirement } = await api
+      .post(`${path(shared.id)}/retirement-review`)
+      .set('Authorization', auth(reviewer))
+      .send({ expectedUpdatedAt: attested.updatedAt })
+      .expect(200);
+    expect(awaitingRetirement.retirementReview.status).toBe('pending');
+    const before = awaitingRetirement.updatedAt;
+
+    await status(shared.id, owner).expect(403);
+    await status(shared.id, reviewer).expect(403);
+    await takeOwnership(shared.id, before, replacement, reviewer).expect(403);
+    await status(shared.id)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, { available: false, backupRequired: true });
+    await takeOwnership(shared.id, before, replacement).expect(409);
+
+    catalog.mockImplementationOnce(async ({ entityRefs }) => ({
+      items: entityRefs.map(ref =>
+        ref === owner ? (false as unknown as Entity) : catalogEntity(ref),
+      ),
+    }));
+    await status(shared.id).expect(503);
+    catalog.mockImplementationOnce(async ({ entityRefs }) => ({
+      items: entityRefs.map(ref =>
+        ref === owner ? (false as unknown as Entity) : catalogEntity(ref),
+      ),
+    }));
+    await takeOwnership(shared.id, before, replacement).expect(503);
+
+    inactive.add(owner);
+    inactive.add(team);
+    await status(shared.id).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(shared.id, before, replacement).expect(409);
+    inactive.delete(team);
+    inactive.add(backup);
+    await status(shared.id).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(shared.id, before, replacement).expect(409);
+    inactive.delete(backup);
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await status(shared.id).expect(503);
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await takeOwnership(shared.id, before, replacement).expect(503);
+    await status(shared.id).expect(200, {
+      available: true,
+      backupRequired: true,
+    });
+    await takeOwnership(shared.id, attested.updatedAt, replacement).expect(409);
+    await takeOwnership(shared.id, before).expect(400);
+    await takeOwnership(shared.id, before, backup).expect(400);
+    await takeOwnership(shared.id, before, owner).expect(400);
+    inactive.add(replacement);
+    await takeOwnership(shared.id, before, replacement).expect(400);
+    inactive.delete(replacement);
+
+    const { body: transferred } = await takeOwnership(
+      shared.id,
+      before,
+      replacement,
+    ).expect(200);
+    expect(transferred).toMatchObject({
+      owner: backup,
+      backupOwner: replacement,
+      team,
+      lifecycle: 'active',
+      tier: 2,
+      lastReview: null,
+      nextReview: transferred.updatedAt,
+      activeSince: shared.activeSince,
+      classification: shared.classification,
+      models: shared.models,
+    });
+    expect(transferred).not.toHaveProperty('retirementReview');
+    await status(shared.id).expect(403);
+    await status(shared.id, replacement).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+
+    inactive.delete(owner);
+    missing.add(owner);
+    await status(oldHosted.id).expect(200, {
+      available: false,
+      backupRequired: false,
+    });
+    await takeOwnership(oldHosted.id, oldHosted.updatedAt).expect(409);
+    await status(oldCriticalHosted.id).expect(200, {
+      available: true,
+      backupRequired: true,
+    });
+    const { body: hostedReopened } = await takeOwnership(
+      oldCriticalHosted.id,
+      oldCriticalHosted.updatedAt,
+      replacement,
+    ).expect(200);
+    expect(hostedReopened).toMatchObject({
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      owner: backup,
+    });
+    const { body: reassigned } = await takeOwnership(
+      critical.id,
+      graduated.updatedAt,
+      replacement,
+    ).expect(200);
+    expect(reassigned).toMatchObject({
+      owner: backup,
+      backupOwner: replacement,
+      team,
+      lifecycle: 'experimental',
+      tier: 3,
+      reviewStatus: 'pending',
+      lastReview: null,
+      nextReview: null,
+      deliveryStage: 'production',
+    });
+    expect(reassigned).not.toHaveProperty('graduation');
+    expect(reassigned).not.toHaveProperty('activeSince');
+
+    await status(personal.id).expect(200, {
+      available: true,
+      backupRequired: false,
+    });
+    const { body: personalHandover } = await takeOwnership(
+      personal.id,
+      personal.updatedAt,
+    ).expect(200);
+    expect(personalHandover.owner).toBe(backup);
+    expect(personalHandover).not.toHaveProperty('backupOwner');
+    await status(retired.id).expect(200, {
+      available: false,
+      backupRequired: false,
+    });
+    await takeOwnership(retired.id, retired.updatedAt).expect(409);
+
+    for (const { key } of [sharedKey, criticalKey]) {
+      await api
+        .post('/api/governance/gateway/chat')
+        .set('Authorization', `Bearer ${key}`)
+        .send({
+          model: 'test-model',
+          prompt: 'Verify the former key is closed.',
+        })
+        .expect(401);
+    }
+    const { body: history } = await api
+      .get(`${path(shared.id)}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(JSON.parse(history.events.at(-1).event)).toMatchObject({
+      action: 'ownership-handover',
+      actor: backup,
+      record: { owner: backup, backupOwner: replacement, team },
+    });
+    expect(history.keyEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'revoked', actor: backup }),
+      ]),
+    );
+
+    await status(overlappingRoles.id, engineer).expect(200, {
+      available: false,
+      backupRequired: true,
+    });
+    await takeOwnership(
+      overlappingRoles.id,
+      overlappingGraduation.updatedAt,
+      replacement,
+      engineer,
+    ).expect(403);
+    const { body: unchanged } = await api
+      .get(path(overlappingRoles.id))
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(unchanged).toMatchObject({
+      owner,
+      backupOwner: engineer,
+      updatedAt: overlappingGraduation.updatedAt,
+      lifecycle: 'active',
+      reviewStatus: 'approved',
+      graduation: { nominee: engineer, status: 'accepted' },
+    });
+
+    missing.delete(owner);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${overlappingKey.key}`)
+      .send({
+        model: 'test-model',
+        prompt: 'Verify the existing key still works.',
+      })
+      .expect(200);
+  });
 
   const approvedConnector = {
     id: 'catalog-lookup',
@@ -123,6 +1127,10 @@ describe('governance record access', () => {
           ],
         })),
       }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
     const db = await databases.init('SQLITE_3');
     const { server } = await startTestBackend({
       features: [
@@ -130,9 +1138,17 @@ describe('governance record access', () => {
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
           data: {
+            backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
               graduationGroups: [group],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
             },
           },
         }),
@@ -153,7 +1169,7 @@ describe('governance record access', () => {
       lifecycle: 'experimental',
       audience: 'external',
       classification: 'internal',
-      usesAiAtRuntime: false,
+      models: ['test-model'],
       deliveryStage: 'pilot',
       evidence: { tests: 'https://example.com/limited-evidence' },
     };
@@ -217,19 +1233,24 @@ describe('governance record access', () => {
     await nominate(engineer, before).expect(400);
     activeEngineer = true;
 
-    const cancel = (expectedUpdatedAt: string, actor = owner) =>
+    const removeHandoff = (
+      expectedUpdatedAt: string,
+      actor = owner,
+      reason?: string,
+    ) =>
       api
         .delete(route)
         .set('Authorization', auth(actor))
-        .send({ expectedUpdatedAt });
-    await cancel(before).expect(409);
+        .send({ expectedUpdatedAt, reason });
+    await removeHandoff(before).expect(409);
     const abandoned = await nominate(engineer, before).expect(200);
-    await cancel(before).expect(409);
-    await cancel(abandoned.body.updatedAt, engineer).expect(403);
+    await removeHandoff(before).expect(409);
+    await removeHandoff(abandoned.body.updatedAt, engineer).expect(403);
     activeEngineer = false;
-    const cancelled = await cancel(abandoned.body.updatedAt, reviewer).expect(
-      200,
-    );
+    const cancelled = await removeHandoff(
+      abandoned.body.updatedAt,
+      reviewer,
+    ).expect(200);
     expect(cancelled.body).not.toHaveProperty('graduation');
     expect((await getApp(engineer)).body).not.toHaveProperty('graduation');
     await decide('accept', cancelled.body.updatedAt).expect(403);
@@ -297,16 +1318,75 @@ describe('governance record access', () => {
       },
     });
     await nominate(outside, accepted.body.updatedAt).expect(409);
-    await cancel(accepted.body.updatedAt).expect(409);
+    await removeHandoff(accepted.body.updatedAt).expect(400);
 
     const renamed = await edit(
       { name: 'Renamed workflow', deliveryStage: 'production' },
       accepted.body.updatedAt,
     ).expect(200);
     expect(renamed.body.graduation).toEqual(accepted.body.graduation);
+    const approved = await api
+      .post(`${appPath}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        expectedUpdatedAt: renamed.body.updatedAt,
+        notes: 'Production review completed.',
+      })
+      .expect(200);
+    const activated = await api
+      .patch(`${appPath}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: approved.body.updatedAt })
+      .expect(200);
+    const {
+      body: { key },
+    } = await api
+      .post(`${appPath}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const ending = 'Engineering coverage changed.';
+    await removeHandoff(activated.body.updatedAt, outside, ending).expect(403);
+    await removeHandoff(activated.body.updatedAt, engineer, ending).expect(403);
+    await removeHandoff(renamed.body.updatedAt, reviewer, ending).expect(409);
+    await removeHandoff(activated.body.updatedAt, reviewer, '   ').expect(400);
+    await removeHandoff(
+      activated.body.updatedAt,
+      reviewer,
+      'x'.repeat(501),
+    ).expect(400);
+    const ended = await removeHandoff(
+      activated.body.updatedAt,
+      reviewer,
+      `  ${ending}  `,
+    ).expect(200);
+    expect(ended.body).not.toHaveProperty('graduation');
+    expect(ended.body).toMatchObject({
+      owner,
+      tier: activated.body.tier,
+      lifecycle: 'active',
+      activeSince: activated.body.activeSince,
+      reviewStatus: 'approved',
+      lastReview: approved.body.lastReview,
+      nextReview: approved.body.nextReview,
+      reviewNotes: 'Production review completed.',
+    });
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ model: 'test-model', prompt: 'Check handoff continuity.' })
+      .expect(200);
+    const nextNomination = await nominate(
+      engineer,
+      ended.body.updatedAt,
+    ).expect(200);
+    expect(nextNomination.body.graduation).toMatchObject({
+      status: 'pending',
+      nominee: engineer,
+    });
     const reverted = await edit(
       { deliveryStage: 'pilot' },
-      renamed.body.updatedAt,
+      nextNomination.body.updatedAt,
     ).expect(200);
     expect(reverted.body).not.toHaveProperty('graduation');
     const productionAgain = await edit(
@@ -361,6 +1441,24 @@ describe('governance record access', () => {
     const events = history.events.map((item: { event: string }) =>
       JSON.parse(item.event),
     );
+    const endAudit = history.events.find(
+      (item: { event: string }) =>
+        JSON.parse(item.event).action === 'graduation-ended',
+    );
+    expect(JSON.parse(endAudit.event)).toMatchObject({
+      actor: reviewer,
+      graduationNominee: engineer,
+      graduationReason: ending,
+    });
+    expect(JSON.parse(endAudit.event).record).not.toHaveProperty('graduation');
+    expect(endAudit.digest).toBe(
+      createHash('sha256').update(endAudit.event).digest('hex'),
+    );
+    expect(
+      events.find(
+        (event: { action: string }) => event.action === 'graduation-cancelled',
+      ),
+    ).not.toHaveProperty('graduationReason');
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -419,6 +1517,14 @@ describe('governance record access', () => {
       })
       .expect(200);
     await api
+      .delete(`${secondPath}/graduation`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        expectedUpdatedAt: handoff.body.updatedAt,
+        reason: 'I want to end my handoff.',
+      })
+      .expect(403);
+    await api
       .post(`${secondPath}/reviews`)
       .set('Authorization', auth(reviewer))
       .send({
@@ -436,6 +1542,38 @@ describe('governance record access', () => {
         expectedUpdatedAt: handoff.body.updatedAt,
       })
       .expect(403);
+    await api
+      .patch(`${secondPath}/lifecycle`)
+      .set('Authorization', auth(reviewer))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: handoff.body.updatedAt })
+      .expect(403);
+    const editAsNominee = (changes: Record<string, unknown>) =>
+      api
+        .put(secondPath)
+        .set('Authorization', auth(reviewer))
+        .send({
+          ...appInput,
+          sourceUrl: second.body.sourceUrl,
+          deliveryStage: 'production',
+          expectedUpdatedAt: handoff.body.updatedAt,
+          ...changes,
+        });
+    await editAsNominee({ deliveryStage: 'pilot' }).expect(403);
+    await editAsNominee({ owner: outside }).expect(403);
+    await editAsNominee({ audience: 'team' }).expect(403);
+    const unrelated = await editAsNominee({
+      name: 'Updated handoff title',
+    }).expect(200);
+    expect(unrelated.body.graduation).toEqual(handoff.body.graduation);
+    const ownerEnded = await api
+      .delete(`${secondPath}/graduation`)
+      .set('Authorization', auth(owner))
+      .send({
+        expectedUpdatedAt: unrelated.body.updatedAt,
+        reason: 'The owner reassigned engineering coverage.',
+      })
+      .expect(200);
+    expect(ownerEnded.body).not.toHaveProperty('graduation');
   });
 
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
@@ -1324,6 +2462,402 @@ describe('governance record access', () => {
       expect.arrayContaining([
         expect.objectContaining({ action: 'revoked', actor: owner }),
       ]),
+    );
+  });
+
+  it('updates review ticket metadata without changing approval or gateway access', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const appInput = {
+      name: 'Workflow assistant',
+      purpose: 'Support internal workflow approvals.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/workflow-assistant',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/engineering',
+      lifecycle: 'experimental',
+      audience: 'external',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const { body: app } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `${collection}/${app.id}`;
+    const { body: approved } = await api
+      .post(`${path}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        notes: 'Approved application.',
+        expectedUpdatedAt: app.updatedAt,
+      })
+      .expect(200);
+    const setLifecycle = (lifecycle: string, expectedUpdatedAt: string) =>
+      api
+        .patch(`${path}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle, expectedUpdatedAt })
+        .expect(200);
+    const { body: active } = await setLifecycle('active', approved.updatedAt);
+    const {
+      body: { key },
+    } = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const ticketPath = `${path}/review-ticket`;
+    const patch = (
+      url: string | null | undefined,
+      expectedUpdatedAt: string,
+      actor = owner,
+    ) =>
+      api
+        .patch(ticketPath)
+        .set('Authorization', auth(actor))
+        .send({ url, expectedUpdatedAt });
+    const firstUrl = 'https://tickets.example.com/FRONT-1';
+    const secondUrl = 'http://tickets.example.com/FRONT-2';
+
+    for (const credentials of [
+      { header: mockCredentials.none.header(), status: 401 },
+      { header: mockCredentials.service.header(), status: 403 },
+    ]) {
+      await api
+        .patch(ticketPath)
+        .set('Authorization', credentials.header)
+        .send({ url: firstUrl, expectedUpdatedAt: active.updatedAt })
+        .expect(credentials.status);
+    }
+    await patch(firstUrl, active.updatedAt, backup).expect(403);
+    await patch(firstUrl, approved.updatedAt).expect(409);
+    for (const value of [
+      undefined,
+      '  ',
+      'mailto:support@example.com',
+      'https://sample:private@tickets.example.com/FRONT-1',
+      'https://sample@tickets.example.com/FRONT-1',
+      `https://tickets.example.com/${'x'.repeat(2048)}`,
+    ]) {
+      await patch(value, active.updatedAt).expect(400);
+    }
+
+    const { body: linked } = await patch(
+      `  ${firstUrl}  `,
+      active.updatedAt,
+    ).expect(200);
+    expect(linked).toEqual({
+      ...active,
+      updatedAt: expect.any(String),
+      reviewTicketUrl: firstUrl,
+    });
+    expect(linked.updatedAt).not.toBe(active.updatedAt);
+    await patch(firstUrl, active.updatedAt).expect(409);
+    await patch(`  ${firstUrl}  `, linked.updatedAt)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, linked);
+    const { body: unrelated } = await api
+      .get(path)
+      .set('Authorization', auth('user:default/teammate'))
+      .expect(200);
+    expect(unrelated).not.toHaveProperty('reviewTicketUrl');
+
+    const { body: relinked } = await patch(
+      secondUrl,
+      linked.updatedAt,
+      reviewer,
+    ).expect(200);
+    expect(relinked.reviewTicketUrl).toBe(secondUrl);
+    const { body: cleared } = await patch(null, relinked.updatedAt).expect(200);
+    expect(cleared).toEqual({ ...active, updatedAt: expect.any(String) });
+    await patch(null, cleared.updatedAt).expect(200, cleared);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({
+        model: 'test-model',
+        prompt: 'Confirm the gateway remains available.',
+      })
+      .expect(200);
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const changes = history.events
+      .map((row: { event: string; digest: string }) => ({
+        ...JSON.parse(row.event),
+        digest: row.digest,
+      }))
+      .filter(
+        (row: { action: string }) => row.action === 'review-ticket-updated',
+      );
+    expect(
+      changes.map(
+        (row: { actor: string; record: { reviewTicketUrl?: string } }) => [
+          row.actor,
+          row.record.reviewTicketUrl,
+        ],
+      ),
+    ).toEqual([
+      [owner, firstUrl],
+      [reviewer, secondUrl],
+      [owner, undefined],
+    ]);
+    expect(changes[1].previousDigest).toBe(changes[0].digest);
+    expect(changes[2].previousDigest).toBe(changes[1].digest);
+
+    const { body: retired } = await setLifecycle('retired', cleared.updatedAt);
+    await patch(firstUrl, retired.updatedAt).expect(400);
+    const { body: lowRisk } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        audience: 'personal',
+        sourceUrl: 'https://example.com/personal-workflow-assistant',
+      })
+      .expect(201);
+    await api
+      .patch(`${collection}/${lowRisk.id}/review-ticket`)
+      .set('Authorization', auth(owner))
+      .send({ url: firstUrl, expectedUpdatedAt: lowRisk.updatedAt })
+      .expect(400);
+  });
+
+  it('records hosted workspace attestations independently and clears them when ownership or settings change', async () => {
+    const owner = 'user:default/owner';
+    const nextOwner = 'user:default/next';
+    const reviewer = 'user:default/reviewer';
+    let ownerActive = true;
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: {
+              'governance.backstage.io/active': String(
+                ref !== owner || ownerActive,
+              ),
+            },
+          },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Company' },
+              ],
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const create = (workspace: string) =>
+      api
+        .post(apps)
+        .set('Authorization', auth(owner))
+        .send({
+          name: `Hosted ${workspace}`,
+          purpose: 'Track workspace governance.',
+          sourceUrl: `https://example.com/hosted-${workspace}`,
+          type: 'provider-hosted app',
+          platform: 'Example AI',
+          owner,
+          backupOwner: 'user:default/backup',
+          team: 'group:default/platform',
+          lifecycle: 'experimental',
+          audience: 'team',
+          classification: 'internal',
+          models: ['test-model'],
+          hosted: {
+            provider: 'Example AI',
+            workspace,
+            sharing: 'private',
+            dataAccess: 'none',
+          },
+        })
+        .expect(201);
+    const { body: original } = await create('Company');
+    const { body: unapproved } = await create('Other');
+    expect(original.hostedWorkspaceAllowed).toBe(true);
+    expect(unapproved.hostedWorkspaceAllowed).toBe(false);
+    const attest = (
+      app: { id: string; updatedAt: string },
+      actor = owner,
+      confirmed = true,
+    ) =>
+      api
+        .post(`${apps}/${app.id}/hosted-attestation`)
+        .set('Authorization', auth(actor))
+        .send({ confirmed, expectedUpdatedAt: app.updatedAt });
+    await attest(unapproved).expect(400);
+    await attest(original, reviewer).expect(403);
+    await attest(original, owner, false).expect(400);
+
+    const path = `${apps}/${original.id}`;
+    const { body: active } = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: original.updatedAt })
+      .expect(200);
+    const scorecard = async () => {
+      const { body } = await api
+        .get(`${path}/scorecard`)
+        .set('Authorization', auth(reviewer))
+        .expect(200);
+      return body.checks.find(
+        (check: { name: string }) =>
+          check.name === 'Hosted workspace attestation',
+      );
+    };
+    expect(await scorecard()).toMatchObject({ status: 'attention' });
+    await attest(original).expect(409);
+    ownerActive = false;
+    await attest(active).expect(400);
+    expect(await scorecard()).toMatchObject({ status: 'attention' });
+    ownerActive = true;
+    const { body: confirmed } = await attest(active)
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(confirmed).toMatchObject({
+      lifecycle: active.lifecycle,
+      reviewStatus: active.reviewStatus,
+      lastReview: active.lastReview,
+      nextReview: active.nextReview,
+      hostedAttestation: {
+        at: confirmed.updatedAt,
+        nextDue: new Date(
+          Date.parse(confirmed.updatedAt) + 90 * 86_400_000,
+        ).toISOString(),
+      },
+    });
+    expect(await scorecard()).toMatchObject({ status: 'pass' });
+    jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(confirmed.hostedAttestation.nextDue));
+    expect(await scorecard()).toMatchObject({
+      status: 'attention',
+      detail: expect.stringContaining('Overdue'),
+    });
+
+    const edit = (
+      record: { id: string; updatedAt: string },
+      changes: Record<string, unknown>,
+    ) =>
+      api
+        .put(`${apps}/${record.id}`)
+        .set('Authorization', auth(owner))
+        .send({ ...record, ...changes, expectedUpdatedAt: record.updatedAt })
+        .expect(200);
+    const { body: renamed } = await edit(confirmed, {
+      name: 'Renamed hosted app',
+    });
+    expect(renamed.hostedAttestation).toEqual(confirmed.hostedAttestation);
+    const { body: changed } = await edit(renamed, {
+      hosted: {
+        ...renamed.hosted,
+        dataAccess: 'stores input',
+        dataClassification: 'internal',
+      },
+    });
+    expect(changed).not.toHaveProperty('hostedAttestation');
+    const { body: renewed } = await attest(changed).expect(200);
+    const { body: reassigned } = await edit(renewed, { owner: nextOwner });
+    expect(reassigned).not.toHaveProperty('hostedAttestation');
+    await attest(reassigned).expect(403);
+    const { body: reattested } = await attest(reassigned, nextOwner).expect(
+      200,
+    );
+    const { body: retired } = await api
+      .patch(`${path}/lifecycle`)
+      .set('Authorization', auth(nextOwner))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: reattested.updatedAt })
+      .expect(200);
+    expect(retired).not.toHaveProperty('hostedAttestation');
+    await attest(retired, nextOwner).expect(400);
+
+    const { body: corrected } = await edit(unapproved, {
+      hosted: { ...unapproved.hosted, workspace: 'Company' },
+    });
+    const { body: otherAttested } = await attest(corrected).expect(200);
+    const { body: converted } = await edit(otherAttested, {
+      type: 'app',
+      hosted: undefined,
+    });
+    expect(converted).not.toHaveProperty('hostedAttestation');
+    expect(converted).not.toHaveProperty('hostedWorkspaceAllowed');
+    await attest(converted).expect(400);
+
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(
+      history.events.map(({ event }: { event: string }) => JSON.parse(event)),
+    ).toContainEqual(
+      expect.objectContaining({
+        action: 'hosted-attested',
+        actor: nextOwner,
+        record: expect.objectContaining({
+          hostedAttestation: reattested.hostedAttestation,
+        }),
+      }),
     );
   });
 

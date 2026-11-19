@@ -589,9 +589,13 @@
   }
   .governance-table td[data-label]::before {
     content: attr(data-label);
+    content: attr(data-label) / '';
     display: block;
     color: var(--gov-muted);
     font-size: 12px;
+  }
+  .governance-table .gov-directory-request-cell {
+    grid-column: 1 / -1;
   }
   .governance-table .gov-app-cell {
     grid-column: 1 / -1;
@@ -791,4 +795,13 @@
 .gov-template-stage span {
   color: var(--gov-muted);
   font-weight: 400;
+}
+
+.gov-directory-requests {
+  display: grid;
+  gap: 16px;
+  padding-inline-start: 20px;
+}
+.gov-directory-requests li > p {
+  margin-block: 4px;
 }
