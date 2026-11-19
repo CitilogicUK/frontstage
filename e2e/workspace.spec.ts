@@ -6172,6 +6172,10 @@ test('the focused review ticket form saves and removes the link without reopenin
     usesAiAtRuntime: false,
     models: [],
     reviewStatus: 'approved',
+    signoffs: {
+      security: { status: 'approved', actor: 'user:default/security-reviewer' },
+      dataProtection: { status: 'approved' },
+    },
     nextReview: '2099-01-01T00:00:00.000Z',
     updatedAt: '2025-05-01T00:00:00.000Z',
   };
@@ -6189,7 +6193,12 @@ test('the focused review ticket form saves and removes the link without reopenin
 
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
-      json: { actor: reviewer, canReview: true, apps: [current] },
+      json: {
+        actor: reviewer,
+        canReview: true,
+        reviewTracks: ['security', 'dataProtection'],
+        apps: [current],
+      },
     }),
   );
   await page.route(
@@ -6258,6 +6267,9 @@ test('the focused review ticket form saves and removes the link without reopenin
     .toContain(app.name);
   const context = await page.evaluate(() => navigator.clipboard.readText());
   expect(context).toContain('Tier 3 review');
+  expect(context).toContain('Security sign-off: approved');
+  expect(context).toContain('Data Protection sign-off: approved');
+  expect(context).not.toContain(app.signoffs.security.actor);
   expect(context).toContain(owner);
   expect(context).toContain(app.team);
   expect(context).toContain(`${workspaceUrl}/?app=quick-ticket`);
