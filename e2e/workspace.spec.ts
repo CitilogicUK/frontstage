@@ -53,6 +53,65 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
   expect(hasOverflow).toBe(false);
 }
 
+test('Catalog opens a managed app in its governance record', async ({
+  page,
+}) => {
+  const actor = 'user:default/owner';
+  const app = {
+    id: 'catalog-app',
+    name: 'Managed catalog app',
+    purpose: 'Catalog navigation fixture',
+    owner: actor,
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    models: [],
+    usesAiAtRuntime: false,
+    reviewStatus: 'not required',
+    nextReview: null,
+    updatedAt: '2025-01-01T00:00:00.000Z',
+  };
+  await page.route(/\/api\/catalog\/entities(?:\?|$)/, route =>
+    route.fulfill({
+      json: [
+        {
+          apiVersion: 'governance.backstage.io/v1alpha1',
+          kind: 'AIApp',
+          metadata: {
+            name: app.id,
+            title: app.name,
+            annotations: {
+              'backstage.io/managed-by-location': 'governance:inventory',
+            },
+          },
+        },
+        {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: { name: 'sample-service', title: 'Sample service' },
+        },
+      ],
+    }),
+  );
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
+  );
+  await page.goto(catalogPath);
+  const heading = page.getByRole('heading', { name: 'Software catalog' });
+  const guest = page.getByRole('button', { name: 'Enter', exact: true });
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(
+    page.getByRole('link', { name: 'Sample service' }),
+  ).toHaveAttribute('href', '/catalog/default/component/sample-service');
+  await page.getByRole('button', { name: 'AI apps', exact: true }).click();
+  await page.getByRole('link', { name: app.name }).click();
+  await expect(page).toHaveURL(`${workspaceUrl}/?app=${app.id}`);
+  await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
+});
+
 test('workspace screens share navigation and fit the viewport', async ({
   page,
   request,
