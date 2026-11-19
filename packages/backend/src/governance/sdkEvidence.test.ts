@@ -71,6 +71,7 @@ dev = ['langchain']
   expect(sdkPackages('pyproject.toml', manifest)).toEqual([
     'anthropic',
     'google-genai',
+    'langchain',
     'langchain-openai',
     'openai',
   ]);
@@ -127,7 +128,7 @@ anthropic-tools = '^1'
   ]);
 });
 
-it('ignores Poetry metadata, build requirements, and PEP 735 dependency groups', () => {
+it('ignores Poetry metadata and build requirements', () => {
   const manifest = `
 [tool.poetry]
 name = 'openai'
@@ -145,8 +146,6 @@ description = 'Mentions llama-index'
 [build-system]
 requires = ['langchain-openai']
 
-[dependency-groups]
-dev = ['azure-ai-inference']
 `;
   expect(sdkPackages('pyproject.toml', manifest)).toEqual([]);
 });
@@ -156,5 +155,26 @@ it.each([
   "[tool.poetry]\ndev-dependencies = 'openai'",
   "[tool.poetry.group.test]\ndependencies = ['openai']",
 ])('treats malformed Poetry dependency tables as unavailable', manifest => {
+  expect(sdkPackages('pyproject.toml', manifest)).toBeUndefined();
+});
+
+it('finds dependency group declarations without treating group names as packages', () => {
+  const manifest = `
+[dependency-groups]
+anthropic = [{include-group = 'experiments'}]
+experiments = ['OpEnAi>=1', 'google_genai', 'openai-wrapper']
+dev = [{include-group = 'anthropic'}, 'OPENAI']
+`;
+  expect(sdkPackages('pyproject.toml', manifest)).toEqual([
+    'google-genai',
+    'openai',
+  ]);
+});
+
+it.each([
+  "[dependency-groups]\ndev = 'openai'",
+  '[dependency-groups]\ndev = [{include-group = true}]',
+  "[dependency-groups]\ndev = [{package = 'openai'}]",
+])('treats malformed dependency groups as unavailable', manifest => {
   expect(sdkPackages('pyproject.toml', manifest)).toBeUndefined();
 });

@@ -5143,7 +5143,8 @@ describe('governance record access', () => {
         new Response(
           "[project]\ndependencies = ['anthropic']\n" +
             "[project.optional-dependencies]\nresearch = ['litellm']\n" +
-            "[tool.poetry.group.experiments.dependencies]\nlangchain-openai = '^0.3'",
+            "[tool.poetry.group.experiments.dependencies]\nlangchain-openai = '^0.3'\n" +
+            "[dependency-groups]\nbenchmarks = ['llama-index>=0.12']",
           { headers: { 'Content-Type': 'application/vnd.github.raw+json' } },
         ),
       );
@@ -5164,7 +5165,12 @@ describe('governance record access', () => {
           {
             path: 'pyproject.toml',
             status: 'checked',
-            packages: ['anthropic', 'langchain-openai', 'litellm'],
+            packages: [
+              'anthropic',
+              'langchain-openai',
+              'litellm',
+              'llama-index',
+            ],
           },
         ],
       });
