@@ -2359,12 +2359,24 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   await expect(lifecycle).toBeVisible();
   const retireOption = lifecycle.getByRole('option', { name: 'retired' });
   await expect(retireOption).toHaveCount(0);
+  const editor = details.getByText('Edit app details', { exact: true });
+  const ownerInput = details.getByRole('textbox', {
+    name: 'Owner',
+    exact: true,
+  });
+  const stageInput = details.getByRole('combobox', { name: 'Delivery stage' });
+  await editor.click();
+  await expect(ownerInput).not.toBeEditable();
+  await expect(stageInput).toBeDisabled();
 
   actor = reviewer;
   await page.goto('/?app=graduation-candidate');
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await expect(retireOption).toHaveCount(1);
+  await editor.click();
+  await expect(ownerInput).toBeEditable();
+  await expect(stageInput).toBeEnabled();
   await expect(
     panel.getByText(
       `Ending this handoff removes ${nominee} as engineering co-owner.`,

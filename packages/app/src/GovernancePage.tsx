@@ -147,11 +147,17 @@ function appOwner(ref: string) {
   return ref.replace(/^user:default\//, '');
 }
 
+function isAcceptedEngineeringCoOwner(app: App, actor: string) {
+  return (
+    app.graduation?.status === 'accepted' && actor === app.graduation.nominee
+  );
+}
+
 function isIndependentReviewer(app: App, actor: string) {
   return (
     actor !== app.owner &&
     actor !== app.backupOwner &&
-    (app.graduation?.status !== 'accepted' || actor !== app.graduation.nominee)
+    !isAcceptedEngineeringCoOwner(app, actor)
   );
 }
 
@@ -355,8 +361,7 @@ export function GovernancePage() {
 
   const reviewDate = selected && scheduledReviewDate(selected);
   const actorIsAcceptedCoOwner =
-    selected?.graduation?.status === 'accepted' &&
-    actor === selected.graduation.nominee;
+    selected !== undefined && isAcceptedEngineeringCoOwner(selected, actor);
   const canNominateCoOwner =
     selected &&
     graduationEnabled &&
@@ -1626,6 +1631,13 @@ export function GovernancePage() {
                     new review. Moving to production also requires a new review.
                   </p>
                 )}
+                {actorIsAcceptedCoOwner && (
+                  <p id="engineering-handoff-edit-help">
+                    Ask the accountable owner or another reviewer to change the
+                    owner or delivery stage. These changes end your engineering
+                    handoff.
+                  </p>
+                )}
                 <form
                   onSubmit={event =>
                     submit(event, async data => {
@@ -1653,7 +1665,9 @@ export function GovernancePage() {
                                 .map(model => model.trim())
                                 .filter(Boolean)
                             : [],
-                          deliveryStage: data.get('deliveryStage') || undefined,
+                          deliveryStage: actorIsAcceptedCoOwner
+                            ? selected.deliveryStage
+                            : data.get('deliveryStage') || undefined,
                           reviewTicketUrl: data.get('reviewTicketUrl') || null,
                           evidence: Object.fromEntries(
                             evidenceFields.map(([field]) => [
@@ -1756,10 +1770,16 @@ export function GovernancePage() {
                       aria-labelledby="app-editor-owner-label"
                       required
                       name="owner"
+                      readOnly={actorIsAcceptedCoOwner}
                       aria-describedby={
-                        selected.usesAiAtRuntime !== false
-                          ? 'ownership-handoff-help'
-                          : undefined
+                        [
+                          actorIsAcceptedCoOwner &&
+                            'engineering-handoff-edit-help',
+                          selected.usesAiAtRuntime !== false &&
+                            'ownership-handoff-help',
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || undefined
                       }
                       defaultValue={selected.owner}
                     />
@@ -1785,6 +1805,12 @@ export function GovernancePage() {
                     Delivery stage
                     <select
                       name="deliveryStage"
+                      disabled={actorIsAcceptedCoOwner}
+                      aria-describedby={
+                        actorIsAcceptedCoOwner
+                          ? 'engineering-handoff-edit-help'
+                          : undefined
+                      }
                       defaultValue={selected.deliveryStage ?? ''}
                     >
                       <option value="">Select a stage</option>
