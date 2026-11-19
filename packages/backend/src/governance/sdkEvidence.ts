@@ -65,6 +65,14 @@ const pyprojectManifest = z.object({
         .optional(),
     })
     .optional(),
+  'dependency-groups': z
+    .record(
+      z.string(),
+      z.array(
+        z.union([z.string(), z.strictObject({ 'include-group': z.string() })]),
+      ),
+    )
+    .optional(),
   tool: z
     .object({
       poetry: z
@@ -141,6 +149,10 @@ export function sdkPackages(
     ...pythonRequirementNames([
       ...(project?.dependencies ?? []),
       ...Object.values(project?.['optional-dependencies'] ?? {}).flat(),
+      // Every local group is scanned, so include-group entries need no traversal.
+      ...Object.values(manifest.data['dependency-groups'] ?? {})
+        .flat()
+        .filter(entry => typeof entry === 'string'),
     ]),
     ...Object.keys(poetry?.dependencies ?? {}),
     ...Object.keys(poetry?.['dev-dependencies'] ?? {}),
