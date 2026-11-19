@@ -2466,6 +2466,43 @@ describe('governance record access', () => {
     github.mockClear();
     await evidence(400, reviewer).expect(404);
     expect(github).not.toHaveBeenCalled();
+
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth(owner))
+      .send({
+        ...descriptor.spec,
+        sourceUrl: 'https://github.com/example/private',
+      })
+      .expect(201);
+    await evidence(200, owner).expect(404);
+    await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth(owner))
+      .send(descriptor.spec)
+      .expect(201);
+    await preview(100, owner).expect(200, { status: 'unavailable' });
+    expect(github).not.toHaveBeenCalled();
+    github
+      .mockResolvedValueOnce(new Response('{"dependencies":{"openai":"^4"}}'))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await evidence(100, owner).expect(200, {
+      manifests: [
+        { path: 'package.json', status: 'checked', packages: ['openai'] },
+        { path: 'requirements.txt', status: 'missing', packages: [] },
+        { path: 'pyproject.toml', status: 'missing', packages: [] },
+      ],
+    });
   });
 
   it('extends only an existing Tier 3 app’s gateway access and audits exceptions', async () => {
