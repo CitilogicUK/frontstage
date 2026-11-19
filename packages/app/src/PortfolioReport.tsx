@@ -143,6 +143,7 @@ export function PortfolioReport({
   onRetryOwnership,
   hostedWorkspaces,
   reviewTurnaround,
+  onRetryReviewTurnaround,
   canReview,
   loading,
   error,
@@ -157,6 +158,7 @@ export function PortfolioReport({
   onRetryOwnership: () => void;
   hostedWorkspaces?: HostedWorkspaceReport | null;
   reviewTurnaround?: ReviewTurnaroundReport | null;
+  onRetryReviewTurnaround: () => void;
   canReview: boolean;
   loading: boolean;
   error: string;
@@ -168,7 +170,8 @@ export function PortfolioReport({
   const unowned = coverage?.unowned ?? 0;
   let discoveryLinkLabel = 'View Discovery queue';
   if (unowned === 1) discoveryLinkLabel = 'Review 1 unowned repository';
-  if (unowned > 1) discoveryLinkLabel = `Review ${unowned} unowned repositories`;
+  if (unowned > 1)
+    discoveryLinkLabel = `Review ${unowned} unowned repositories`;
   const windowLabel = usageDays === 1 ? '24 hours' : `${usageDays} days`;
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
@@ -592,6 +595,13 @@ export function PortfolioReport({
                   reviewTurnaround.decisions === 1 ? 'decision' : 'decisions'
                 } · UTC weekdays`}
             </small>
+            {reviewTurnaround === null && (
+              <div>
+                <button type="button" onClick={onRetryReviewTurnaround}>
+                  Retry loading review turnaround
+                </button>
+              </div>
+            )}
             {reviewTurnaround?.target && (
               <small>
                 {reviewTurnaround.target.pendingAtOrOver > 0 ? (

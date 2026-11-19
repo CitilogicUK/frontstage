@@ -1531,7 +1531,15 @@ test('audit history shows production review and ownership handoff', async ({
     dialog.getByText('Delivery stage: Pilot · No runtime AI'),
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Close app details' }).click();
+  await page.route(
+    '**/api/governance/reports/review-turnaround',
+    route => route.fulfill({ status: 503, json: {} }),
+    { times: 1 },
+  );
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Retry loading review turnaround' })
+    .click();
   await expect(
     page
       .locator('dl > div')
@@ -1674,7 +1682,15 @@ test('audit history shows production review and ownership handoff', async ({
 
   await page.getByRole('combobox', { name: 'Usage team' }).selectOption('');
   await expect(blockReport.getByText('missing-app')).toBeVisible();
+  await page.route(
+    '**/api/governance/reports/review-turnaround',
+    route => route.fulfill({ status: 503, json: {} }),
+    { times: 1 },
+  );
   await page.getByRole('link', { name: '1 awaiting a first decision' }).click();
+  await page
+    .getByRole('button', { name: 'Retry loading first decisions' })
+    .click();
   await expect(page).toHaveURL(/view=reviews&review=first$/);
   await expect(reviewRows).toHaveCount(1);
   await expect(reviewRows.first()).toContainText(handoff.name);
