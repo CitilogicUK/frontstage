@@ -1308,7 +1308,8 @@ export const governancePlugin = createBackendPlugin({
             );
           res.set('Cache-Control', 'no-store').json({
             requests,
-            canApprove: canApprove === true,
+            canApprove:
+              canApprove === true && !!eligibleDirectoryListing(current.record),
             ...(canApprove === undefined && { approvalCheckUnavailable: true }),
           });
         });
@@ -1329,9 +1330,12 @@ export const governancePlugin = createBackendPlugin({
             const candidate =
               input.data === 'approved' ? await load(req.params.id) : undefined;
             if (candidate) assertCanEdit(candidate.record, principal);
-            const approvalEligible = candidate
-              ? await hasEligibleDirectoryListing(candidate.record)
-              : false;
+            const approval = candidate
+              ? await hasEligibleDirectoryListing(candidate.record).then(
+                  eligible => ({ eligible }),
+                  (error: unknown) => ({ error }),
+                )
+              : undefined;
             const saved = await db.transaction(async transaction => {
               const { record, revision } = await load(
                 req.params.id,
@@ -1355,9 +1359,10 @@ export const governancePlugin = createBackendPlugin({
                 throw new ConflictError(
                   'This app changed. Retry the access decision.',
                 );
+              if (approval && 'error' in approval) throw approval.error;
               if (
-                candidate &&
-                (!approvalEligible || !eligibleDirectoryListing(record, now))
+                approval &&
+                (!approval.eligible || !eligibleDirectoryListing(record, now))
               )
                 throw new ConflictError(
                   'This app no longer has an eligible directory listing.',

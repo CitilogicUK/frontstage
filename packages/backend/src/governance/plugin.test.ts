@@ -602,6 +602,10 @@ describe('governance record access', () => {
       decidedBy: owner,
       decidedAt: expect.any(String),
     });
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await decide(reviewer, 'unknown-request', 'approved').expect(404);
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await decide(reviewer, created.id, 'approved').expect(409);
     await decide(reviewer, created.id, 'declined').expect(409);
     const { body: partiallyDecidedInventory } = await api
       .get(collection)
