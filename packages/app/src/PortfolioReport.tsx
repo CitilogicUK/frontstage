@@ -224,6 +224,7 @@ function GatewaySpendShare({
 
 export function PortfolioReport({
   apps,
+  appSaveVersion,
   discoveries,
   discoveryUnavailable,
   onRetryDiscovery,
@@ -243,6 +244,7 @@ export function PortfolioReport({
   onUsagePreview,
 }: {
   apps: AppSummary[];
+  appSaveVersion: number;
   discoveries?: DiscoveryResult;
   discoveryUnavailable: boolean;
   onRetryDiscovery: () => void;
@@ -1136,7 +1138,9 @@ export function PortfolioReport({
           </div>
         </section>
       )}
-      {canReview && <ManagerEscalations appLink={reportAppLink} />}
+      {canReview && (
+        <ManagerEscalations key={appSaveVersion} appLink={reportAppLink} />
+      )}
       {report?.monthlySpendAlerts && (
         <section
           className="gov-panel gov-stage-report"
