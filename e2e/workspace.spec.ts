@@ -768,14 +768,24 @@ test('reviewers can find required reviews without a linked ticket', async ({
     platform: 'GitHub',
     models: [],
   };
+  const overdueApp = {
+    ...app,
+    id: 'overdue-ticket',
+    name: 'Overdue renewal app',
+    lifecycle: 'active',
+    reviewStatus: 'approved',
+    nextReview: '2025-01-01T00:00:00.000Z',
+  };
   let canReview = true;
+  let reviewTicketUrl: string | undefined;
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
         canReview,
         actor: 'user:default/reviewer',
         apps: [
-          app,
+          { ...app, reviewTicketUrl },
+          { ...overdueApp, reviewTicketUrl },
           {
             ...app,
             id: 'linked-ticket',
@@ -797,7 +807,7 @@ test('reviewers can find required reviews without a linked ticket', async ({
   );
   await page.goto('/?view=reports');
   const queueLink = page.getByRole('link', {
-    name: '1 missing a review ticket',
+    name: '2 missing a review ticket',
   });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(queueLink.or(guest)).toBeVisible();
@@ -807,8 +817,15 @@ test('reviewers can find required reviews without a linked ticket', async ({
   const filter = page.getByRole('combobox', { name: 'Review status' });
   await expect(filter).toHaveValue('missing-ticket');
   const rows = page.locator('tbody tr');
-  await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText(app.name);
+  await expect(rows).toHaveCount(2);
+  await expect(rows.filter({ hasText: app.name })).toHaveCount(1);
+  await expect(rows.filter({ hasText: overdueApp.name })).toHaveCount(1);
+
+  reviewTicketUrl = 'https://tickets.example.com/reviews/assigned';
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'No missing review tickets' }),
+  ).toBeVisible();
 
   canReview = false;
   await page.reload();

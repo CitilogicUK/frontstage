@@ -1003,6 +1003,11 @@ export function GovernancePage() {
         ? 'Check all first decisions to see the rest of the queue.'
         : 'No first-decision target is configured.';
     }
+    if (reviewFilter === 'missing-ticket') {
+      emptyTitle = 'No missing review tickets';
+      emptyMessage =
+        'Every app that currently requires review has a linked ticket.';
+    }
     if (reviewFilter === 'mine') {
       emptyTitle = 'No pending sign-offs for you';
       emptyMessage = 'Check all critical apps to see the rest of the queue.';
