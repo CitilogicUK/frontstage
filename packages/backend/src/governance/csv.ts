@@ -39,7 +39,7 @@ const allowedFields = new Set([
   'connections',
 ]);
 
-export function parseAppCsv(content: string) {
+export function spreadsheetCsvDialect(content: string) {
   // Excel may add a separator declaration before the actual column headers.
   const declaration = /^\uFEFF?sep=([,;])(?:\r\n|\n|\r)/i.exec(content);
   const csv = declaration ? content.slice(declaration[0].length) : content;
@@ -48,6 +48,11 @@ export function parseAppCsv(content: string) {
   // and semicolons in spreadsheet cells remain ordinary data.
   const delimiter = declaration?.[1] ?? headerLine?.match(/[,;]/)?.[0] ?? ',';
 
+  return { csv, delimiter, hasDeclaration: declaration !== null };
+}
+
+export function parseAppCsv(content: string) {
+  const { csv, delimiter, hasDeclaration } = spreadsheetCsvDialect(content);
   let rows: Array<Record<string, string>>;
   try {
     rows = parse(csv, {
@@ -73,9 +78,7 @@ export function parseAppCsv(content: string) {
     if (error instanceof InputError) throw error;
     const dataLine = (error as { lines?: number }).lines;
     const line =
-      dataLine === undefined
-        ? undefined
-        : dataLine + Number(Boolean(declaration));
+      dataLine === undefined ? undefined : dataLine + Number(hasDeclaration);
     throw new InputError(
       line ? `Invalid CSV ending at line ${line}.` : 'Invalid CSV.',
     );

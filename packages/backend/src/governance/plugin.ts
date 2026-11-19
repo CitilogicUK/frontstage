@@ -2,6 +2,7 @@ import {
   listOutsideGatewayUsage,
   outsideGatewayUsageMigration,
   parseOutsideGatewayUsage,
+  parseOutsideGatewayUsageCsv,
   readOutsideGatewayUsage,
   reconcileOutsideGatewayUsage,
   saveOutsideGatewayUsage,
@@ -1010,19 +1011,26 @@ export const governancePlugin = createBackendPlugin({
           });
         }
 
-        router.post('/reports/outside-gateway/preview', async (req, res) => {
-          const { principal } = await httpAuth.credentials(req, {
-            allow: ['user'],
-          });
-          if (!reviewers.includes(principal.userEntityRef))
-            throw new NotAllowedError('Reviewer access is required.');
-          const result = await reconcileOutsideGatewayUsage(
-            db,
-            table,
-            parseOutsideGatewayUsage(req.body),
-          );
-          res.set('Cache-Control', 'no-store').json(result);
-        });
+        router.post(
+          '/reports/outside-gateway/preview',
+          express.text({ type: 'text/csv', limit: '1mb' }),
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            if (!reviewers.includes(principal.userEntityRef))
+              throw new NotAllowedError('Reviewer access is required.');
+            const parsed = req.is('text/csv')
+              ? parseOutsideGatewayUsageCsv(req.body)
+              : parseOutsideGatewayUsage(req.body);
+            const result = await reconcileOutsideGatewayUsage(
+              db,
+              table,
+              parsed,
+            );
+            res.set('Cache-Control', 'no-store').json(result);
+          },
+        );
 
         router.post(
           '/reports/outside-gateway/reconciliations',
