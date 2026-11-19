@@ -132,13 +132,17 @@ export function parseOutsideGatewayUsageCsv(content: unknown) {
     });
     if (!result.success) {
       const field = result.error.issues[0].path[0];
-      const description =
-        field === 'sourceUrl'
-          ? 'an HTTPS source_url without credentials'
-          : field === 'model'
-          ? 'a model name of 1 to 128 characters'
-          : 'a whole call count from 1 to 1,000,000,000';
-      throw new InputError(`${rowLabel} needs ${description}.`);
+      if (field === 'sourceUrl')
+        throw new InputError(
+          `${rowLabel} needs an HTTPS source_url without credentials.`,
+        );
+      if (field === 'model')
+        throw new InputError(
+          `${rowLabel} needs a model name of 1 to 128 characters.`,
+        );
+      throw new InputError(
+        `${rowLabel} needs a whole call count from 1 to 1,000,000,000.`,
+      );
     }
 
     const row = result.data;

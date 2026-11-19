@@ -249,13 +249,10 @@ export function OutsideGatewayUsage({
       if (signal.aborted) return undefined;
       const message =
         body?.error?.name === 'InputError' ? body.error.message : undefined;
-      setError(
-        typeof message === 'string' && message
-          ? message
-          : csv
-          ? 'Use the sample CSV columns, one shared UTC reporting window, and 1 to 100 distinct usage rows with positive whole call counts.'
-          : 'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
-      );
+      const fallback = csv
+        ? 'Use the sample CSV columns, one shared UTC reporting window, and 1 to 100 distinct usage rows with positive whole call counts.'
+        : 'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.';
+      setError(typeof message === 'string' && message ? message : fallback);
       return undefined;
     }
     if (!response.ok) throw new Error('Usage preview failed');
