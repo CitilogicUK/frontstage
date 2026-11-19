@@ -2083,6 +2083,82 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   ).toBeVisible();
 });
 
+test('Discovery paginates search results and preserves the page when reopening a record', async ({
+  page,
+}) => {
+  const records = Array.from({ length: 26 }, (_, index) => ({
+    id: `repository-${index + 1}`,
+    name: `Repository ${index + 1}`,
+    description: 'Discovery fixture',
+    sourceUrl: `https://github.com/example/repository-${index + 1}`,
+    appId: index === 25 ? 'registered-page-two' : null,
+    dismissed: 0,
+  }));
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { actor: 'user:default/reviewer', canReview: true, apps: [] },
+    }),
+  );
+  await page.route('**/api/governance/discovery/github', route =>
+    route.fulfill({
+      json: {
+        source: { organization: 'example', topic: 'governance' },
+        lastScan: null,
+        intervalMinutes: null,
+        repositories: records,
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/registered-page-two', route =>
+    route.fulfill({
+      json: {
+        id: 'registered-page-two',
+        name: 'Registered page two',
+        owner: 'user:default/owner',
+        team: 'group:default/platform',
+        purpose: 'Page two fixture',
+        lifecycle: 'experimental',
+        classification: 'internal',
+        platform: 'GitHub',
+        tier: 1,
+        models: [],
+        usesAiAtRuntime: false,
+        reviewStatus: 'not required',
+      },
+    }),
+  );
+  await page.goto('/?view=discovery&discoveryStatus=all');
+  const queue = page.getByRole('region', { name: 'Discovered repositories' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(queue.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const pages = queue.getByRole('group', { name: 'Repository pages' });
+  await expect(pages.getByRole('status')).toHaveText('1–25 of 26');
+  await expect(queue.getByRole('row')).toHaveCount(26);
+  await expect(
+    pages.getByRole('button', { name: 'Previous page' }),
+  ).toBeDisabled();
+  await pages.getByRole('button', { name: 'Next page' }).click();
+  await expect(page).toHaveURL(/discoveryPage=2$/);
+  await expect(pages.getByRole('status')).toHaveText('26 of 26');
+  await expect(pages.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  await queue.getByRole('link', { name: 'Open app record' }).click();
+  const details = page.getByRole('dialog', { name: 'Registered page two' });
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/discoveryPage=2$/);
+  await queue
+    .getByRole('searchbox', { name: 'Search discoveries' })
+    .fill('Repository 26');
+  await expect(page).toHaveURL(/view=discovery&discoveryStatus=all$/);
+  await expect(queue.getByRole('row')).toHaveCount(2);
+  await expect(pages).toHaveCount(0);
+  await page.reload();
+  await expect(
+    queue.getByRole('searchbox', { name: 'Search discoveries' }),
+  ).toHaveValue('');
+  await expect(queue.getByRole('row')).toHaveCount(26);
+});
+
 test('claiming a repository opens its app in the registered Discovery queue', async ({
   page,
 }) => {

@@ -114,6 +114,8 @@ export function discoveryCounts(repositories: DiscoveryResult['repositories']) {
   return { ...counts, eligible: counts.registered + counts.unowned };
 }
 
+const repositoriesPerPage = 25;
+
 export function DiscoveryQueue({
   result,
   canReview,
@@ -143,6 +145,7 @@ export function DiscoveryQueue({
       const next = new URLSearchParams(previous);
       if (value === 'unowned') next.delete('discoveryStatus');
       else next.set('discoveryStatus', value);
+      next.delete('discoveryPage');
       return next;
     });
   }
@@ -157,7 +160,34 @@ export function DiscoveryQueue({
       )
     );
   });
+  const totalMatches = matches?.length ?? 0;
+  const pageCount = Math.max(1, Math.ceil(totalMatches / repositoriesPerPage));
+  const requestedPage = params.get('discoveryPage') ?? '';
+  const page = /^[1-9]\d*$/.test(requestedPage)
+    ? Math.min(pageCount, Number(requestedPage))
+    : 1;
+  const start = (page - 1) * repositoriesPerPage;
+  const end = Math.min(start + repositoriesPerPage, totalMatches);
+  const shownRange = start + 1 === end ? end : `${start + 1}–${end}`;
+  const visibleRepositories = matches?.slice(start, end);
   const { eligible } = counts;
+
+  function searchRepositories(value: string) {
+    setQuery(value);
+    if (!params.has('discoveryPage')) return;
+    const next = new URLSearchParams(params);
+    next.delete('discoveryPage');
+    setParams(next, { replace: true });
+  }
+
+  function setPage(value: number) {
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      if (value <= 1) next.delete('discoveryPage');
+      else next.set('discoveryPage', String(value));
+      return next;
+    });
+  }
 
   return (
     <section className="gov-panel" aria-label="Discovered repositories">
@@ -206,7 +236,7 @@ export function DiscoveryQueue({
           label="Search discoveries"
           placeholder="Search repositories…"
           value={query}
-          onChange={setQuery}
+          onChange={searchRepositories}
           count={matches?.length}
         />
       )}
@@ -250,7 +280,32 @@ export function DiscoveryQueue({
           description="Try another status or search."
         />
       )}
-      {!!matches?.length && (
+      {pageCount > 1 && (
+        <div
+          className="gov-discovery-pagination"
+          role="group"
+          aria-label="Repository pages"
+        >
+          <button
+            type="button"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
+            Previous page
+          </button>
+          <span role="status">
+            {shownRange} of {totalMatches}
+          </span>
+          <button
+            type="button"
+            disabled={page === pageCount}
+            onClick={() => setPage(page + 1)}
+          >
+            Next page
+          </button>
+        </div>
+      )}
+      {!!visibleRepositories?.length && (
         <div className="governance-table">
           <table>
             <thead>
@@ -261,7 +316,7 @@ export function DiscoveryQueue({
               </tr>
             </thead>
             <tbody>
-              {matches.map(repository => (
+              {visibleRepositories.map(repository => (
                 <tr key={repository.id}>
                   <td className="gov-app-cell">
                     <a className="gov-app-link" href={repository.sourceUrl}>

@@ -693,6 +693,13 @@
   border-bottom: 1px solid var(--gov-line);
 }
 
+.gov-discovery-pagination {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
 .gov-discovery-sdk {
   margin-block: 8px;
 }
