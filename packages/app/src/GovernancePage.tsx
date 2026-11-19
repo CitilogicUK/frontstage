@@ -1880,6 +1880,7 @@ export function GovernancePage() {
                           matching.map(app => ({
                             ...app,
                             missingTracks: missingSignoffs(app),
+                            firstDecisionWait: firstDecisionWait.get(app.id),
                           })),
                           config.getString('app.baseUrl'),
                         ),
