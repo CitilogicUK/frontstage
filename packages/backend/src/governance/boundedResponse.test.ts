@@ -30,8 +30,9 @@ it('preserves invalid UTF-8 errors if cancellation rejects', async () => {
       },
     }),
   );
-  await expect(readBoundedResponseText(response, 4)).rejects.toBeInstanceOf(
-    TypeError,
-  );
+  await expect(readBoundedResponseText(response, 4)).rejects.toMatchObject({
+    name: 'TypeError',
+    code: 'ERR_ENCODING_INVALID_ENCODED_DATA',
+  });
   expect(response.body?.locked).toBe(false);
 });
