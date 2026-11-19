@@ -9,6 +9,7 @@ export type HostedSnapshotApp = {
   sourceUrl: string;
   appId?: string;
   mismatch?: 'app-type' | 'workspace';
+  registeredWorkspace?: { provider: string; workspace: string };
 };
 
 export function HostedSnapshotPreview({
@@ -141,7 +142,19 @@ export function HostedSnapshotPreview({
                 <tr key={app.sourceUrl}>
                   <th scope="row">{app.name}</th>
                   <td data-label="Workspace">
-                    {app.provider} · {app.workspace}
+                    {app.registeredWorkspace ? (
+                      <>
+                        <div>
+                          Snapshot: {app.provider} · {app.workspace}
+                        </div>
+                        <div>
+                          Registered: {app.registeredWorkspace.provider} ·{' '}
+                          {app.registeredWorkspace.workspace}
+                        </div>
+                      </>
+                    ) : (
+                      `${app.provider} · ${app.workspace}`
+                    )}
                   </td>
                   <td data-label="Status">
                     <span

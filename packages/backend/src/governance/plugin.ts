@@ -1635,17 +1635,18 @@ export const governancePlugin = createBackendPlugin({
             apps: input.data.apps.map((app, index) => {
               const match = registered.get(sources[index]);
               if (!match) return app;
-              const { record } = match;
-              let mismatch;
-              if (record.type !== 'provider-hosted app' || !record.hosted) {
-                mismatch = 'app-type';
-              } else if (
-                record.hosted.provider !== app.provider ||
-                record.hosted.workspace !== app.workspace
-              ) {
-                mismatch = 'workspace';
-              }
-              return { ...app, appId: match.id, mismatch };
+              const { id: appId, record } = match;
+              if (record.type !== 'provider-hosted app' || !record.hosted)
+                return { ...app, appId, mismatch: 'app-type' };
+              const { provider, workspace } = record.hosted;
+              if (provider !== app.provider || workspace !== app.workspace)
+                return {
+                  ...app,
+                  appId,
+                  mismatch: 'workspace',
+                  registeredWorkspace: { provider, workspace },
+                };
+              return { ...app, appId };
             }),
           });
         });

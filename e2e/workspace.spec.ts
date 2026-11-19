@@ -2681,7 +2681,15 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
     return route.fulfill({
       json: {
         apps: [
-          { ...known, appId: 'known-hosted-app', mismatch: 'workspace' },
+          {
+            ...known,
+            appId: 'known-hosted-app',
+            mismatch: 'workspace',
+            registeredWorkspace: {
+              provider: 'Example AI',
+              workspace: 'Previous workspace',
+            },
+          },
           candidate,
         ],
       },
@@ -2721,6 +2729,12 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
     page.getByRole('link', { name: 'View app record' }),
   ).toHaveAttribute('href', /app=known-hosted-app/);
   const knownRow = page.getByRole('row', { name: /Hosted review/ });
+  await expect(
+    knownRow.getByText('Snapshot: Example AI · Enterprise'),
+  ).toBeVisible();
+  await expect(
+    knownRow.getByText('Registered: Example AI · Previous workspace'),
+  ).toBeVisible();
   await expect(
     knownRow.getByText('Provider or workspace mismatch'),
   ).toBeVisible();

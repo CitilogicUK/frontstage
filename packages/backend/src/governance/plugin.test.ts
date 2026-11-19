@@ -2199,7 +2199,17 @@ describe('governance record access', () => {
     await preview(reviewer)
       .send({ apps: [moved] })
       .expect(200, {
-        apps: [{ ...moved, appId: 'known', mismatch: 'workspace' }],
+        apps: [
+          {
+            ...moved,
+            appId: 'known',
+            mismatch: 'workspace',
+            registeredWorkspace: {
+              provider: known.provider,
+              workspace: known.workspace,
+            },
+          },
+        ],
       });
     await db('governance_apps')
       .where({ id: 'known' })
