@@ -1574,7 +1574,7 @@ test('audit history shows production review and ownership handoff', async ({
     'frontstage-gateway-spend-share.csv',
   );
   expect(await readFile(await spendExport.path(), 'utf8')).toBe(
-    'window_start_utc,window_days,estimated_gateway_cost_usd,reported_outside_cost_usd,estimated_gateway_share\r\n' +
+    '\uFEFFwindow_start_utc,window_days,estimated_gateway_cost_usd,reported_outside_cost_usd,estimated_gateway_share\r\n' +
       '"2025-01-01T00:00:00.000Z",30,0.12,0.08,0.6\r\n',
   );
   await outsideSpend.fill('-1');
