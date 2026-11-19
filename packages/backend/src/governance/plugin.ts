@@ -1579,6 +1579,27 @@ export const governancePlugin = createBackendPlugin({
                 );
               return updated;
             });
+            try {
+              const appBaseUrl = config.getOptionalString('app.baseUrl');
+              const search = '?view=directory&directoryAccess=mine';
+              const link = appBaseUrl
+                ? new URL(search, appBaseUrl).toString()
+                : `/${search}`;
+              await notifications.send({
+                recipients: { type: 'entity', entityRef: saved.requester },
+                payload: {
+                  title: `Access request ${saved.status}`,
+                  description: 'View the decision in Directory → My requests.',
+                  link,
+                  topic: 'AI App Governance',
+                  scope: `governance-directory-decision-${saved.id}`,
+                },
+              });
+            } catch {
+              logger.warn('Could not notify requester of directory decision', {
+                requestId: saved.id,
+              });
+            }
             res
               .set('Cache-Control', 'no-store')
               .json(directoryRequestView(saved));
