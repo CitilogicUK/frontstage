@@ -1457,6 +1457,10 @@ describe('governance record access', () => {
       reviewTicketUrl: firstUrl,
     });
     expect(linked.updatedAt).not.toBe(active.updatedAt);
+    await patch(firstUrl, active.updatedAt).expect(409);
+    await patch(`  ${firstUrl}  `, linked.updatedAt)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, linked);
     const { body: unrelated } = await api
       .get(path)
       .set('Authorization', auth('user:default/teammate'))
@@ -1471,6 +1475,7 @@ describe('governance record access', () => {
     expect(relinked.reviewTicketUrl).toBe(secondUrl);
     const { body: cleared } = await patch(null, relinked.updatedAt).expect(200);
     expect(cleared).toEqual({ ...active, updatedAt: expect.any(String) });
+    await patch(null, cleared.updatedAt).expect(200, cleared);
     await api
       .post('/api/governance/gateway/chat')
       .set('Authorization', `Bearer ${key}`)

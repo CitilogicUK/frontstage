@@ -1729,15 +1729,19 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Review tickets apply to non-retired Tier 3 apps.',
             );
+          const reviewTicketUrl = input.data.url ?? undefined;
+          res.set('Cache-Control', 'no-store');
+          if (reviewTicketUrl === record.reviewTicketUrl) {
+            res.json(visibleRecord(record, principal));
+            return;
+          }
           const updated: GovernanceRecord = {
             ...record,
-            reviewTicketUrl: input.data.url ?? undefined,
+            reviewTicketUrl,
             updatedAt: nextRecordTimestamp(record.updatedAt),
           };
           await save(updated, revision, principal, 'review-ticket-updated');
-          res
-            .set('Cache-Control', 'no-store')
-            .json(visibleRecord(updated, principal));
+          res.json(visibleRecord(updated, principal));
         });
 
         router.post('/apps/:id/attestation', async (req, res) => {
