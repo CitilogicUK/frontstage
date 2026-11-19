@@ -424,7 +424,7 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(page.getByRole('button', { name: 'Dismissed 1' })).toBeVisible();
   discoveryStatuses = ['registered', 'dismissed'];
   recordCoverageUnavailable = true;
-  await page.goto('/?view=reports');
+  await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
   await expect(coverage).toContainText('Complete record coverage unavailable');
   await expect(
     coverage.getByRole('link', { name: 'Review incomplete records' }),
@@ -438,7 +438,7 @@ test('workspace screens share navigation and fit the viewport', async ({
   ).toHaveAttribute('aria-pressed', 'true');
 
   discoveryStatuses = ['dismissed'];
-  await page.goto('/?view=reports');
+  await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
   await coverage
     .getByRole('link', { name: 'View dismissed repositories' })
     .click();
