@@ -1909,6 +1909,10 @@ describe('governance record access', () => {
     const outside = 'user:default/outside';
     const reviewer = 'user:default/reviewer';
     const group = 'group:default/engineering';
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
     let membership = group;
     let activeGroup = true;
     let activeEngineer = true;
@@ -1946,9 +1950,11 @@ describe('governance record access', () => {
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        notifications.factory,
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
           data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
             backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
@@ -2054,7 +2060,14 @@ describe('governance record access', () => {
         .set('Authorization', auth(actor))
         .send({ expectedUpdatedAt, reason });
     await removeHandoff(before).expect(409);
+    expect(notifications.send).not.toHaveBeenCalled();
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notifications unavailable'),
+    );
     const abandoned = await nominate(engineer, before).expect(200);
+    expect((await getApp(engineer)).body.graduation).toEqual(
+      abandoned.body.graduation,
+    );
     await removeHandoff(before).expect(409);
     await removeHandoff(abandoned.body.updatedAt, engineer).expect(403);
     activeEngineer = false;
@@ -2244,6 +2257,29 @@ describe('governance record access', () => {
       })
       .expect(200);
     expect(retired.body).not.toHaveProperty('graduation');
+    expect(notifications.send.mock.calls.map(([notice]) => notice)).toEqual(
+      [
+        abandoned,
+        proposed,
+        reproposed,
+        nextNomination,
+        pendingTransfer,
+        pendingDowngrade,
+        pendingRetirement,
+      ].map(({ body }) => ({
+        recipients: { type: 'entity', entityRef: engineer },
+        payload: {
+          title: 'Engineering co-owner nomination',
+          description:
+            'Open the app in Inventory to respond to the nomination.',
+          link: `https://portal.example.com/workspace?app=${encodeURIComponent(
+            body.id,
+          )}`,
+          topic: 'AI App Governance',
+          scope: `governance-graduation-nomination-${body.id}-${body.updatedAt}`,
+        },
+      })),
+    );
 
     const { body: history } = await api
       .get(`${appPath}/history`)

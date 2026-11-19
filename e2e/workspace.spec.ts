@@ -4013,7 +4013,7 @@ test('an engineering co-owner nominee can accept without gaining app controls', 
   await expect(notice.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await expect(notice).toBeVisible();
-  await page.getByRole('button', { name: new RegExp(app.name) }).click();
+  await page.goto(`/?app=${encodeURIComponent(app.id)}`);
   await expect(details).toBeVisible();
   await expect(
     panel.getByRole('button', { name: 'Cancel nomination' }),
