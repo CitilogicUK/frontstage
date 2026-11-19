@@ -2896,7 +2896,15 @@ export function GovernancePage() {
                   </form>
                 </details>
               )}
-            {selected.reviewNotes && <p>{selected.reviewNotes}</p>}
+            {selected.reviewNotes && (
+              <p>
+                {selected.reviewStatus === 'pending' &&
+                  !Object.keys(selected.signoffs ?? {}).length && (
+                    <strong>Previous review notes. </strong>
+                  )}
+                {selected.reviewNotes}
+              </p>
+            )}
             {(actor === selected.owner || canReview) && (
               <details
                 className="gov-app-editor"

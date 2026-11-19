@@ -3269,6 +3269,23 @@ export const governancePlugin = createBackendPlugin({
           updated.graduation = graduationAfterEdit(record, updated, principal);
           updated.directoryListing = directoryListingAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
+          if (
+            reopening &&
+            !ownerChanged &&
+            app.backupOwner === record.backupOwner
+          ) {
+            if (record.reviewStatus === 'pending' && !record.signoffs) {
+              updated.reviewNotes = record.reviewNotes;
+            } else if (record.reviewStatus === 'changes needed') {
+              updated.reviewNotes = trackConfig
+                ? Object.values(
+                    currentSignoffs(record.signoffs, trackConfig, Date.now()),
+                  )
+                    .filter(signoff => signoff.status === 'changes needed')
+                    .sort((a, b) => b.at.localeCompare(a.at))[0]?.notes
+                : record.reviewNotes;
+            }
+          }
           updated.ownerHandover = record.ownerHandover;
           const remainsHosted =
             updated.lifecycle !== 'retired' &&
