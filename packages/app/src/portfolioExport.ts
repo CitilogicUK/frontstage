@@ -212,6 +212,7 @@ export function ownershipIssuesCsv(
     unavailable: Array<{ role: string; ref: string; reason?: string }>;
     availableBackupOwner?: string;
   }>,
+  baseUrl: string,
 ) {
   return encodeCsv(
     [
@@ -221,6 +222,7 @@ export function ownershipIssuesCsv(
       'unavailable_entity',
       'active_backup_owner',
       'unavailable_reason',
+      'app_url',
     ],
     issues.flatMap(issue =>
       issue.unavailable.map(({ role, ref, reason }) => [
@@ -230,6 +232,7 @@ export function ownershipIssuesCsv(
         ref,
         issue.availableBackupOwner ?? '',
         reason ?? '',
+        appRecordUrl(baseUrl, issue.appId).href,
       ]),
     ),
   );
