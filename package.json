@@ -56,6 +56,10 @@
   },
   "resolutions": {
     "@backstage/backend-openapi-utils/mockttp": "4.6.5",
+    "@octokit/plugin-paginate-rest": "9.2.2",
+    "@octokit/request": "8.4.1",
+    "@octokit/request-error": "5.1.1",
+    "@octokit/rest": "20.0.2",
     "@yarnpkg/core": "4.9.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
