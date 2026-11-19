@@ -6309,7 +6309,7 @@ describe('governance record access', () => {
       expect(decision.reviewStatus).toBe(
         separateTracks ? 'pending' : 'approved',
       );
-      if (separateTracks) expect(notifications.send).toHaveBeenCalledTimes(1);
+      expect(notifications.send).toHaveBeenCalledTimes(separateTracks ? 1 : 2);
       const finalDecision = separateTracks
         ? (await review(decision.updatedAt, 'approved', protection).expect(200))
             .body
@@ -6323,6 +6323,7 @@ describe('governance record access', () => {
       expect(notifications.send).toHaveBeenCalledTimes(2);
 
       let latest = repeated;
+      let statusBeforeRenewal = repeated.reviewStatus;
       let noticeCount = 2;
       if (separateTracks) {
         jest
@@ -6332,11 +6333,10 @@ describe('governance record access', () => {
           .get(path)
           .set('Authorization', auth(owner))
           .expect(200);
-        expect(expired.reviewStatus).toBe('pending');
+        statusBeforeRenewal = expired.reviewStatus;
         latest = (
           await review(repeated.updatedAt, 'approved', protection).expect(200)
         ).body;
-        expect(latest.reviewStatus).toBe('approved');
         noticeCount += 1;
         expectOwnerNotice(
           noticeCount,
@@ -6344,6 +6344,9 @@ describe('governance record access', () => {
           latest.updatedAt,
         );
       }
+
+      expect(statusBeforeRenewal).toBe(separateTracks ? 'pending' : 'approved');
+      expect(latest.reviewStatus).toBe('approved');
 
       notifications.send.mockRejectedValueOnce(
         new Error('Notification service unavailable'),
