@@ -70,6 +70,7 @@ const ownershipRoles = {
 };
 
 export type OwnershipReport = {
+  ownerObservation?: { enabled: boolean; unobservedOwnerCount: number };
   issues: Array<{
     appId: string;
     name: string;
@@ -425,6 +426,20 @@ export function PortfolioReport({
       .filter(observation => observation.observedAt < ownerObservationCutoff)
       .map(observation => observation.appId),
   );
+  const observationEnabled = ownership?.ownerObservation?.enabled;
+  const unobservedOwnerCount =
+    ownership?.ownerObservation?.unobservedOwnerCount ?? 0;
+  const ownerAgeUnavailable =
+    observationEnabled === false ||
+    (unobservedOwnerCount > 0 && ownerObservations.length === 0);
+  let ownershipMetricNote = 'Based on recorded Catalog checks';
+  if (observationEnabled === false) {
+    ownershipMetricNote = 'Scheduled ownership tracking is off';
+  } else if (unobservedOwnerCount > 0) {
+    ownershipMetricNote = `${unobservedOwnerCount} current owner ${
+      unobservedOwnerCount === 1 ? 'gap has' : 'gaps have'
+    } no recorded observation`;
+  }
   const requestedOwnershipRole = params.get('ownershipRole');
   const uncoveredOnly = requestedOwnershipRole === 'uncovered';
   const longRunningOwnersOnly = requestedOwnershipRole === 'owner-over-30-days';
@@ -692,26 +707,28 @@ export function PortfolioReport({
           <dt>Non-retired apps</dt>
           <dd>{inventory.length}</dd>
         </div>
-        {canReview && ownerObservations.length > 0 && (
-          <div className="gov-panel">
-            <dt>Owner gaps observed over 30 days ago</dt>
-            <dd>{longRunningOwnerGaps.size}</dd>
-            <small>Based on recorded Catalog checks</small>
-            {longRunningOwnerGaps.size > 0 && (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReportFilter('ownershipRole', 'owner-over-30-days');
-                    ownershipHeading.current?.focus();
-                  }}
-                >
-                  View long-running owner gaps
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        {canReview &&
+          (observationEnabled !== undefined ||
+            ownerObservations.length > 0) && (
+            <div className="gov-panel">
+              <dt>Owner gaps observed over 30 days ago</dt>
+              <dd>{ownerAgeUnavailable ? '—' : longRunningOwnerGaps.size}</dd>
+              <small>{ownershipMetricNote}</small>
+              {longRunningOwnerGaps.size > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportFilter('ownershipRole', 'owner-over-30-days');
+                      ownershipHeading.current?.focus();
+                    }}
+                  >
+                    View long-running owner gaps
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         {discoveryUnavailable && (
           <div className="gov-panel">
             <dt>GitHub discovery coverage</dt>

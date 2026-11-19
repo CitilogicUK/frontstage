@@ -2544,6 +2544,7 @@ test('audit history shows production review and ownership handoff', async ({
     }
     return route.fulfill({
       json: {
+        ownerObservation: { enabled: true, unobservedOwnerCount: 0 },
         issues:
           currentHandoff.owner === handoff.owner
             ? [
@@ -3180,6 +3181,7 @@ test('audit history shows production review and ownership handoff', async ({
   await dialog.getByRole('button', { name: 'Close app details' }).click();
   await expect(page).toHaveURL(/view=reports&ownershipRole=owner$/);
   await expect(ownership.getByText('No ownership issues found.')).toBeVisible();
+  await expect(agingMetric.locator('dd')).toHaveText('0');
   const escalationLink = escalations.getByRole('link', { name: renewal.name });
   await expect(escalationLink).toBeVisible();
   await retirementReview.getByRole('link', { name: renewal.name }).click();

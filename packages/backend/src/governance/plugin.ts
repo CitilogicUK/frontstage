@@ -1122,15 +1122,14 @@ export const governancePlugin = createBackendPlugin({
             else if (!isActiveCatalogEntity(entity))
               unavailable.set(ref, 'inactive');
           }
-          const observations =
-            ownershipObservationIntervalMinutes === undefined
-              ? undefined
-              : await readOwnerObservations(
-                  db,
-                  apps
-                    .filter(app => unavailable.has(app.owner))
-                    .map(app => app.id),
-                );
+          const unavailableOwnerAppIds = apps
+            .filter(app => unavailable.has(app.owner))
+            .map(app => app.id);
+          const observationEnabled =
+            ownershipObservationIntervalMinutes !== undefined;
+          const observations = observationEnabled
+            ? await readOwnerObservations(db, unavailableOwnerAppIds)
+            : undefined;
           const issues = apps.flatMap(app => {
             const unavailableDetails = ownershipAssignments(app).flatMap(
               assignment => {
@@ -1161,7 +1160,16 @@ export const governancePlugin = createBackendPlugin({
               },
             ];
           });
-          res.set('Cache-Control', 'no-store').json({ issues });
+          res.set('Cache-Control', 'no-store').json({
+            issues,
+            ownerObservation: {
+              enabled: observationEnabled,
+              unobservedOwnerCount:
+                unavailableOwnerAppIds.length -
+                issues.filter(issue => issue.ownerUnavailableObservedSince)
+                  .length,
+            },
+          });
         });
 
         router.get('/reports/review-turnaround', async (req, res) => {
