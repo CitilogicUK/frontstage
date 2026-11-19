@@ -2691,7 +2691,10 @@ test('a directory access request receives a recorded owner decision', async ({
   await page.goto('/?view=directory');
   await expect(directory.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
-  await directory.getByText('Request access', { exact: true }).click();
+  await directory
+    .locator('td[data-label="Access"]')
+    .getByText('Request access', { exact: true })
+    .click();
   await directory
     .getByRole('textbox', { name: 'Why do you need access?' })
     .fill(message);

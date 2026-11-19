@@ -99,7 +99,10 @@ export function AppDirectory() {
                       Open app
                     </a>
                   </td>
-                  <td className="gov-directory-request-cell">
+                  <td
+                    className="gov-directory-request-cell"
+                    data-label="Access"
+                  >
                     <DirectoryRequestAction
                       appId={app.id}
                       status={app.requestStatus}
