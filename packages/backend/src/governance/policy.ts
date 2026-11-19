@@ -28,9 +28,20 @@ export const sourceUrl = z
 
 export const reviewTicketUrlInput = sourceUrl.nullable();
 
+const starterIdInput = z.enum([
+  'ai-assisted-software',
+  'internal-api',
+  'internal-web-app',
+  'data-validation',
+  'gateway-assistant',
+  'gateway-agent',
+  'gateway-automation',
+]);
+
 const appFields = z.object({
   name: requiredText.max(100),
   purpose: requiredText.max(1000),
+  starterId: starterIdInput.optional(),
   reviewTicketUrl: reviewTicketUrlInput
     .transform(value => value ?? undefined)
     .optional(),

@@ -101,7 +101,7 @@ export const starterDefaults = {
   platform: 'GitHub',
 };
 
-export function findStarter(id: string | null) {
+export function findStarter(id: string | null | undefined) {
   return starters.find(starter => starter.id === id);
 }
 
@@ -168,7 +168,10 @@ export function AppTemplates() {
       const stageField = /^ {2}deliveryStage: trial$/m;
       if (!stageField.test(yaml)) throw new Error('Missing descriptor stage.');
       let updated = yaml
-        .replace(stageField, `  deliveryStage: ${stage}`)
+        .replace(
+          stageField,
+          `  deliveryStage: ${stage}\n  starterId: ${starter.id}`,
+        )
         .replace(
           /^ {2}classification: internal$/m,
           `  classification: ${classification}`,

@@ -117,6 +117,7 @@ type App = {
   hostedWorkspaceAllowed?: boolean;
   hostedAttestation?: { at: string; nextDue: string };
   deliveryStage?: string;
+  starterId?: string;
   tier: number;
   riskAssessment?: { tier: number; reasons: string[] };
   reviewStatus: string;
@@ -2270,6 +2271,12 @@ export function GovernancePage() {
                   : selected.deliveryStage}
               </p>
             )}
+            {selected.starterId && (
+              <p>
+                Registered from starter{' '}
+                {findStarter(selected.starterId)?.name ?? selected.starterId}
+              </p>
+            )}
             {selected.riskAssessment && (
               <details className="gov-app-editor" key={selected.id}>
                 <summary>Current risk assessment</summary>
@@ -3298,6 +3305,7 @@ export function GovernancePage() {
                   classification: value('classification'),
                   usesAiAtRuntime,
                   deliveryStage,
+                  starterId: descriptor?.starterId ?? starter?.id,
                   models: usesAiAtRuntime
                     ? value('models')
                         .split(',')

@@ -2454,6 +2454,123 @@ describe('governance record access', () => {
     expect(ownerEnded.body).not.toHaveProperty('graduation');
   });
 
+  it('preserves known starter provenance from intake and repository registrations', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = mockCredentials.user.header(owner);
+    const apps = '/api/governance/apps';
+    const registration = {
+      name: 'Example starter app',
+      purpose: 'Track a synthetic workflow.',
+      type: 'app',
+      platform: 'GitHub',
+      owner,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'personal',
+      classification: 'internal',
+      usesAiAtRuntime: false,
+    };
+    const direct = (starterId?: string) =>
+      api
+        .post(apps)
+        .set('Authorization', auth)
+        .send({
+          ...registration,
+          starterId,
+          sourceUrl: 'https://github.com/example/direct-starter',
+        });
+    const descriptor = (starterId?: string) =>
+      api
+        .post('/api/governance/repository')
+        .set('Authorization', auth)
+        .send({
+          content: stringify({
+            apiVersion: 'governance.backstage.io/v1alpha1',
+            kind: 'AIApp',
+            spec: {
+              ...registration,
+              starterId,
+              sourceUrl: `https://github.com/example/repository-starter-${
+                starterId ?? 'legacy'
+              }`,
+            },
+          }),
+        });
+
+    await direct('unknown-starter').expect(400);
+    await descriptor('unknown-starter').expect(400);
+    const { body: intake } = await direct('internal-api').expect(201);
+    expect(intake).toMatchObject({
+      starterId: 'internal-api',
+      discoverySource: 'registered',
+      tier: 1,
+    });
+    const { body: repository } = await descriptor('data-validation').expect(
+      201,
+    );
+    expect(repository).toMatchObject({
+      starterId: 'data-validation',
+      discoverySource: 'git',
+      tier: 1,
+    });
+    const { body: legacy } = await descriptor().expect(201);
+    expect(legacy).not.toHaveProperty('starterId');
+
+    const edit = (
+      record: { id: string; sourceUrl: string; updatedAt: string },
+      starterId?: string,
+    ) =>
+      api
+        .put(`${apps}/${record.id}`)
+        .set('Authorization', auth)
+        .send({
+          ...registration,
+          purpose: 'Track the updated synthetic workflow.',
+          starterId,
+          sourceUrl: record.sourceUrl,
+          expectedUpdatedAt: record.updatedAt,
+        })
+        .expect(200);
+    const { body: updated } = await edit(intake);
+    expect(updated.starterId).toBe('internal-api');
+    expect((await edit(updated, 'data-validation')).body.starterId).toBe(
+      'internal-api',
+    );
+    expect((await edit(legacy, 'internal-api')).body).not.toHaveProperty(
+      'starterId',
+    );
+
+    const { body: history } = await api
+      .get(`${apps}/${repository.id}/history`)
+      .set('Authorization', mockCredentials.user.header(reviewer))
+      .expect(200);
+    expect(JSON.parse(history.events[0].event)).toMatchObject({
+      action: 'registered',
+      record: { starterId: 'data-validation' },
+    });
+  });
+
   it('previews hosted inventory for reviewers without creating app records', async () => {
     const reviewer = 'user:default/reviewer';
     const db = await databases.init('SQLITE_3');
