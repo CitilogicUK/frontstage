@@ -109,6 +109,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         lifecycleReason?: string;
         renewalException?: RenewalException;
         graduationNominee?: string;
+        graduationReason?: string;
       } = JSON.parse(event);
       const { record } = entry;
       const details = [];
@@ -229,13 +230,14 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         entry.action === 'graduation-requested' ||
         entry.action === 'graduation-accepted' ||
         entry.action === 'graduation-declined' ||
-        entry.action === 'graduation-cancelled'
+        entry.action === 'graduation-cancelled' ||
+        entry.action === 'graduation-ended'
       ) {
         action = `Graduation ${entry.action.slice('graduation-'.length)}`;
         const nominee = entry.graduationNominee ?? record.graduation?.nominee;
         if (nominee) details.push(`Nominated owner ${nominee}`);
-        if (record.graduation?.reason)
-          details.push(`Recorded reason “${record.graduation.reason}”`);
+        const reason = entry.graduationReason ?? record.graduation?.reason;
+        if (reason) details.push(`Recorded reason “${reason}”`);
       }
       if (entry.action === 'directory-published')
         action = 'Directory listing published';

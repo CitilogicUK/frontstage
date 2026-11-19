@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { SchedulerService } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
@@ -720,6 +721,10 @@ describe('governance record access', () => {
           ],
         })),
       }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
     const db = await databases.init('SQLITE_3');
     const { server } = await startTestBackend({
       features: [
@@ -727,9 +732,17 @@ describe('governance record access', () => {
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
           data: {
+            backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
               graduationGroups: [group],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
             },
           },
         }),
@@ -750,7 +763,7 @@ describe('governance record access', () => {
       lifecycle: 'experimental',
       audience: 'external',
       classification: 'internal',
-      usesAiAtRuntime: false,
+      models: ['test-model'],
       deliveryStage: 'pilot',
       evidence: { tests: 'https://example.com/limited-evidence' },
     };
@@ -814,19 +827,24 @@ describe('governance record access', () => {
     await nominate(engineer, before).expect(400);
     activeEngineer = true;
 
-    const cancel = (expectedUpdatedAt: string, actor = owner) =>
+    const removeHandoff = (
+      expectedUpdatedAt: string,
+      actor = owner,
+      reason?: string,
+    ) =>
       api
         .delete(route)
         .set('Authorization', auth(actor))
-        .send({ expectedUpdatedAt });
-    await cancel(before).expect(409);
+        .send({ expectedUpdatedAt, reason });
+    await removeHandoff(before).expect(409);
     const abandoned = await nominate(engineer, before).expect(200);
-    await cancel(before).expect(409);
-    await cancel(abandoned.body.updatedAt, engineer).expect(403);
+    await removeHandoff(before).expect(409);
+    await removeHandoff(abandoned.body.updatedAt, engineer).expect(403);
     activeEngineer = false;
-    const cancelled = await cancel(abandoned.body.updatedAt, reviewer).expect(
-      200,
-    );
+    const cancelled = await removeHandoff(
+      abandoned.body.updatedAt,
+      reviewer,
+    ).expect(200);
     expect(cancelled.body).not.toHaveProperty('graduation');
     expect((await getApp(engineer)).body).not.toHaveProperty('graduation');
     await decide('accept', cancelled.body.updatedAt).expect(403);
@@ -894,16 +912,75 @@ describe('governance record access', () => {
       },
     });
     await nominate(outside, accepted.body.updatedAt).expect(409);
-    await cancel(accepted.body.updatedAt).expect(409);
+    await removeHandoff(accepted.body.updatedAt).expect(400);
 
     const renamed = await edit(
       { name: 'Renamed workflow', deliveryStage: 'production' },
       accepted.body.updatedAt,
     ).expect(200);
     expect(renamed.body.graduation).toEqual(accepted.body.graduation);
+    const approved = await api
+      .post(`${appPath}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        expectedUpdatedAt: renamed.body.updatedAt,
+        notes: 'Production review completed.',
+      })
+      .expect(200);
+    const activated = await api
+      .patch(`${appPath}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: approved.body.updatedAt })
+      .expect(200);
+    const {
+      body: { key },
+    } = await api
+      .post(`${appPath}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const ending = 'Engineering coverage changed.';
+    await removeHandoff(activated.body.updatedAt, outside, ending).expect(403);
+    await removeHandoff(activated.body.updatedAt, engineer, ending).expect(403);
+    await removeHandoff(renamed.body.updatedAt, reviewer, ending).expect(409);
+    await removeHandoff(activated.body.updatedAt, reviewer, '   ').expect(400);
+    await removeHandoff(
+      activated.body.updatedAt,
+      reviewer,
+      'x'.repeat(501),
+    ).expect(400);
+    const ended = await removeHandoff(
+      activated.body.updatedAt,
+      reviewer,
+      `  ${ending}  `,
+    ).expect(200);
+    expect(ended.body).not.toHaveProperty('graduation');
+    expect(ended.body).toMatchObject({
+      owner,
+      tier: activated.body.tier,
+      lifecycle: 'active',
+      activeSince: activated.body.activeSince,
+      reviewStatus: 'approved',
+      lastReview: approved.body.lastReview,
+      nextReview: approved.body.nextReview,
+      reviewNotes: 'Production review completed.',
+    });
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ model: 'test-model', prompt: 'Check handoff continuity.' })
+      .expect(200);
+    const nextNomination = await nominate(
+      engineer,
+      ended.body.updatedAt,
+    ).expect(200);
+    expect(nextNomination.body.graduation).toMatchObject({
+      status: 'pending',
+      nominee: engineer,
+    });
     const reverted = await edit(
       { deliveryStage: 'pilot' },
-      renamed.body.updatedAt,
+      nextNomination.body.updatedAt,
     ).expect(200);
     expect(reverted.body).not.toHaveProperty('graduation');
     const productionAgain = await edit(
@@ -958,6 +1035,24 @@ describe('governance record access', () => {
     const events = history.events.map((item: { event: string }) =>
       JSON.parse(item.event),
     );
+    const endAudit = history.events.find(
+      (item: { event: string }) =>
+        JSON.parse(item.event).action === 'graduation-ended',
+    );
+    expect(JSON.parse(endAudit.event)).toMatchObject({
+      actor: reviewer,
+      graduationNominee: engineer,
+      graduationReason: ending,
+    });
+    expect(JSON.parse(endAudit.event).record).not.toHaveProperty('graduation');
+    expect(endAudit.digest).toBe(
+      createHash('sha256').update(endAudit.event).digest('hex'),
+    );
+    expect(
+      events.find(
+        (event: { action: string }) => event.action === 'graduation-cancelled',
+      ),
+    ).not.toHaveProperty('graduationReason');
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1016,6 +1111,14 @@ describe('governance record access', () => {
       })
       .expect(200);
     await api
+      .delete(`${secondPath}/graduation`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        expectedUpdatedAt: handoff.body.updatedAt,
+        reason: 'I want to end my handoff.',
+      })
+      .expect(403);
+    await api
       .post(`${secondPath}/reviews`)
       .set('Authorization', auth(reviewer))
       .send({
@@ -1033,6 +1136,38 @@ describe('governance record access', () => {
         expectedUpdatedAt: handoff.body.updatedAt,
       })
       .expect(403);
+    await api
+      .patch(`${secondPath}/lifecycle`)
+      .set('Authorization', auth(reviewer))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: handoff.body.updatedAt })
+      .expect(403);
+    const editAsNominee = (changes: Record<string, unknown>) =>
+      api
+        .put(secondPath)
+        .set('Authorization', auth(reviewer))
+        .send({
+          ...appInput,
+          sourceUrl: second.body.sourceUrl,
+          deliveryStage: 'production',
+          expectedUpdatedAt: handoff.body.updatedAt,
+          ...changes,
+        });
+    await editAsNominee({ deliveryStage: 'pilot' }).expect(403);
+    await editAsNominee({ owner: outside }).expect(403);
+    await editAsNominee({ audience: 'team' }).expect(403);
+    const unrelated = await editAsNominee({
+      name: 'Updated handoff title',
+    }).expect(200);
+    expect(unrelated.body.graduation).toEqual(handoff.body.graduation);
+    const ownerEnded = await api
+      .delete(`${secondPath}/graduation`)
+      .set('Authorization', auth(owner))
+      .send({
+        expectedUpdatedAt: unrelated.body.updatedAt,
+        reason: 'The owner reassigned engineering coverage.',
+      })
+      .expect(200);
+    expect(ownerEnded.body).not.toHaveProperty('graduation');
   });
 
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {
