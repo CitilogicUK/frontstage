@@ -2888,3 +2888,141 @@ test('a directory access request receives a recorded owner decision', async ({
   await expect(directory.getByText(message, { exact: true })).toHaveCount(0);
   await assertWorkspace(page, 'App directory', 'Directory');
 });
+
+test('pending sign-offs CSV follows assigned tracks, review independence, and filters', async ({
+  page,
+}) => {
+  const reviewer = 'user:default/security-reviewer';
+  const owner = 'user:default/owner';
+  const team = 'group:default/operations';
+  const base = {
+    purpose: 'Support a critical production workflow.',
+    owner,
+    backupOwner: 'user:default/backup',
+    team,
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    tier: 3,
+    deliveryStage: 'pilot',
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'pending',
+    nextReview: null,
+  };
+  const apps = [
+    { ...base, id: 'matching-pilot', name: 'Matching pilot' },
+    { ...base, id: 'other-pilot', name: 'Stock count pilot' },
+    {
+      ...base,
+      id: 'matching-production',
+      name: 'Matching production',
+      deliveryStage: 'production',
+    },
+    {
+      ...base,
+      id: 'signed',
+      name: 'Matching security signed',
+      signoffs: { security: { status: 'approved' } },
+    },
+    {
+      ...base,
+      id: 'owner-conflict',
+      name: 'Matching owner conflict',
+      owner: reviewer,
+    },
+    {
+      ...base,
+      id: 'backup-conflict',
+      name: 'Matching backup owner conflict',
+      backupOwner: reviewer,
+    },
+    {
+      ...base,
+      id: 'engineering-conflict',
+      name: 'Matching engineering conflict',
+      graduation: { nominee: reviewer, status: 'accepted' },
+    },
+  ];
+  let canReview = true;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: canReview ? reviewer : 'user:default/viewer',
+        canReview,
+        reviewTracks: ['security', 'dataProtection'],
+        reviewerTracks: ['security'],
+        apps,
+      },
+    }),
+  );
+
+  const reviews = page.getByRole('region', { name: 'Critical app reviews' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  const exportButton = reviews.getByRole('button', {
+    name: 'Download pending sign-offs CSV',
+  });
+  const reviewFilter = reviews.getByRole('combobox', { name: 'Review status' });
+  async function openReviews() {
+    await page.goto('/?view=reviews&review=mine');
+    await expect(reviews.or(guest)).toBeVisible();
+    if (await guest.isVisible()) await guest.click();
+  }
+  await openReviews();
+  await expect(reviewFilter).toHaveValue('mine');
+  await expect(
+    reviews.getByRole('row').filter({
+      hasText: /Matching pilot|Stock count pilot|Matching production/,
+    }),
+  ).toHaveCount(3);
+  await expect(
+    reviews.getByRole('row').filter({
+      hasText: /security signed|owner conflict|engineering conflict/,
+    }),
+  ).toHaveCount(0);
+
+  await reviews
+    .getByRole('combobox', { name: 'Delivery stage' })
+    .selectOption('pilot');
+  await expect(
+    reviews.getByRole('row').filter({ hasText: 'Matching production' }),
+  ).toHaveCount(0);
+  const search = reviews.getByRole('searchbox', { name: 'Search apps' });
+  await search.fill('Matching');
+  await expect(
+    reviews.getByRole('row').filter({ hasText: 'Stock count pilot' }),
+  ).toHaveCount(0);
+
+  const downloadPromise = page.waitForEvent('download');
+  await exportButton.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('frontstage-pending-signoffs.csv');
+  const csv = await readFile(await download.path(), 'utf8');
+  expect(
+    csv
+      .replace(/^\uFEFF/, '')
+      .trimEnd()
+      .split(/\r?\n/),
+  ).toEqual([
+    'app_id,app_name,owner,team,pending_sign_offs,next_review_utc,app_url',
+    `"matching-pilot","Matching pilot","${owner}","${team}","Security","","${workspaceUrl}/?app=matching-pilot"`,
+  ]);
+
+  await search.fill('no matching records');
+  await expect(exportButton).toHaveCount(0);
+
+  const exportedAppUrl = csv.match(/"(https?:[^"]+)"\r?\n$/)?.[1];
+  if (!exportedAppUrl) throw new Error('Export did not include an app URL');
+  await page.goto(exportedAppUrl);
+  await expect(
+    page.getByRole('dialog', { name: 'Matching pilot' }),
+  ).toBeVisible();
+
+  canReview = false;
+  await openReviews();
+  await expect(reviewFilter).toHaveValue('attention');
+  await expect(
+    reviewFilter.getByRole('option', { name: 'My pending sign-offs' }),
+  ).toHaveCount(0);
+  await expect(exportButton).toHaveCount(0);
+});
