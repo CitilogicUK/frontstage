@@ -2296,7 +2296,7 @@ test('audit history shows production review and ownership handoff', async ({
     /current_policy_tier,starter_id$/,
   );
   expect(reassessmentCsv.split('\r\n')[1]).toContain(',3,"experimental",');
-  expect(reassessmentCsv.split('\r\n')[1]).toMatch(/,2,$/);
+  expect(reassessmentCsv.split('\r\n')[1]).toMatch(/,2,""$/);
 
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
