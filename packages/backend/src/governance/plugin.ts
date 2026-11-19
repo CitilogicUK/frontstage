@@ -26,6 +26,7 @@ import {
   InputError,
   NotAllowedError,
   NotFoundError,
+  ServiceUnavailableError,
 } from '@backstage/errors';
 import express from 'express';
 import Router from 'express-promise-router';
@@ -983,10 +984,14 @@ export const governancePlugin = createBackendPlugin({
           record: GovernanceRecord,
           now = Date.now(),
         ) {
-          return (
-            Boolean(eligibleDirectoryListing(record, now)) &&
-            (await ownersAreActive(record))
-          );
+          if (!eligibleDirectoryListing(record, now)) return false;
+          try {
+            return await ownersAreActive(record);
+          } catch {
+            throw new ServiceUnavailableError(
+              'Catalog ownership could not be verified. Retry when catalog is available.',
+            );
+          }
         }
 
         router.get('/directory', async (req, res) => {
@@ -1164,9 +1169,15 @@ export const governancePlugin = createBackendPlugin({
               .where({ app_id: record.id })
               .orderBy('requested_at', 'desc')
               .orderBy('id');
+            const canApprove = await hasEligibleDirectoryListing(record).catch(
+              () => undefined,
+            );
             return {
               requests: requests.map(directoryRequestView),
-              canApprove: await hasEligibleDirectoryListing(record),
+              canApprove: canApprove === true,
+              ...(canApprove === undefined && {
+                approvalCheckUnavailable: true,
+              }),
             };
           });
           res.set('Cache-Control', 'no-store').json(queue);

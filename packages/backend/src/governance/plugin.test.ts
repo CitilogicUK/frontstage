@@ -371,7 +371,7 @@ describe('governance record access', () => {
     const requester = 'user:default/requester';
     const otherRequester = 'user:default/other-requester';
     const inactive = new Set<string>();
-    jest
+    const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
         items: entityRefs.map(ref => ({
@@ -508,6 +508,18 @@ describe('governance record access', () => {
       .get(queue)
       .set('Authorization', auth(owner))
       .expect(200, reviewerQueue);
+
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, {
+        ...reviewerQueue,
+        canApprove: false,
+        approvalCheckUnavailable: true,
+      });
+    catalog.mockRejectedValueOnce(new Error('Catalog not available'));
+    await decide(reviewer, created.id, 'approved').expect(503);
 
     inactive.add(owner);
     await feed(requester).expect(200, { apps: [] });

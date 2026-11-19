@@ -2640,6 +2640,7 @@ test('a directory access request receives a recorded owner decision', async ({
   let actor = requester;
   let status: 'pending' | 'approved' | undefined;
   let canApprove = true;
+  let approvalCheckUnavailable = true;
   const conflictMessage =
     'This app no longer has an eligible directory listing.';
   await page.route('**/api/governance/apps', route =>
@@ -2672,7 +2673,11 @@ test('a directory access request receives a recorded owner decision', async ({
       expect(actor).toBe(owner);
       expect(request.method()).toBe('GET');
       return route.fulfill({
-        json: { requests: [{ ...seed, status }], canApprove },
+        json: {
+          requests: [{ ...seed, status }],
+          canApprove: canApprove && !approvalCheckUnavailable,
+          approvalCheckUnavailable,
+        },
       });
     },
   );
@@ -2726,6 +2731,13 @@ test('a directory access request receives a recorded owner decision', async ({
     details.getByText(/grant approved access in the destination app/),
   ).toBeVisible();
   const approve = details.getByRole('option', { name: 'Approve' });
+  await expect(approve).toBeDisabled();
+  await expect(
+    details.getByText('Catalog ownership could not be verified.'),
+  ).toBeVisible();
+  await expect(details.getByRole('option', { name: 'Decline' })).toBeEnabled();
+  approvalCheckUnavailable = false;
+  await details.getByRole('button', { name: 'Retry ownership check' }).click();
   await expect(approve).toBeEnabled();
   canApprove = false;
   await details

@@ -17,7 +17,11 @@ type AccessRequest = {
   decidedBy?: string;
 };
 
-type AccessRequestQueue = { requests: AccessRequest[]; canApprove: boolean };
+type AccessRequestQueue = {
+  requests: AccessRequest[];
+  canApprove: boolean;
+  approvalCheckUnavailable?: boolean;
+};
 
 const statusLabels = {
   pending: 'Access request pending',
@@ -204,9 +208,21 @@ export function DirectoryRequestQueue({
           {error && <p role="alert">{error}</p>}
           {!error && !requests && <p role="status">Loading access requests…</p>}
           {requests?.length === 0 && <p>No access requests.</p>}
-          {!canApprove && requests?.some(item => item.status === 'pending') && (
-            <p>Approvals require an eligible directory listing.</p>
-          )}
+          {!canApprove &&
+            requests?.some(item => item.status === 'pending') &&
+            (queue?.approvalCheckUnavailable ? (
+              <>
+                <p role="status">Catalog ownership could not be verified.</p>
+                <button
+                  type="button"
+                  onClick={() => setQueueVersion(version => version + 1)}
+                >
+                  Retry ownership check
+                </button>
+              </>
+            ) : (
+              <p>Approvals require an eligible directory listing.</p>
+            ))}
           {requests && requests.length > 0 && (
             <ul className="gov-directory-requests">
               {requests.map(item => (
