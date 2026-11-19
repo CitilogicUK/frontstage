@@ -8,7 +8,7 @@ import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import {
-  findAppsWithSentManagerRenewalReminders,
+  findManagerRenewalReminderDeliveryTimes,
   reviewRemindersMigration,
   sendReviewReminders,
 } from './reviewReminders';
@@ -1811,14 +1811,21 @@ export const governancePlugin = createBackendPlugin({
               },
             ];
           });
-          const sent = await findAppsWithSentManagerRenewalReminders(
+          const sentAtByAppId = await findManagerRenewalReminderDeliveryTimes(
             db,
             candidates,
           );
           res.json({
             escalationDays: reviewManagerEscalationDays,
             apps: candidates
-              .filter(app => sent.has(app.appId))
+              .flatMap(app => {
+                const sent = sentAtByAppId.get(app.appId);
+                if (sent === undefined) return [];
+                const sentAt = new Date(sent);
+                return Number.isFinite(sentAt.getTime())
+                  ? [{ ...app, sentAt: sentAt.toISOString() }]
+                  : [];
+              })
               .sort(
                 (a, b) =>
                   a.due.localeCompare(b.due) ||
@@ -3486,10 +3493,11 @@ export const governancePlugin = createBackendPlugin({
                       },
                     ];
                   });
-                  return findAppsWithSentManagerRenewalReminders(
+                  const sent = await findManagerRenewalReminderDeliveryTimes(
                     transaction,
                     candidates,
                   );
+                  return new Set(sent.keys());
                 },
           evaluateTier,
           ownersAreActive,

@@ -878,11 +878,22 @@ describe('governance record access', () => {
         }),
       }),
     );
+    const managerReminderKey = createHash('sha256')
+      .update(
+        JSON.stringify([later.id, 'manager-risk-renewal', dueAt(8), owner]),
+      )
+      .digest('hex');
+    const delivery = await db('governance_review_reminders')
+      .where({ reminder_key: managerReminderKey })
+      .first('sent_at');
+    expect(delivery?.sent_at).toBeDefined();
+    const sentAt = new Date(delivery.sent_at).toISOString();
     expect(await laterEscalation()).toEqual({
       appId: later.id,
       name: later.name,
       owner,
       due: dueAt(8),
+      sentAt,
     });
     await escalationReport(ownerAuth).expect(403);
     await escalationReport(mockCredentials.service.header()).expect(403);
@@ -896,6 +907,7 @@ describe('governance record access', () => {
       name: later.name,
       owner,
       due: dueAt(8),
+      sentAt,
     });
     await call().expect(200);
     expect(await ownerChecks()).not.toContain('Gateway access');

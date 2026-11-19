@@ -58,7 +58,7 @@ function reminderKey(
     .digest('hex');
 }
 
-export async function findAppsWithSentManagerRenewalReminders(
+export async function findManagerRenewalReminderDeliveryTimes(
   db: Knex,
   apps: Array<{ appId: string; owner: string; due: string }>,
 ) {
@@ -69,18 +69,21 @@ export async function findAppsWithSentManagerRenewalReminders(
     ]),
   );
   const keys = [...appIdsByKey.keys()];
-  const appIds = new Set<string>();
+  const sentAtByAppId = new Map<string, Date | string | number>();
   for (let offset = 0; offset < keys.length; offset += 100) {
     const sent = await db(remindersTable)
       .whereIn('reminder_key', keys.slice(offset, offset + 100))
       .whereNotNull('sent_at')
-      .pluck<string[]>('reminder_key');
-    for (const key of sent) {
-      const appId = appIdsByKey.get(key);
-      if (appId !== undefined) appIds.add(appId);
+      .select<Array<{ reminder_key: string; sent_at: string | Date | number }>>(
+        'reminder_key',
+        'sent_at',
+      );
+    for (const row of sent) {
+      const appId = appIdsByKey.get(row.reminder_key);
+      if (appId !== undefined) sentAtByAppId.set(appId, row.sent_at);
     }
   }
-  return appIds;
+  return sentAtByAppId;
 }
 
 function candidatesFor(
