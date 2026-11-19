@@ -1441,6 +1441,36 @@ test('audit history shows production review and ownership handoff', async ({
   expect(ownershipCsv).toContain(
     `"Team","${handoff.team}","${pilot.owner}","missing"`,
   );
+  const ownershipRole = ownership.getByRole('combobox', {
+    name: 'Affected ownership role',
+  });
+  await ownershipRole.selectOption('backup');
+  await expect(
+    ownership.getByText('No ownership issues match this role.'),
+  ).toBeVisible();
+  await expect(
+    ownership.getByRole('button', { name: 'Download ownership issues CSV' }),
+  ).toHaveCount(0);
+  await ownershipRole.selectOption('owner');
+  await expect(page).toHaveURL(/ownershipRole=owner/);
+  await page.reload();
+  await expect(ownershipRole).toHaveValue('owner');
+  await expect(
+    ownership.getByText(`Accountable owner: ${handoff.owner} (inactive)`),
+  ).toBeVisible();
+  await expect(
+    ownership.getByText(`Team: ${handoff.team} (missing)`),
+  ).toHaveCount(0);
+  const filteredDownload = page.waitForEvent('download');
+  await ownership
+    .getByRole('button', { name: 'Download ownership issues CSV' })
+    .click();
+  const filteredCsv = await readFile(
+    await (await filteredDownload).path(),
+    'utf8',
+  );
+  expect(filteredCsv).toContain(`"Accountable owner","${handoff.owner}"`);
+  expect(filteredCsv).not.toContain(`"Team","${handoff.team}"`);
   await ownership.getByRole('link', { name: handoff.name }).click();
   await expect(dialog).toBeVisible();
   await dialog
