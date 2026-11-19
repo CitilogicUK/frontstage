@@ -3600,7 +3600,7 @@ describe('governance record access', () => {
       detail:
         'Declare at least one approved runtime model before using the gateway.',
     });
-    await runtimeRow.update({ payload });
+    await runtimeRow.clone().update({ payload });
     const approvedRuntime = await api
       .post(`${runtimePath}/reviews`)
       .set('Authorization', auth(reviewer))
@@ -3657,6 +3657,34 @@ describe('governance record access', () => {
       usage: [{ appId: runtime.body.id, calls: 1 }],
       blocks: [{ appId: runtime.body.id, reason: 'ownership', calls: 1 }],
     });
+
+    // Simulate a record saved under an earlier policy with its issued key intact.
+    const { payload: currentRuntimePayload } = await runtimeRow
+      .clone()
+      .first('payload');
+    await runtimeRow.clone().update({
+      payload: JSON.stringify({
+        ...JSON.parse(currentRuntimePayload),
+        tier: 2,
+      }),
+    });
+    const deniedByDrift = await call().expect(403);
+    expect(deniedByDrift.body.error.message).toMatch(/owner to reassess/i);
+    const driftReport = await api
+      .get('/api/governance/reports/usage')
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(driftReport.body.usage).toMatchObject([
+      { appId: runtime.body.id, calls: 1 },
+    ]);
+    expect(driftReport.body.blocks).toContainEqual(
+      expect.objectContaining({
+        appId: runtime.body.id,
+        reason: 'tier-drift',
+        calls: 1,
+      }),
+    );
+    await runtimeRow.clone().update({ payload: currentRuntimePayload });
 
     const shortWindow = await api
       .get('/api/governance/reports/usage?days=7')

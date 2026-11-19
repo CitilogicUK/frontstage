@@ -622,6 +622,13 @@ export function registerGatewayRoutes(options: {
         message: 'Provider-hosted apps use their approved workspace controls.',
       };
     }
+    if (evaluateTier(app) !== app.tier) {
+      return {
+        reason: 'tier-drift',
+        message:
+          'Current risk policy assigns a different tier. Ask the app owner to reassess the app before using the gateway.',
+      };
+    }
     if (!meetsGatewayReviewRequirements(app)) {
       return {
         reason: 'review',
