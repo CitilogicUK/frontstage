@@ -129,7 +129,7 @@ export function PortfolioReport({
   report,
   usageDays,
   ownership,
-  ownershipError,
+  onRetryOwnership,
   hostedWorkspaces,
   reviewTurnaround,
   canReview,
@@ -140,8 +140,8 @@ export function PortfolioReport({
   discoveries?: DiscoveryResult;
   report?: UsageReport;
   usageDays: number;
-  ownership?: OwnershipReport;
-  ownershipError: boolean;
+  ownership?: OwnershipReport | null;
+  onRetryOwnership: () => void;
   hostedWorkspaces?: HostedWorkspaceReport | null;
   reviewTurnaround?: ReviewTurnaroundReport | null;
   canReview: boolean;
@@ -705,10 +705,19 @@ export function PortfolioReport({
               Non-retired apps with an inactive or missing catalog owner, backup
               owner, or team.
             </p>
-            {ownershipError && (
-              <p role="alert">Ownership status could not be checked.</p>
+            {ownership === null && (
+              <>
+                <p role="alert">Ownership status could not be checked.</p>
+                <button
+                  type="button"
+                  className="gov-button"
+                  onClick={onRetryOwnership}
+                >
+                  Retry ownership check
+                </button>
+              </>
             )}
-            {!ownership && !ownershipError && (
+            {ownership === undefined && (
               <p role="status">Checking catalog ownership…</p>
             )}
             {!!ownership?.issues.length && (

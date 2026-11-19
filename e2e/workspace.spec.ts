@@ -1132,8 +1132,16 @@ test('audit history shows production review and ownership handoff', async ({
     }),
   );
   const reportedTeam = 'group:default/reassigned-team';
-  await page.route('**/api/governance/reports/ownership', route =>
-    route.fulfill({
+  let failOwnershipLookup = false;
+  await page.route('**/api/governance/reports/ownership', route => {
+    if (failOwnershipLookup) {
+      failOwnershipLookup = false;
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Catalog unavailable' } },
+      });
+    }
+    return route.fulfill({
       json: {
         issues:
           currentHandoff.owner === handoff.owner
@@ -1151,8 +1159,8 @@ test('audit history shows production review and ownership handoff', async ({
               ]
             : [],
       },
-    }),
-  );
+    });
+  });
   await page.route('**/api/governance/reports/usage', route =>
     route.fulfill({
       json: {
@@ -1454,8 +1462,19 @@ test('audit history shows production review and ownership handoff', async ({
   ).toHaveCount(0);
   await ownershipRole.selectOption('owner');
   await expect(page).toHaveURL(/ownershipRole=owner/);
+  failOwnershipLookup = true;
   await page.reload();
+  await expect(ownership.getByRole('alert')).toHaveText(
+    'Ownership status could not be checked.',
+  );
+  await expect(
+    ownership.getByRole('button', { name: 'Download ownership issues CSV' }),
+  ).toHaveCount(0);
+  await ownership
+    .getByRole('button', { name: 'Retry ownership check' })
+    .click();
   await expect(ownershipRole).toHaveValue('owner');
+  await expect(ownership.getByRole('alert')).toHaveCount(0);
   await expect(
     ownership.getByText(`Accountable owner: ${handoff.owner} (inactive)`),
   ).toBeVisible();

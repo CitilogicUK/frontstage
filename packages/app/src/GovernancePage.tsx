@@ -369,10 +369,11 @@ export function GovernancePage() {
     daysParam === '1' || daysParam === '7' ? Number(daysParam) : 30;
   const [reviewTurnaround, setReviewTurnaround] =
     useState<ReviewTurnaroundReport | null>();
-  const [ownershipReport, setOwnershipReport] = useState<OwnershipReport>();
+  const [ownershipReport, setOwnershipReport] =
+    useState<OwnershipReport | null>();
+  const [ownershipLoadAttempt, setOwnershipLoadAttempt] = useState(0);
   const [hostedWorkspaceReport, setHostedWorkspaceReport] =
     useState<HostedWorkspaceReport | null>();
-  const [ownershipError, setOwnershipError] = useState(false);
   const [reportError, setReportError] = useState('');
   const [discoveries, setDiscoveries] = useState<DiscoveryResult>();
   const [discoveryError, setDiscoveryError] = useState('');
@@ -642,8 +643,6 @@ export function GovernancePage() {
     if (view !== 'Reports' || !canReview) return undefined;
     let active = true;
     setReportError('');
-    setOwnershipReport(undefined);
-    setOwnershipError(false);
     setHostedWorkspaceReport(undefined);
     api('/reports/hosted-workspaces').then(
       result => {
@@ -653,17 +652,27 @@ export function GovernancePage() {
         if (active) setHostedWorkspaceReport(null);
       },
     );
-    api('/reports/ownership')
-      .then(result => {
-        if (active) setOwnershipReport(result);
-      })
-      .catch(() => {
-        if (active) setOwnershipError(true);
-      });
     return () => {
       active = false;
     };
   }, [api, apps, canReview, view]);
+
+  useEffect(() => {
+    if (view !== 'Reports' || !canReview) return undefined;
+    let active = true;
+    setOwnershipReport(undefined);
+    api('/reports/ownership').then(
+      result => {
+        if (active) setOwnershipReport(result);
+      },
+      () => {
+        if (active) setOwnershipReport(null);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, apps, canReview, ownershipLoadAttempt, view]);
 
   const firstDecisionTargetQueue =
     view === 'Reviews' && reviewFilter === 'first-target';
@@ -2635,7 +2644,9 @@ export function GovernancePage() {
           }
           usageDays={usageDays}
           ownership={ownershipReport}
-          ownershipError={ownershipError}
+          onRetryOwnership={() =>
+            setOwnershipLoadAttempt(attempt => attempt + 1)
+          }
           hostedWorkspaces={hostedWorkspaceReport}
           reviewTurnaround={reviewTurnaround}
           canReview={canReview}
