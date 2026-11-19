@@ -1249,6 +1249,20 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
       nextDue: '2025-04-01T00:00:00.000Z',
     },
   };
+  const retiredApp = {
+    ...initialApp,
+    id: 'retired-hosted-app',
+    name: 'Retired hosted app',
+    lifecycle: 'retired',
+  };
+  const regularApp = {
+    ...initialApp,
+    id: 'regular-app',
+    name: 'Regular app',
+    type: 'app',
+    hosted: undefined,
+  };
+  let canReviewHostedApps = true;
   const history = [{ action: 'registered', record: app }];
   await page.route('**/api/governance/apps/hosted-app/history', route =>
     route.fulfill({
@@ -1270,8 +1284,8 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
       json: {
         actor: app.owner,
         gatewayEnabled: true,
-        canReview: true,
-        apps: [app, overdueApp],
+        canReview: canReviewHostedApps,
+        apps: [app, overdueApp, retiredApp, regularApp],
       },
     }),
   );
@@ -1360,6 +1374,10 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   });
   const missing = attestationQueue.getByRole('link', { name: app.name });
   await expect(missing).toHaveAttribute('href', /app=hosted-app/);
+  await expect(attestationQueue.getByRole('link')).toHaveText([
+    overdueApp.name,
+    app.name,
+  ]);
   await expect(attestationQueue).toContainText('Confirmation missing');
   await expect(attestationQueue).toContainText('Overdue since 2025-04-01 UTC');
   await missing.click();
@@ -1436,6 +1454,12 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   await expect(
     attestationQueue.getByRole('link', { name: overdueApp.name }),
   ).toBeVisible();
+  canReviewHostedApps = false;
+  await page.reload();
+  await expect(
+    page.getByText('Non-retired apps', { exact: true }),
+  ).toBeVisible();
+  await expect(attestationQueue).toHaveCount(0);
   await page.goto('/?view=register');
   await page.getByLabel('App type').selectOption('provider-hosted app');
   await expect(

@@ -259,12 +259,22 @@ export function PortfolioReport({
   }
   const now = Date.now();
   const hostedAttestationsNeedingAttention = canReview
-    ? apps.filter(app => {
-        if (app.type !== 'provider-hosted app' || app.lifecycle === 'retired')
-          return false;
-        const nextDue = app.hostedAttestation?.nextDue;
-        return !nextDue || Date.parse(nextDue) <= now;
-      })
+    ? apps
+        .filter(app => {
+          if (app.type !== 'provider-hosted app' || app.lifecycle === 'retired')
+            return false;
+          const nextDue = app.hostedAttestation?.nextDue;
+          return !nextDue || Date.parse(nextDue) <= now;
+        })
+        .sort(
+          (a, b) =>
+            Number(!a.hostedAttestation) - Number(!b.hostedAttestation) ||
+            (a.hostedAttestation?.nextDue ?? '').localeCompare(
+              b.hostedAttestation?.nextDue ?? '',
+            ) ||
+            a.name.localeCompare(b.name) ||
+            a.id.localeCompare(b.id),
+        )
     : [];
   const reviewable = inventory.filter(app => app.tier === 2 || app.tier === 3);
   const overdue = reviewable.filter(app => isReviewOverdue(app, now)).length;
