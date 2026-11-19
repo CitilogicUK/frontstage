@@ -36,7 +36,7 @@ const pythonSdkNames = new Set([
   'openai',
 ]);
 
-const dependencyMap = z.record(z.string()).optional();
+const dependencyMap = z.record(z.string(), z.string()).optional();
 const packageManifest = z.object({
   dependencies: dependencyMap,
   devDependencies: dependencyMap,
@@ -48,7 +48,9 @@ const pyprojectManifest = z.object({
   project: z
     .object({
       dependencies: z.array(z.string()).optional(),
-      'optional-dependencies': z.record(z.array(z.string())).optional(),
+      'optional-dependencies': z
+        .record(z.string(), z.array(z.string()))
+        .optional(),
     })
     .optional(),
 });

@@ -17,7 +17,7 @@ import express, { type Router } from 'express';
 import { z } from 'zod';
 import type { GovernanceRecord } from './plugin';
 import { reserveGatewayRequest } from './gatewayRateLimit';
-import { effectiveClassification } from './policy';
+import { effectiveClassification, sourceUrl as appSourceUrl } from './policy';
 import { appSourceKey } from './sourceKey';
 
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
@@ -122,10 +122,6 @@ const chatPath = '/gateway/chat';
 const nanosPerDollar = 1_000_000_000;
 const rate = z.number().finite().nonnegative().max(1_000_000).default(0);
 const requestLimit = z.number().int().min(1).max(10_000);
-const appSourceUrl = z
-  .string()
-  .url()
-  .refine(value => /^https?:\/\//i.test(value));
 const gatewayConfig = z
   .object({
     enabled: z.boolean().default(false),
@@ -154,6 +150,7 @@ const gatewayConfig = z
     mode: z.enum(['simulation', 'openai']).optional(),
     models: z
       .record(
+        z.string(),
         z
           .object({
             allowedClassifications: z
