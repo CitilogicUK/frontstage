@@ -37,6 +37,7 @@ async function expectStatus(
 
 test('a Tier 3 app needs approval and activation before its model calls are metered', async ({
   request,
+  page,
 }, testInfo) => {
   test.skip(
     testInfo.project.name === 'phone',
@@ -481,7 +482,8 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       },
     });
     await expectStatus(handover, 200, 'Change the accountable owner');
-    expect(await handover.json()).toMatchObject({
+    const handedOver = await handover.json();
+    expect(handedOver).toMatchObject({
       owner: reviewed.backupOwner,
       reviewStatus: 'pending',
     });
@@ -510,7 +512,35 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     const exportPath = join(dataDirectory, 'audit-export.json');
     const verifier = resolve(backendRoot, '../../scripts/verify-audit.mjs');
     const head = audit.events.at(-1).digest;
-    await writeFile(exportPath, JSON.stringify({ appId: app.id, ...audit }));
+    await page.route('**/api/governance/apps', route =>
+      route.fulfill({
+        json: {
+          apps: [handedOver],
+          actor: 'user:default/reviewer',
+          canReview: true,
+        },
+      }),
+    );
+    await page.route(`**/api/governance/apps/${app.id}/history`, route =>
+      route.fulfill({ json: audit }),
+    );
+    await page.goto(`/?app=${encodeURIComponent(app.id)}`);
+    const details = page.getByRole('dialog', { name: handedOver.name });
+    const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+    await expect(details.or(guest)).toBeVisible();
+    if (await guest.isVisible()) await guest.click();
+    await details.getByText('Audit history', { exact: true }).click();
+    const downloadReady = page.waitForEvent('download');
+    await details.getByRole('button', { name: 'Download audit JSON' }).click();
+    const download = await downloadReady;
+    expect(download.suggestedFilename()).toBe(
+      `frontstage-audit-${app.id}.json`,
+    );
+    await download.saveAs(exportPath);
+    expect(JSON.parse(await readFile(exportPath, 'utf8'))).toEqual({
+      appId: app.id,
+      ...audit,
+    });
     const verification = spawnSync(
       process.execPath,
       [verifier, exportPath, head],
