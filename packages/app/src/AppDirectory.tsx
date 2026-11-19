@@ -134,12 +134,14 @@ export function AppDirectory() {
 
 export function AppDirectoryPublisher({
   listing,
+  launchEligible,
   updatedAt,
   busy,
   onPublish,
   onUnpublish,
 }: {
   listing?: DirectoryListing;
+  launchEligible: boolean;
   updatedAt: string;
   busy: boolean;
   onPublish: (event: FormEvent<HTMLFormElement>) => void;
@@ -152,7 +154,14 @@ export function AppDirectoryPublisher({
         Signed-in users can see the app name, directory summary and launch URL.
         Access is managed by the destination app.
       </p>
-      {listing && <p>Directory listing saved.</p>}
+      {!launchEligible && (
+        <p>
+          {listing
+            ? 'This listing is hidden until the app meets current launch requirements.'
+            : 'Meet the current launch requirements to publish this app.'}
+        </p>
+      )}
+      {listing && launchEligible && <p>Directory listing saved.</p>}
       <form key={updatedAt} onSubmit={onPublish}>
         <label>
           Directory summary
@@ -175,7 +184,7 @@ export function AppDirectoryPublisher({
           />
           <small>Use an HTTPS URL.</small>
         </label>
-        <button disabled={busy}>
+        <button disabled={busy || !launchEligible}>
           {listing ? 'Update directory listing' : 'Publish in Directory'}
         </button>
       </form>
