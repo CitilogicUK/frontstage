@@ -800,12 +800,8 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await page
     .getByRole('combobox', { name: 'Registration source' })
     .selectOption({ label: 'Outside-gateway usage' });
-  await expect(
-    page.getByRole('button', { name: draft.name, exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: app.name, exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: draft.name })).toBeVisible();
+  await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
