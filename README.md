@@ -423,7 +423,7 @@ docker run --rm -p 127.0.0.1:7007:7007 \
 
 The image uses the PostgreSQL and GitHub pilot profiles by default. Docker health checks use Backstage readiness at `/.backstage/health/v1/readiness` on the container’s backend port. The check uses `APP_CONFIG_backend_listen_port` when set, and 7007 otherwise.
 
-Run `yarn test:pilot-image` after building `frontstage:pilot`. Pass an image tag as an argument to check another local build. The check uses a disposable PostgreSQL 17 container and placeholder OAuth credentials, and verifies readiness, the packaged UI, PostgreSQL tables for governance and registration metrics, anonymous API denial, and the GitHub redirect without contacting GitHub.
+Run `yarn test:pilot-image` after building `frontstage:pilot`. Pass an image tag as an argument to check another local build. The check uses a disposable PostgreSQL 17 container and placeholder OAuth credentials, and verifies readiness, the packaged UI, PostgreSQL tables for governance and registration metrics, anonymous API denial, and the GitHub redirect without contacting GitHub. It also restarts the app, waits for readiness, and checks that a synthetic registration timing row survives in PostgreSQL.
 
 ## Verify changes in a worktree
 

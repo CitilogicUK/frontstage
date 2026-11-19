@@ -39,6 +39,22 @@ async function waitFor(description, check) {
   throw new Error(`Timed out waiting for ${description}`);
 }
 
+async function waitForAppHealth(stage) {
+  await waitFor(`Frontstage container health after ${stage}`, () => {
+    const state = docker([
+      'inspect',
+      app,
+      '--format',
+      '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}',
+    ]);
+    if (state.startsWith('exited'))
+      throw new Error(`Frontstage exited after ${stage}`);
+    if (state === 'running unhealthy')
+      throw new Error(`Frontstage container is unhealthy after ${stage}`);
+    return state === 'running healthy';
+  });
+}
+
 try {
   docker(['image', 'inspect', image]);
   docker(['network', 'create', network]);
@@ -101,19 +117,7 @@ try {
     `APP_CONFIG_backend_cors_origin=${appOrigin}`,
     image,
   ]);
-  await waitFor('Frontstage container health', () => {
-    const state = docker([
-      'inspect',
-      app,
-      '--format',
-      '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}',
-    ]);
-    if (state.startsWith('exited'))
-      throw new Error('Frontstage exited during startup');
-    if (state === 'running unhealthy')
-      throw new Error('Frontstage container is unhealthy');
-    return state === 'running healthy';
-  });
+  await waitForAppHealth('startup');
 
   docker([
     'exec',
@@ -163,26 +167,37 @@ try {
     assert.equal(redirect.searchParams.get('redirect_uri'), origin + '/api/auth/github/handler/frame');
   `,
   ]);
-  docker([
-    'exec',
-    database,
-    'psql',
-    '-v',
-    'ON_ERROR_STOP=1',
-    '-U',
-    'postgres',
-    '-d',
-    'frontstage_pilot',
-    '-c',
+  function queryPilotDatabase(...statements) {
+    return docker([
+      'exec',
+      database,
+      'psql',
+      '-Atq',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-U',
+      'postgres',
+      '-d',
+      'frontstage_pilot',
+      ...statements.flatMap(statement => ['-c', statement]),
+    ]);
+  }
+
+  queryPilotDatabase(
     'SELECT 1 FROM governance.governance_apps LIMIT 0',
-    '-c',
-    'SELECT utc_day, elapsed_seconds FROM governance.governance_tier_one_registration_timing LIMIT 0',
-    '-c',
     'SELECT token_digest, utc_day, rating FROM governance.governance_registration_feedback LIMIT 0',
-  ]);
+    "INSERT INTO governance.governance_tier_one_registration_timing (utc_day, elapsed_seconds) VALUES ('2025-01-01', 12)",
+  );
+  docker(['restart', app]);
+  await waitForAppHealth('restart');
+  const persisted = queryPilotDatabase(
+    "SELECT elapsed_seconds FROM governance.governance_tier_one_registration_timing WHERE utc_day = '2025-01-01'",
+  );
+  if (persisted !== '12')
+    throw new Error('The synthetic timing sample did not survive app restart.');
 
   console.log(
-    'Pilot image is healthy and non-root. PostgreSQL migrations, anonymous API denial, and OAuth redirect verified.',
+    'Pilot image is healthy and non-root. PostgreSQL migrations, anonymous API denial, OAuth redirect, and restart persistence verified.',
   );
 } catch (error) {
   if (interruption.signal.aborted) {
