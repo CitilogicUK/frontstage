@@ -158,7 +158,7 @@ type App = {
   reviewTicketUrl?: string;
   humanApprovalEvidenceRequired?: boolean;
   missingCriticalReviewEvidence?: Array<'tests' | 'dataFlow' | 'incidentPlan'>;
-  signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
+  signoffs?: Partial<Record<ReviewTrack, { status: string; notes?: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
 };
 
@@ -638,6 +638,12 @@ export function GovernancePage() {
       ? selectedRecord
       : inventoryRecord ??
         (discoveryApp?.id === detailId ? discoveryApp.app : undefined);
+  const requestedChanges = reviewTracks.flatMap(track => {
+    const signoff = selected?.signoffs?.[track];
+    return signoff?.status === 'changes needed' && signoff.notes
+      ? [{ track, notes: signoff.notes }]
+      : [];
+  });
   const loadingDiscoveryApp =
     view === 'Discovery' &&
     Boolean(detailId && !selected && discoveryApp?.id !== detailId);
@@ -2896,14 +2902,28 @@ export function GovernancePage() {
                   </form>
                 </details>
               )}
-            {selected.reviewNotes && (
-              <p>
-                {selected.reviewStatus === 'pending' &&
-                  !Object.keys(selected.signoffs ?? {}).length && (
-                    <strong>Previous review notes. </strong>
-                  )}
-                {selected.reviewNotes}
-              </p>
+            {requestedChanges.length > 0 ? (
+              <section aria-label="Requested review changes">
+                <h3>Requested review changes</h3>
+                <ul>
+                  {requestedChanges.map(({ track, notes }) => (
+                    <li key={track}>
+                      <strong>{reviewTrackLabels[track]}</strong>
+                      <p>{notes}</p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : (
+              selected.reviewNotes && (
+                <p>
+                  {selected.reviewStatus === 'pending' &&
+                    !Object.keys(selected.signoffs ?? {}).length && (
+                      <strong>Previous review notes. </strong>
+                    )}
+                  {selected.reviewNotes}
+                </p>
+              )
             )}
             {(actor === selected.owner || canReview) && (
               <details
