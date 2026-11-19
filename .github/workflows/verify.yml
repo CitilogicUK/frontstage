@@ -21,7 +21,10 @@ permissions:
 
 jobs:
   verify:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.FRONTSTAGE_AUTOMATIC_VERIFICATION != 'disabled' &&
+       (github.event_name != 'pull_request' || !github.event.pull_request.draft))
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.use_local_runner && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:

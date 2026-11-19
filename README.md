@@ -172,7 +172,7 @@ Give concurrent worktrees different browser-test ports so they can run alongside
 FRONTSTAGE_E2E_APP_PORT=3101 FRONTSTAGE_E2E_BACKEND_PORT=7101 yarn verify
 ```
 
-Draft pull requests skip the automated verification job. Ready PR updates, marking a PR ready, and pushes to `main` run the full check on a GitHub-hosted runner. Once this workflow lands on `main`, start the repository's isolated `frontstage-local` runner for on-demand verification. Dispatch the workflow from `main` and supply the reviewed commit to verify. The tested branch does not need its own copy of the dispatch inputs.
+Draft pull requests skip the automated verification job. By default, ready PR updates, marking a PR ready, and pushes to `main` run the full check on a GitHub-hosted runner. Set the repository Actions variable `FRONTSTAGE_AUTOMATIC_VERIFICATION` to `disabled` to pause those jobs while running checks in worktrees. Manual dispatch remains available. Once this workflow lands on `main`, start the repository's isolated `frontstage-local` runner for on-demand verification. Dispatch the workflow from `main` and supply the reviewed commit to verify. The tested branch does not need its own copy of the dispatch inputs.
 
 ```sh
 gh workflow run verify.yml --ref main -f use_local_runner=true -f verification_ref=REVIEWED_COMMIT_SHA
