@@ -410,7 +410,7 @@ FRONTSTAGE_PILOT_URL=https://frontstage.example.com \
   yarn pilot:probe-roles
 ```
 
-The probe checks that both identities can open Inventory as the expected user and that only the reviewer can read the registration feedback report. It sends read-only requests and prints role names and HTTP statuses, without displaying tokens or returned records. The probe accepts HTTPS origins or local loopback HTTP and refuses redirects. Run the full sign-in and disabled-user scenarios separately.
+The probe checks that both identities can open Inventory as the expected user and that only the reviewer can read the registration feedback and timing reports. It sends read-only requests and prints role names and HTTP statuses, without displaying tokens or returned records. The probe accepts HTTPS origins or local loopback HTTP and refuses redirects. Run the full sign-in and disabled-user scenarios separately.
 
 ### Build and run the pilot image
 
