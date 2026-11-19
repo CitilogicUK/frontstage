@@ -220,7 +220,8 @@ export function PortfolioReport({
   onRetryReviewTurnaround,
   canReview,
   loading,
-  error,
+  usageError,
+  onRetryUsage,
 }: {
   apps: AppSummary[];
   discoveries?: DiscoveryResult;
@@ -235,7 +236,8 @@ export function PortfolioReport({
   onRetryReviewTurnaround: () => void;
   canReview: boolean;
   loading: boolean;
-  error: string;
+  usageError: string;
+  onRetryUsage: () => void;
 }) {
   const medianWorkingDays = reviewTurnaround?.medianWorkingDays;
   const coverage = discoveries?.source
@@ -1231,12 +1233,15 @@ export function PortfolioReport({
         {!canReview && (
           <p className="gov-empty">Usage details are available to reviewers.</p>
         )}
-        {canReview && error && (
-          <p className="gov-empty" role="alert">
-            {error}
-          </p>
+        {canReview && usageError && (
+          <div className="gov-notice">
+            <p role="alert">Gateway usage could not load. {usageError}</p>
+            <button type="button" onClick={onRetryUsage}>
+              Retry loading gateway usage
+            </button>
+          </div>
         )}
-        {canReview && !error && !report && (
+        {canReview && !usageError && !report && (
           <p className="gov-empty" role="status">
             Loading usage…
           </p>

@@ -1581,8 +1581,18 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     page.getByText('Enter a non-negative USD amount.'),
   ).toBeVisible();
+  await page.route(
+    '**/api/governance/reports/usage?days=7',
+    route => route.fulfill({ status: 503, json: {} }),
+    { times: 1 },
+  );
   await windowSelect.selectOption('7');
   await expect(page).toHaveURL(/view=reports&days=7$/);
+  await expect(page.getByText('Live estimated cost · 7 days')).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Retry loading gateway usage' })
+    .click();
+  await expect(windowSelect).toHaveValue('7');
   await expect(page.getByText('No gateway calls recorded')).toBeVisible();
   await expect(page.getByText('Live estimated cost · 7 days')).toBeVisible();
   await page.getByText('Estimate gateway spend share', { exact: true }).click();

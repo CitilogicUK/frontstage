@@ -386,7 +386,8 @@ export function GovernancePage() {
   const [ownershipLoadAttempt, setOwnershipLoadAttempt] = useState(0);
   const [hostedWorkspaceReport, setHostedWorkspaceReport] =
     useState<HostedWorkspaceReport | null>();
-  const [reportError, setReportError] = useState('');
+  const [usageReportError, setUsageReportError] = useState('');
+  const [usageLoadAttempt, setUsageLoadAttempt] = useState(0);
   const [discoveries, setDiscoveries] = useState<DiscoveryResult>();
   const [discoveryError, setDiscoveryError] = useState('');
   const [discoveryLoadAttempt, setDiscoveryLoadAttempt] = useState(0);
@@ -698,7 +699,6 @@ export function GovernancePage() {
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
     let active = true;
-    setReportError('');
     setHostedWorkspaceReport(undefined);
     api('/reports/hosted-workspaces').then(
       result => {
@@ -756,7 +756,7 @@ export function GovernancePage() {
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
     let active = true;
-    setReportError('');
+    setUsageReportError('');
     setUsageReport(undefined);
     api(
       usageDays === 30 ? '/reports/usage' : `/reports/usage?days=${usageDays}`,
@@ -766,14 +766,14 @@ export function GovernancePage() {
       })
       .catch(reason => {
         if (active)
-          setReportError(
+          setUsageReportError(
             reason instanceof Error ? reason.message : String(reason),
           );
       });
     return () => {
       active = false;
     };
-  }, [api, apps, canReview, usageDays, view]);
+  }, [api, apps, canReview, usageDays, usageLoadAttempt, view]);
 
   async function scanGithub() {
     setBusy(true);
@@ -2887,7 +2887,8 @@ export function GovernancePage() {
           onRetryReviewTurnaround={retryReviewTurnaround}
           canReview={canReview}
           loading={loading}
-          error={reportError}
+          usageError={usageReportError}
+          onRetryUsage={() => setUsageLoadAttempt(attempt => attempt + 1)}
         />
       )}
       {view === 'Directory' && <AppDirectory />}
