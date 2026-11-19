@@ -23,6 +23,7 @@ type Usage = {
     thresholdUsd: number;
     stopAtThreshold: boolean;
   };
+  gatewayPause?: 'attestation-overdue';
   blockedCalls: number;
   blocks: Array<{ reason: string; calls: number }>;
 };
@@ -39,6 +40,7 @@ type GatewayApp = {
   classification: string;
   effectiveClassification?: string;
   lifecycle: string;
+  updatedAt: string;
 };
 
 const estimate = new Intl.NumberFormat('en-US', {
@@ -157,6 +159,7 @@ function GatewayEnvironmentPanel({
           { signal },
         );
         const result = await readResponse<Usage>(response);
+        if (signal?.aborted) return;
         setUsage(result);
         setUsageError(false);
       } catch {
@@ -169,6 +172,11 @@ function GatewayEnvironmentPanel({
   useEffect(() => {
     const controller = new AbortController();
     void readUsage(controller.signal);
+    return () => controller.abort();
+  }, [app.updatedAt, readUsage]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     discovery
       .getBaseUrl('governance')
       .then(base =>
@@ -187,7 +195,7 @@ function GatewayEnvironmentPanel({
       });
 
     return () => controller.abort();
-  }, [backstageFetch, discovery, keyPath, readUsage]);
+  }, [backstageFetch, discovery, keyPath]);
 
   async function issueKey() {
     setPendingAction('issue');
@@ -296,6 +304,12 @@ function GatewayEnvironmentPanel({
       {unavailableModels.length > 0 && (
         <p>
           Unavailable for {classification} data: {unavailableModels.join(', ')}.
+        </p>
+      )}
+      {!usageError && usage?.gatewayPause === 'attestation-overdue' && (
+        <p className="gov-notice" role="status">
+          Gateway access is paused until the app owner completes the overdue
+          attestation.
         </p>
       )}
       <div className="gov-gateway-key">

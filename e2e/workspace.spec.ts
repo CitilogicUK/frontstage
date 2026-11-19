@@ -511,6 +511,16 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const dateInDays = (days: number, offsetMs = 0) =>
     new Date(now + days * 86_400_000 + offsetMs).toISOString();
   let includeRetirementDecision = false;
+  let attested = false;
+  const overdue = {
+    ...base,
+    id: 'overdue',
+    discoverySource: 'registered',
+    name: 'Overdue app',
+    deliveryStage: 'production',
+    nextReview: dateInDays(0),
+    updatedAt: dateInDays(-1),
+  };
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -540,12 +550,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             nextReview: dateInDays(30),
           },
           {
-            ...base,
-            id: 'overdue',
-            discoverySource: 'registered',
-            name: 'Overdue app',
-            deliveryStage: 'production',
-            nextReview: dateInDays(0),
+            ...overdue,
             retirementReview: includeRetirementDecision
               ? { status: 'pending', owner: actor, requestedAt: dateInDays(-1) }
               : undefined,
@@ -569,6 +574,10 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.route('**/api/governance/apps/*/usage', route =>
     route.fulfill({
       json: {
+        gatewayPause:
+          !attested && route.request().url().endsWith('/overdue/usage')
+            ? 'attestation-overdue'
+            : undefined,
         liveCalls: 0,
         simulatedCalls: 0,
         unclassifiedCalls: 0,
@@ -1022,6 +1031,32 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText('Another owner’s app');
   await expect(rows.last()).toContainText('Overdue app');
+
+  await page.route('**/api/governance/apps/overdue/attestation', route => {
+    expect(route.request().postDataJSON()).toEqual({
+      confirmed: true,
+      expectedUpdatedAt: overdue.updatedAt,
+    });
+    attested = true;
+    return route.fulfill({
+      json: {
+        ...overdue,
+        updatedAt: dateInDays(0),
+        nextReview: dateInDays(365),
+      },
+    });
+  });
+  await page.goto(copiedLink);
+  const pause = playground.getByText('Gateway access is paused', {
+    exact: false,
+  });
+  await expect(pause).toBeVisible();
+  await sharedApp.getByRole('checkbox', { name: /I confirm/ }).check();
+  await sharedApp.getByRole('button', { name: 'Record attestation' }).click();
+  await expect(pause).toHaveCount(0);
+  await expect(
+    sharedApp.getByText('Owner attestation recorded.'),
+  ).toBeVisible();
 });
 
 test('owners can find active apps with failed scorecard checks', async ({

@@ -744,6 +744,15 @@ export function registerGatewayRoutes(options: {
     return undefined;
   }
 
+  async function hasActiveAttestationPause(record: GovernanceRecord) {
+    return Boolean(
+      attestationPaused &&
+        isScorecardGatewayApp(record) &&
+        !launchBlock(record) &&
+        (await attestationPaused(record, db)),
+    );
+  }
+
   function isScorecardGatewayApp(record: GovernanceRecord) {
     return (
       config.enabled &&
@@ -933,9 +942,7 @@ export function registerGatewayRoutes(options: {
         )
         .distinct<{ execution_mode: string | null }[]>('execution_mode');
       if (record.lifecycle === 'active') {
-        accessPaused =
-          !launchBlock(record) &&
-          Boolean(await attestationPaused?.(record, db));
+        accessPaused = await hasActiveAttestationPause(record);
         issuedKey = Boolean(
           await db(keysTable)
             .where({ app_id: record.id, environment: readinessEnvironment })
@@ -1421,7 +1428,7 @@ export function registerGatewayRoutes(options: {
     const { principal } = await httpAuth.credentials(req, { allow: ['user'] });
     const { record } = await load(req.params.id);
     assertCanEdit(record, principal);
-    const [usage, blockTotals] = await Promise.all([
+    const [usage, blockTotals, accessPaused] = await Promise.all([
       db(usageTable)
         .where({ app_id: record.id })
         .groupBy('execution_mode')
@@ -1440,6 +1447,7 @@ export function registerGatewayRoutes(options: {
           'reason',
           db.raw('count(*) as ??', ['calls']),
         ),
+      hasActiveAttestationPause(record),
     ]);
     const blocks = blockTotals
       .map(row => ({ reason: row.reason, calls: Number(row.calls) }))
@@ -1484,6 +1492,10 @@ export function registerGatewayRoutes(options: {
         stopAtThreshold: spend.stopAtThreshold,
       };
     }
-    res.set('Cache-Control', 'no-store').json({ ...totals, monthlySpend });
+    res.set('Cache-Control', 'no-store').json({
+      ...totals,
+      monthlySpend,
+      gatewayPause: accessPaused ? attestationBlock.reason : undefined,
+    });
   });
 }
