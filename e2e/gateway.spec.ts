@@ -1147,18 +1147,22 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
           timeout: 35_000,
         },
       );
+    const readSeededInventory = async () => {
+      const response = await request.get(`${api}/apps`, { headers });
+      await expectStatus(response, 200, 'Read the seeded demo inventory');
+      return (await response.json()).apps.filter(
+        (record: { sourceUrl: string }) =>
+          record.sourceUrl.startsWith('https://example.com/frontstage-demo/'),
+      );
+    };
     const firstSeed = seed();
     expect(firstSeed.status, firstSeed.stderr).toBe(0);
+    const initialSeeded = await readSeededInventory();
     const secondSeed = seed();
     expect(secondSeed.status, secondSeed.stderr).toBe(0);
-    expect(secondSeed.stdout).toBe(firstSeed.stdout);
-    const seededInventory = await request.get(`${api}/apps`, { headers });
-    await expectStatus(seededInventory, 200, 'Read the seeded demo inventory');
-    const seeded = (await seededInventory.json()).apps.filter(
-      (record: { sourceUrl: string }) =>
-        record.sourceUrl.startsWith('https://example.com/frontstage-demo/'),
-    );
-    expect(seeded).toHaveLength(5);
+    const seeded = await readSeededInventory();
+    expect(seeded).toHaveLength(6);
+    expect(seeded).toEqual(initialSeeded);
     expect(seeded).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1183,6 +1187,29 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         }),
       ]),
     );
+    const directoryDemo = seeded.find(
+      (record: { name: string }) =>
+        record.name === 'Warehouse reconciliation demo',
+    );
+    expect(directoryDemo).toMatchObject({
+      lifecycle: 'active',
+      usesAiAtRuntime: false,
+      directoryListing: {
+        url: 'https://example.com/frontstage-demo/warehouse-reconciliation',
+      },
+    });
+    const directoryQueue = await request.get(
+      `${api}/apps/${directoryDemo.id}/directory-requests`,
+      { headers },
+    );
+    await expectStatus(
+      directoryQueue,
+      200,
+      'Read the seeded Directory request',
+    );
+    expect((await directoryQueue.json()).requests).toEqual([
+      expect.objectContaining({ status: 'pending' }),
+    ]);
     const hostedDemo = seeded.find(
       (record: { name: string }) => record.name === 'Hosted workspace demo',
     );
