@@ -72,7 +72,7 @@ export function ownershipIssuesCsv(
   issues: Array<{
     appId: string;
     name: string;
-    unavailable: Array<{ role: string; ref: string }>;
+    unavailable: Array<{ role: string; ref: string; reason?: string }>;
     availableBackupOwner?: string;
   }>,
 ) {
@@ -83,14 +83,16 @@ export function ownershipIssuesCsv(
       'unavailable_role',
       'unavailable_entity',
       'active_backup_owner',
+      'unavailable_reason',
     ],
     issues.flatMap(issue =>
-      issue.unavailable.map(({ role, ref }) => [
+      issue.unavailable.map(({ role, ref, reason }) => [
         issue.appId,
         issue.name,
         role,
         ref,
         issue.availableBackupOwner ?? '',
+        reason ?? '',
       ]),
     ),
   );

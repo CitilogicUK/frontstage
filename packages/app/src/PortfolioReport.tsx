@@ -44,6 +44,7 @@ export type OwnershipReport = {
     appId: string;
     name: string;
     unavailable: string[];
+    unavailableDetails?: Array<{ ref: string; reason: 'missing' | 'inactive' }>;
     availableBackupOwner?: string;
   }>;
 };
@@ -247,7 +248,10 @@ export function PortfolioReport({
         if (ref === app?.owner) role = 'Accountable owner';
         else if (ref === app?.backupOwner) role = 'Backup owner';
         else if (ref === app?.team) role = 'Team';
-        return { role, ref };
+        const reason = issue.unavailableDetails?.find(
+          item => item.ref === ref,
+        )?.reason;
+        return { role, ref, reason };
       });
       return { ...issue, unavailable };
     }) ?? [];
@@ -704,9 +708,12 @@ export function PortfolioReport({
                       </Link>
                       <p>
                         {issue.unavailable
-                          .map(({ role, ref }) =>
-                            role ? `${role}: ${ref}` : ref,
-                          )
+                          .map(({ role, ref, reason }) => {
+                            const identity = role ? `${role}: ${ref}` : ref;
+                            return reason
+                              ? `${identity} (${reason})`
+                              : identity;
+                          })
                           .join(' · ')}
                       </p>
                       {issue.availableBackupOwner && (

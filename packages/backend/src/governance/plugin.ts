@@ -467,12 +467,19 @@ export const governancePlugin = createBackendPlugin({
           ];
         }
 
-        async function activeCatalogEntities(
+        function isActiveCatalogEntity(entity: Entity) {
+          return (
+            entity.metadata.annotations?.['governance.backstage.io/active'] !==
+            'false'
+          );
+        }
+
+        async function catalogEntities(
           entityRefs: string[],
           requireCompleteResponse = false,
         ) {
-          const active = new Map<string, Entity>();
-          if (!entityRefs.length) return active;
+          const entities = new Map<string, Entity>();
+          if (!entityRefs.length) return entities;
           const { token } = await auth.getPluginRequestToken({
             onBehalfOf: await auth.getOwnServiceCredentials(),
             targetPluginId: 'catalog',
@@ -498,16 +505,24 @@ export const governancePlugin = createBackendPlugin({
               );
             batch.forEach((ref, index) => {
               const entity = items[index];
-              if (
-                entity &&
-                entity.metadata.annotations?.[
-                  'governance.backstage.io/active'
-                ] !== 'false'
-              )
-                active.set(ref, entity);
+              if (entity) entities.set(ref, entity);
             });
           }
-          return active;
+          return entities;
+        }
+
+        async function activeCatalogEntities(
+          entityRefs: string[],
+          requireCompleteResponse = false,
+        ) {
+          const entities = await catalogEntities(
+            entityRefs,
+            requireCompleteResponse,
+          );
+          for (const [ref, entity] of entities) {
+            if (!isActiveCatalogEntity(entity)) entities.delete(ref);
+          }
+          return entities;
         }
 
         async function unavailableOwners(entityRefs: string[]) {
@@ -800,12 +815,20 @@ export const governancePlugin = createBackendPlugin({
             .map(row => JSON.parse(row.payload) as GovernanceRecord)
             .filter(app => app.lifecycle !== 'retired');
           const refs = [...new Set(apps.flatMap(ownershipRefs))];
-          const unavailable = await unavailableOwners(refs);
+          const entities = await catalogEntities(refs, true);
+          const unavailable = new Map<string, 'missing' | 'inactive'>();
+          for (const ref of refs) {
+            const entity = entities.get(ref);
+            if (!entity) unavailable.set(ref, 'missing');
+            else if (!isActiveCatalogEntity(entity))
+              unavailable.set(ref, 'inactive');
+          }
           const issues = apps.flatMap(app => {
-            const missing = ownershipRefs(app).filter(ref =>
-              unavailable.has(ref),
-            );
-            if (missing.length === 0) return [];
+            const unavailableDetails = ownershipRefs(app).flatMap(ref => {
+              const reason = unavailable.get(ref);
+              return reason ? [{ ref, reason }] : [];
+            });
+            if (unavailableDetails.length === 0) return [];
             const availableBackupOwner =
               unavailable.has(app.owner) &&
               app.backupOwner &&
@@ -816,7 +839,8 @@ export const governancePlugin = createBackendPlugin({
               {
                 appId: app.id,
                 name: app.name,
-                unavailable: missing,
+                unavailable: unavailableDetails.map(({ ref }) => ref),
+                unavailableDetails,
                 availableBackupOwner,
               },
             ];
