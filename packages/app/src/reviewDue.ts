@@ -55,6 +55,13 @@ export function scheduledReviewDate(app: {
   return Number.isFinite(due.getTime()) ? due : undefined;
 }
 
+export function appRecordUrl(baseUrl: string, appId: string) {
+  const url = new URL(baseUrl);
+  url.search = new URLSearchParams({ app: appId }).toString();
+  url.hash = '';
+  return url;
+}
+
 export function reviewCalendar(
   reminders: Array<{
     app: { id: string; name: string; tier: number };
@@ -68,8 +75,7 @@ export function reviewCalendar(
   const events = reminders.flatMap(({ app, due, kind }) => {
     let title = app.tier === 2 ? 'App attestation' : 'App review';
     if (kind === 'hosted-attestation') title = 'Hosted workspace attestation';
-    const recordUrl = new URL(baseUrl);
-    recordUrl.search = new URLSearchParams({ app: app.id }).toString();
+    const recordUrl = appRecordUrl(baseUrl, app.id);
     return [
       'BEGIN:VEVENT',
       `UID:${calendarText(app.id)}-${kind ?? 'review'}@${recordUrl.hostname}`,
