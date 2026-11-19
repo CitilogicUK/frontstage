@@ -1,3 +1,21 @@
+function retryGuidance(response) {
+  if (response.status !== 429 && response.status !== 503) return '';
+  const value = response.headers.get('Retry-After');
+  if (!value) return '';
+  if (/^\d+$/.test(value)) {
+    const seconds = Number(value);
+    return Number.isSafeInteger(seconds) && seconds > 0
+      ? ` Wait ${seconds} ${
+          seconds === 1 ? 'second' : 'seconds'
+        } before trying again.`
+      : '';
+  }
+  const date = new Date(value);
+  return date.getTime() > Date.now() && date.toUTCString() === value
+    ? ` Retry after ${value}.`
+    : '';
+}
+
 export async function runModel(prompt) {
   const expectedEnvironment =
     process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT ?? 'sandbox';
@@ -31,10 +49,23 @@ export async function runModel(prompt) {
   if (!prompt.trim() || prompt.length > 16_000)
     throw new Error('Supply a prompt of 1 to 16,000 characters.');
 
+  const configuredTimeout =
+    process.env.FRONTSTAGE_GATEWAY_TIMEOUT_MS ?? '30000';
+  const timeoutMs = Number(configuredTimeout);
+  if (
+    !/^\d+$/.test(configuredTimeout) ||
+    timeoutMs < 1000 ||
+    timeoutMs > 120000
+  )
+    throw new Error(
+      'Set FRONTSTAGE_GATEWAY_TIMEOUT_MS to an integer from 1000 to 120000.',
+    );
+
+  const signal = AbortSignal.timeout(timeoutMs);
   const response = await fetch(endpoint, {
     method: 'POST',
     redirect: 'error',
-    signal: AbortSignal.timeout(30_000),
+    signal,
     headers: {
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
@@ -44,12 +75,17 @@ export async function runModel(prompt) {
       prompt,
       expectedEnvironment,
     }),
+  }).catch(error => {
+    if (signal.aborted) throw new Error('The gateway request timed out.');
+    throw error;
   });
   const result = await response.json().catch(() => null);
-  if (!response.ok)
-    throw new Error(
-      result?.error?.message ?? `Gateway returned HTTP ${response.status}.`,
-    );
+  if (signal.aborted) throw new Error('The gateway request timed out.');
+  if (!response.ok) {
+    const message =
+      result?.error?.message ?? `Gateway returned HTTP ${response.status}.`;
+    throw new Error(message + retryGuidance(response));
+  }
   if (typeof result?.output !== 'string')
     throw new Error('The gateway did not return a model response.');
   if (result.simulated) process.stderr.write('Simulated gateway response.\n');
