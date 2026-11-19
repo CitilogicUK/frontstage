@@ -1186,6 +1186,61 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
 });
 
+test('owners can filter Inventory to active requests for review changes', async ({
+  page,
+}) => {
+  const owner = 'user:default/owner';
+  const base = {
+    owner,
+    purpose: 'Synthetic review fixture',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    tier: 3,
+    reviewStatus: 'changes needed',
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: owner,
+        canReview: false,
+        apps: [
+          { ...base, id: 'needs-changes', name: 'Needs changes app' },
+          {
+            ...base,
+            id: 'pending',
+            name: 'Pending app',
+            reviewStatus: 'pending',
+          },
+          { ...base, id: 'retired', name: 'Retired app', lifecycle: 'retired' },
+          {
+            ...base,
+            id: 'outside',
+            name: 'Other owner app',
+            owner: 'user:default/another',
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?owner=me');
+  const filter = page.getByLabel('Review status', { exact: true });
+  const enter = page.getByRole('button', { name: 'Enter', exact: true });
+  await expect(filter.or(enter)).toBeVisible();
+  if (await enter.isVisible()) await enter.click();
+  await filter.selectOption('changes');
+  await expect(page).toHaveURL(/review=changes/);
+  await expect(
+    page.getByRole('button', { name: 'Needs changes app' }),
+  ).toBeVisible();
+  for (const name of ['Pending app', 'Retired app', 'Other owner app']) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(
+      0,
+    );
+  }
+});
+
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
 }) => {
