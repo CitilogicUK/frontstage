@@ -256,7 +256,7 @@ The development profile scans public repositories in the Hugging Face organizati
 2. Select **Claim repository** on an unowned entry. You can prefill the form from a valid root `catalog-info.yaml` with an `AIApp` descriptor whose `spec.sourceUrl` matches the repository. Review the prefilled values before submitting. If the file is unavailable or invalid, complete the form manually.
 3. Submit the form. The app appears in Inventory and the Discovery entry becomes **Registered**.
 
-Reviewers can dismiss false positives with a reason and reopen them from the **Dismissed** filter. Dismissals survive rescans. Frontstage records who made each decision and when.
+Reviewers can dismiss false positives with a reason and reopen them from the **Dismissed** filter. Use **Download repositories CSV** to export every repository matching the current search and status, including matches on other pages. The CSV includes repository and linked app URLs. Dismissals survive rescans. Frontstage records who made each decision and when.
 
 Signed-in builders can browse and claim repositories verified as public by Discovery. Reviewers can also work with private repositories that the configured discovery token can read. Rescan older discovery records to verify their visibility.
 
