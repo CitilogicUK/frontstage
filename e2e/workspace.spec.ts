@@ -4440,7 +4440,10 @@ test('Builder guide shows connector approval limits and registry states', async 
     systems.getByLabel('Connected system 1', { exact: true }),
   ).toHaveValue('Catalog search');
   await expect(
-    systems.getByLabel('Connected system 1 access', { exact: true }),
+    systems.getByRole('combobox', {
+      name: 'Connected system 1 access',
+      exact: true,
+    }),
   ).toHaveValue('read');
   await systems
     .getByRole('button', { name: 'Remove connected system 1' })
@@ -4453,7 +4456,7 @@ test('Builder guide shows connector approval limits and registry states', async 
     .getByLabel('Connected system 3', { exact: true })
     .fill(updatedConnections[2].name);
   await systems
-    .getByLabel('Connected system 3 access', { exact: true })
+    .getByRole('combobox', { name: 'Connected system 3 access', exact: true })
     .selectOption('read');
   await details.getByRole('button', { name: 'Save app details' }).click();
   await expect(
