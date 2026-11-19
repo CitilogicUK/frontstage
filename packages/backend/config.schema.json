@@ -23,6 +23,12 @@
           "maximum": 10080,
           "description": "Interval for opening owner retirement reviews based on recorded live gateway activity. Unset disables scheduling."
         },
+        "reviewReminderIntervalMinutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 10080,
+          "description": "Interval in minutes for sending owner inbox reminders for scheduled review renewals and hosted workspace confirmations. Unset disables reminders."
+        },
         "graduationGroups": {
           "type": "array",
           "description": "Active catalog Group entity references allowed to receive Tier 3 ownership transfers. An empty or unset list disables graduation.",

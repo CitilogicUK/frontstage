@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { SchedulerService } from '@backstage/backend-plugin-api';
 import {
+  createServiceMock,
   mockCredentials,
   mockServices,
   startTestBackend,
@@ -8,6 +9,7 @@ import {
 } from '@backstage/backend-test-utils';
 import { CatalogClient } from '@backstage/catalog-client';
 import type { Entity } from '@backstage/catalog-model';
+import { notificationService } from '@backstage/plugin-notifications-node';
 import request from 'supertest';
 import { stringify } from 'yaml';
 import { governancePlugin } from './plugin';
@@ -375,6 +377,195 @@ describe('governance record access', () => {
         }),
       ]),
     );
+  });
+
+  it('sends each scheduled governance reminder to its active owner and retries failed sends', async () => {
+    const owner = 'user:default/owner';
+    const nextOwner = 'user:default/next';
+    const inactiveOwner = 'user:default/inactive';
+    const reviewer = 'user:default/reviewer';
+    const backupOwner = 'user:default/backup';
+    const inactive = new Set<string>();
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
+        })),
+      }));
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
+    const scheduleTask = jest.fn<
+      Promise<void>,
+      Parameters<SchedulerService['scheduleTask']>
+    >();
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.scheduler.mock({ scheduleTask }).factory,
+        notifications.factory,
+        mockServices.rootConfig.factory({
+          data: {
+            app: { baseUrl: 'https://portal.example.com/internal/' },
+            governance: {
+              reviewReminderIntervalMinutes: 15,
+              reviewers: [reviewer],
+            },
+          },
+        }),
+      ],
+    });
+    expect(scheduleTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'governance-review-reminders',
+        scope: 'global',
+        frequency: { minutes: 15 },
+      }),
+    );
+    const api = request(server);
+    const now = Date.now();
+    const day = 86_400_000;
+    const dueAt = (days: number) => new Date(now + days * day).toISOString();
+    const base = {
+      purpose: 'Test scheduled review reminder.',
+      type: 'app',
+      platform: 'GitHub',
+      owner,
+      backupOwner,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'team',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const fixtures = [
+      { name: 'Critical renewal', critical: true },
+      {
+        name: 'Hosted confirmation',
+        type: 'provider-hosted app',
+        audience: 'personal',
+        hosted: {
+          provider: 'Example AI',
+          workspace: 'Company',
+          sharing: 'private',
+          dataAccess: 'none',
+        },
+      },
+      { name: 'Due in a week' },
+      { name: 'Due later' },
+      { name: 'Inactive owner', owner: inactiveOwner },
+      { name: 'Retired' },
+      { name: 'Tier drift' },
+    ];
+    const { body: apps } = await api
+      .post('/api/governance/imports')
+      .set('Authorization', mockCredentials.user.header(reviewer))
+      .send({
+        apps: fixtures.map((fixture, index) => ({
+          ...base,
+          ...fixture,
+          sourceUrl: `https://example.com/reminder-${index}`,
+        })),
+      })
+      .expect(201);
+    const [critical, hosted, renewal, later, inactiveApp, retired, drift] =
+      apps;
+    const savePayload = async (record: { id: string }, changes: object) => {
+      const row = db('governance_apps').where({ id: record.id });
+      const { payload } = await row.clone().first('payload');
+      await row.update({
+        payload: JSON.stringify({ ...JSON.parse(payload), ...changes }),
+      });
+    };
+    await savePayload(critical, {
+      reviewStatus: 'approved',
+      nextReview: dueAt(-3),
+    });
+    await savePayload(hosted, {
+      hostedAttestation: { at: dueAt(-91), nextDue: dueAt(-1) },
+    });
+    await savePayload(renewal, { nextReview: dueAt(7) });
+    await savePayload(later, { nextReview: dueAt(8) });
+    await savePayload(inactiveApp, { nextReview: dueAt(1) });
+    await savePayload(retired, { lifecycle: 'retired', nextReview: dueAt(1) });
+    await savePayload(drift, {
+      tier: 3,
+      reviewStatus: 'approved',
+      nextReview: dueAt(1),
+    });
+    inactive.add(inactiveOwner);
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+    const { fn } = scheduleTask.mock.calls[0][0];
+    const run = () => fn(new AbortController().signal);
+    catalog.mockClear();
+    notifications.send.mockRejectedValueOnce(
+      new Error('temporary notification failure'),
+    );
+    await run();
+    expect(catalog).toHaveBeenCalledTimes(1);
+    expect(catalog.mock.calls[0][0].entityRefs.sort()).toEqual(
+      [inactiveOwner, owner].sort(),
+    );
+    expect(notifications.send.mock.calls).toHaveLength(3);
+    const messages = () =>
+      notifications.send.mock.calls.map(([message]) => message);
+    expect(messages().map(message => message.payload.link)).toEqual(
+      [critical, renewal, hosted].map(
+        app => `https://portal.example.com/internal/?app=${app.id}`,
+      ),
+    );
+    expect(messages().map(message => message.recipients)).toEqual(
+      Array.from({ length: 3 }, () => ({ type: 'entity', entityRef: owner })),
+    );
+    expect(messages().map(message => message.payload.title)).toEqual([
+      'AI app review due',
+      'AI app attestation due',
+      'Hosted workspace confirmation due',
+    ]);
+
+    expect(
+      await db('governance_review_reminders').whereNull('sent_at'),
+    ).toHaveLength(1);
+    const hour = 60 * 60 * 1000;
+    clock.mockReturnValue(now + hour - 1);
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(3);
+
+    inactive.delete(inactiveOwner);
+    clock.mockReturnValue(now + hour);
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(5);
+    expect(messages()[3].recipients).toEqual({
+      type: 'entity',
+      entityRef: inactiveOwner,
+    });
+    expect(messages()[4]).toEqual(messages()[0]);
+    expect(
+      await db('governance_review_reminders').whereNotNull('sent_at'),
+    ).toHaveLength(4);
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(5);
+
+    await savePayload(renewal, { owner: nextOwner });
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(6);
+    expect(messages()[5].recipients).toEqual({
+      type: 'entity',
+      entityRef: nextOwner,
+    });
+    expect(messages()[5].payload.scope).not.toBe(messages()[1].payload.scope);
   });
 
   it('summarizes only the current owner’s active scorecard issues', async () => {

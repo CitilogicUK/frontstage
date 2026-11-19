@@ -17,6 +17,7 @@ const destinations = [
   { label: 'Import', heading: 'Import existing apps' },
   { label: 'Templates', heading: 'App templates' },
   { label: 'Builder guide', heading: 'Builder guide' },
+  { label: 'Notifications', heading: 'Notifications' },
 ];
 
 async function assertWorkspace(page: Page, heading: string, active?: string) {
@@ -34,6 +35,7 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
     'Catalog',
     'Discovery',
     'Reviews',
+    'Notifications',
     'Reports',
     'Import',
     'Templates',
