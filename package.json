@@ -58,6 +58,7 @@
     "@yarnpkg/core": "4.9.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "get-uri/basic-ftp": "6.2.6",
     "refractor@npm:3.6.0/prismjs": "1.30.0"
   },
   "prettier": "@backstage/cli/config/prettier",
