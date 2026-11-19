@@ -5698,7 +5698,53 @@ test('the playground clears a revealed key after environment or ownership change
   const environment = playground.getByRole('combobox', {
     name: 'Gateway key environment',
   });
+  await page.evaluate(() => {
+    const timeout = AbortSignal.timeout;
+    AbortSignal.timeout = ms => {
+      if (ms !== 75_000) return timeout(ms);
+      AbortSignal.timeout = timeout;
+      return AbortSignal.abort(
+        new DOMException('Synthetic deadline', 'TimeoutError'),
+      );
+    };
+  });
+  await send.click();
+  await expect(
+    playground.getByRole('alert').filter({
+      hasText: 'The gateway request timed out.',
+    }),
+  ).toBeVisible();
+  await expect(send).toBeEnabled();
+
+  await page.evaluate(() => {
+    const originalFetch = window.fetch;
+    window.fetch = (input, options) => {
+      if (!String(input).endsWith('/gateway/chat'))
+        return originalFetch(input, options);
+      window.fetch = originalFetch;
+      document.documentElement.dataset.gatewayPrompt = 'waiting';
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          'abort',
+          () => {
+            document.documentElement.dataset.gatewayPrompt = 'cancelled';
+            reject(options.signal?.reason);
+          },
+          { once: true },
+        );
+      });
+    };
+  });
+  await send.click();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-gateway-prompt',
+    'waiting',
+  );
   await environment.selectOption('production');
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-gateway-prompt',
+    'cancelled',
+  );
   await expect(revealed).toHaveCount(0);
   await issue.click();
   await playground.getByRole('button', { name: 'Show key' }).click();
