@@ -595,10 +595,13 @@ export function GovernancePage() {
   }>();
 
   const appEditorKey = `${selected?.id}-edit-${selected?.updatedAt}`;
+  const connectionsEditorRequested = params.get('edit') === 'connections';
+  const appEditorRequested =
+    connectionsEditorRequested || params.get('edit') === '1';
   const appEditorOpen =
     appEditorToggle?.key === appEditorKey
       ? appEditorToggle.open
-      : params.get('edit') === '1';
+      : appEditorRequested;
   const decisionField = useRef<HTMLSelectElement>(null);
   const [reviewDecision, setReviewDecision] = useState<{
     appId: string;
@@ -705,14 +708,16 @@ export function GovernancePage() {
   }, [selected]);
   const dialog = useRef<HTMLDialogElement>(null);
   const editorSummary = useRef<HTMLElement>(null);
+  const connectionsEditor = useRef<HTMLFieldSetElement>(null);
   const ticketEditor = useRef<HTMLDetailsElement>(null);
   const selectedAppId = selected?.id;
-  const appEditorRequested = params.get('edit') === '1';
 
   useEffect(() => {
     if (selectedAppId) {
       dialog.current?.showModal();
-      if (appEditorRequested) editorSummary.current?.focus();
+      if (connectionsEditorRequested && connectionsEditor.current)
+        connectionsEditor.current.focus();
+      else if (appEditorRequested) editorSummary.current?.focus();
       else if (ticketEditorRequested && ticketEditor.current) {
         ticketEditor.current.open = true;
         ticketEditor.current.querySelector('summary')?.focus();
@@ -724,7 +729,12 @@ export function GovernancePage() {
         reviewStatusSelect.current?.focus();
       }
     }
-  }, [selectedAppId, appEditorRequested, ticketEditorRequested]);
+  }, [
+    selectedAppId,
+    appEditorRequested,
+    connectionsEditorRequested,
+    ticketEditorRequested,
+  ]);
 
   const api = useCallback(
     async (
@@ -2910,7 +2920,10 @@ export function GovernancePage() {
                       gateway key.
                     </p>
                   )}
-                  <EditConnections connections={selected.connections} />
+                  <EditConnections
+                    connections={selected.connections}
+                    fieldsetRef={connectionsEditor}
+                  />
                   <fieldset className="gov-fieldset">
                     <legend>Review evidence</legend>
                     {evidenceFields.map(([field, label]) => (
