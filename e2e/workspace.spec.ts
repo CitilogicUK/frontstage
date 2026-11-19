@@ -1221,6 +1221,11 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.first()).toContainText('Another owner’s app');
   await expect(rows.last()).toContainText('Overdue app');
 
+  await page.route('**/api/governance/apps/overdue/gateway-key', route =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ status: 201, json: { key: 'synthetic-sandbox-key' } })
+      : route.fallback(),
+  );
   await page.route('**/api/governance/apps/overdue/attestation', route => {
     expect(route.request().postDataJSON()).toEqual({
       confirmed: true,
@@ -1240,9 +1245,22 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     exact: false,
   });
   await expect(pause).toBeVisible();
+  await playground.getByRole('button', { name: 'Issue gateway key' }).click();
+  await expect(
+    playground.getByText('Gateway key issued and hidden.'),
+  ).toBeVisible();
+  await playground
+    .getByRole('textbox', { name: 'Prompt' })
+    .fill('Synthetic prompt');
+  const send = playground.getByRole('button', { name: 'Send prompt' });
+  await expect(send).toBeDisabled();
+  await expect(
+    playground.getByRole('button', { name: 'Refresh usage' }),
+  ).toBeVisible();
   await sharedApp.getByRole('checkbox', { name: /I confirm/ }).check();
   await sharedApp.getByRole('button', { name: 'Record attestation' }).click();
   await expect(pause).toHaveCount(0);
+  await expect(send).toBeEnabled();
   await expect(
     sharedApp.getByText('Owner attestation recorded.'),
   ).toBeVisible();
