@@ -242,10 +242,7 @@ describe('governance record access', () => {
         ref === owner ? (false as unknown as Entity) : catalogEntity(ref),
       ),
     }));
-    await status(shared.id).expect(200, {
-      available: false,
-      backupRequired: true,
-    });
+    await status(shared.id).expect(503);
     catalog.mockImplementationOnce(async ({ entityRefs }) => ({
       items: entityRefs.map(ref =>
         ref === owner ? (false as unknown as Entity) : catalogEntity(ref),
@@ -269,10 +266,7 @@ describe('governance record access', () => {
     await takeOwnership(shared.id, before, replacement).expect(409);
     inactive.delete(backup);
     catalog.mockRejectedValueOnce(new Error('Catalog not available'));
-    await status(shared.id).expect(200, {
-      available: false,
-      backupRequired: true,
-    });
+    await status(shared.id).expect(503);
     catalog.mockRejectedValueOnce(new Error('Catalog not available'));
     await takeOwnership(shared.id, before, replacement).expect(503);
     await status(shared.id).expect(200, {

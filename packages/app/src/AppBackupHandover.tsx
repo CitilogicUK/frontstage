@@ -25,6 +25,7 @@ export function AppBackupHandover({
   const [open, setOpen] = useState(false);
   const [availability, setAvailability] = useState<HandoverAvailability>();
   const [failed, setFailed] = useState(false);
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export function AppBackupHandover({
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [appId, discovery, fetch, open, updatedAt]);
+  }, [appId, checkAttempt, discovery, fetch, open, updatedAt]);
 
   return (
     <details
@@ -59,7 +60,17 @@ export function AppBackupHandover({
       <summary>Backup owner handover</summary>
       {open && (
         <>
-          {failed && <p role="alert">Handover availability could not load.</p>}
+          {failed && (
+            <>
+              <p role="alert">Handover availability could not load.</p>
+              <button
+                type="button"
+                onClick={() => setCheckAttempt(attempt => attempt + 1)}
+              >
+                Retry handover check
+              </button>
+            </>
+          )}
           {!failed && !availability && (
             <p role="status">Checking handover availability…</p>
           )}

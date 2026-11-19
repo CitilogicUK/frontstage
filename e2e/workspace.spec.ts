@@ -2482,6 +2482,7 @@ test('a backup owner can confirm handover when the app is eligible', async ({
     updatedAt: '2025-05-01T00:00:00.000Z',
   };
   let available = false;
+  let catalogUnavailable = true;
 
   await page.route('**/api/governance/apps', route =>
     route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
@@ -2491,6 +2492,7 @@ test('a backup owner can confirm handover when the app is eligible', async ({
     route => {
       const request = route.request();
       if (request.method() === 'GET') {
+        if (catalogUnavailable) return route.fulfill({ status: 503 });
         return route.fulfill({ json: { available, backupRequired: true } });
       }
       expect(available).toBe(true);
@@ -2522,6 +2524,12 @@ test('a backup owner can confirm handover when the app is eligible', async ({
     'Backup handover is unavailable for this app.',
   );
   await handover.click();
+  await expect(details.getByRole('alert')).toHaveText(
+    'Handover availability could not load.',
+  );
+  await expect(take).toHaveCount(0);
+  catalogUnavailable = false;
+  await details.getByRole('button', { name: 'Retry handover check' }).click();
   await expect(unavailable).toBeVisible();
   await expect(take).toHaveCount(0);
   await handover.click();

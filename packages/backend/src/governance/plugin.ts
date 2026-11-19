@@ -1643,11 +1643,8 @@ export const governancePlugin = createBackendPlugin({
             record.lifecycle !== 'retired' &&
             !isAcceptedCoOwner(record, actor)
           ) {
-            const active = await handoverCatalog(record, actor).catch(
-              () => undefined,
-            );
-            if (active)
-              available = backupCanTakeOwnership(record, actor, active);
+            const active = await handoverCatalog(record, actor);
+            available = backupCanTakeOwnership(record, actor, active);
           }
           res
             .set('Cache-Control', 'no-store')
