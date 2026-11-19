@@ -13,11 +13,12 @@ const sourceUrl = z
   .url()
   .refine(value => /^https?:\/\//i.test(value));
 
+export const reviewTicketUrlInput = sourceUrl.nullable();
+
 const appFields = z.object({
   name: requiredText.max(100),
   purpose: requiredText.max(1000),
-  reviewTicketUrl: sourceUrl
-    .nullable()
+  reviewTicketUrl: reviewTicketUrlInput
     .transform(value => value ?? undefined)
     .optional(),
   evidence: z

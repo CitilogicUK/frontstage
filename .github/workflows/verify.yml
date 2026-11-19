@@ -4,6 +4,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      use_local_runner:
+        description: Use the repository's frontstage-local runner (start it before dispatch)
+        type: boolean
+        default: true
+      verification_ref:
+        description: Local runner only. Trusted branch or commit to verify (defaults to the dispatch commit)
+        type: string
+        required: false
   push:
     branches: [main]
 
@@ -12,12 +21,17 @@ permissions:
 
 jobs:
   verify:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    # Route the prototype PR to the repository runner while hosted minutes are unavailable.
-    runs-on: ${{ ((github.event_name == 'pull_request' && github.head_ref == 'frontstage-prototype-baseline' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref_name == 'frontstage-prototype-baseline')) && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.FRONTSTAGE_AUTOMATIC_VERIFICATION == 'enabled' &&
+       (github.event_name != 'pull_request' || !github.event.pull_request.draft))
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.use_local_runner && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.use_local_runner && inputs.verification_ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24.15.0
