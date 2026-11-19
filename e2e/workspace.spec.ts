@@ -277,6 +277,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
 }) => {
   const actor = 'user:default/demo-owner';
+  let viewer = actor;
   const base = {
     owner: actor,
     purpose: 'Synthetic inventory fixture',
@@ -293,8 +294,8 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
-        actor,
-        canReview: false,
+        actor: viewer,
+        canReview: viewer !== actor,
         gatewayEnabled: true,
         apps: [
           {
@@ -435,9 +436,8 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(
     page.getByText('App link copied.', { exact: true }),
   ).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    `${workspaceUrl}/?app=overdue`,
-  );
+  const copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedLink).toBe(`${workspaceUrl}/?app=overdue`);
 
   await page.evaluate(() => {
     Object.defineProperty(navigator.clipboard, 'writeText', {
@@ -649,6 +649,14 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page.getByText('No matching apps')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows).toHaveCount(4);
+
+  viewer = 'user:default/reviewer';
+  await page.goto(copiedLink);
+  const sharedApp = page.getByRole('dialog', { name: 'Overdue app' });
+  await expect(sharedApp).toBeVisible();
+  await expect(
+    sharedApp.getByRole('button', { name: 'Record attestation' }),
+  ).toHaveCount(0);
 });
 
 test('reviewers can download the spreadsheet import sample', async ({
