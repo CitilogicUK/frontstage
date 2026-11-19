@@ -1932,7 +1932,6 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     blockReport.getByRole('link', { name: renewal.name }),
   ).toHaveCount(0);
-  await searchBlocks.clear();
   const blockReason = blockReport.getByRole('combobox', {
     name: 'Block reason',
   });
@@ -1940,6 +1939,12 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(page).toHaveURL(/blockReason=review/);
   await page.reload();
   await expect(blockReason).toHaveValue('review');
+  await expect(searchBlocks).toHaveValue('missing-app');
+  await expect(
+    blockReport.getByText('No matching policy blocks'),
+  ).toBeVisible();
+  await searchBlocks.clear();
+  await expect(page).not.toHaveURL(/blockApp=/);
   await expect(
     blockReport.getByText(
       'Open the app record and resolve any outstanding review requirements.',
