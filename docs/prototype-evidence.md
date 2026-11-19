@@ -20,6 +20,10 @@ The AI App Governance Platform spec describes four phases. Frontstage demonstrat
 - **Automation.** Select the ticketing system and hosted provider for the pilot, then verify their supported permissions and interfaces. The prototype supports linked tickets and copied review context, plus uploaded hosted inventory and outside-gateway usage reconciliations. Automatic ticket creation, provider controls, and bypass detection still require integration evidence. [Review evidence](../README.md#review-evidence) · [Hosted inventory](../README.md#reconcile-a-hosted-provider-inventory)
 - **Scale.** Test the Directory decision flow with an actual destination access workflow and agree who fulfils requests. Validate co-ownership and retirement against the pilot organisation’s lifecycle policy. The prototype supports owner decisions, audit history and Engineering co-ownership. [Engineering co-ownership](../README.md#engineering-co-ownership) · [App directory](../README.md#app-directory)
 
+## Verified local baseline
+
+On 19 November 2026, revision `db54ea5` passed `yarn verify` under Node.js 24. The run covered code checks, the Backstage build, and 69 passing desktop and phone browser tests. The gateway contract ran once on desktop because it is independent of viewport. A Docker image built from the same revision passed the PostgreSQL 17 startup, restart, and logical restore checks. The image test verifies the GitHub OAuth redirect with placeholder credentials. [Commit verification](https://github.com/CitilogicUK/frontstage/commit/db54ea5)
+
 ## Pilot deployment verification
 
 Use one row per requirement when recording pilot results. Capture the Frontstage revision, environment, date, result, and an evidence link. Keep credentials and real prompt or response content out of the evidence bundle.
