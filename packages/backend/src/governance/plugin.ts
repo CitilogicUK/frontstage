@@ -2675,6 +2675,14 @@ export const governancePlugin = createBackendPlugin({
             },
           };
           await save(updated, revision, principal, 'graduation-requested');
+          await sendGovernanceNotification({
+            recipient: input.data.nominee,
+            title: 'Engineering co-owner nomination',
+            description:
+              'Open the app in Inventory to respond to the nomination.',
+            search: `?app=${encodeURIComponent(record.id)}`,
+            scope: `governance-graduation-nomination-${record.id}-${updatedAt}`,
+          });
           res.json(visibleRecord(updated, principal));
         });
 
