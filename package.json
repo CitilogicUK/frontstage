@@ -31,6 +31,7 @@
     "test:starters": "node --test \"packages/app/public/starters/**/*.test.mjs\"",
     "verify:code": "backstage-cli config:check --config app-config.yaml --config app-config.development.yaml --config app-config.reviewer.yaml && yarn tsc --noEmit && yarn lint:all && yarn test --watch=false --runInBand && yarn test:starters && yarn test:audit && yarn test:mcp && yarn test:gateway-probe && yarn test:pilot-roles",
     "verify": "yarn verify:code && yarn build:all && yarn test:e2e",
+    "verify:pilot": "sh scripts/verify-pilot.sh",
     "demo:seed": "node scripts/seed-gateway-demo.mjs",
     "audit:verify": "node scripts/verify-audit.mjs"
   },
