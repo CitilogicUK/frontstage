@@ -106,6 +106,7 @@ const scenarios = [
   {
     ...software,
     name: 'Stock count proof of concept',
+    starterId: 'data-validation',
     purpose:
       'Reconciles synthetic inventory spreadsheets without calling models.',
     sourceUrl: 'https://example.com/frontstage-demo/stock-count',
@@ -116,6 +117,7 @@ const scenarios = [
   {
     ...software,
     name: 'Purchase order pilot',
+    starterId: 'internal-api',
     purpose:
       'Demonstrates submitting purchase orders to a sandbox without calling models.',
     sourceUrl: 'https://example.com/frontstage-demo/purchase-orders',
@@ -129,6 +131,7 @@ const scenarios = [
   {
     ...base,
     name: 'Meeting summary demo',
+    starterId: 'gateway-assistant',
     purpose: 'Summarizes synthetic notes from an internal meeting.',
     sourceUrl: 'https://example.com/frontstage-demo/meeting-summary',
     classification: 'internal',

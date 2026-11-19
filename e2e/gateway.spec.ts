@@ -1173,17 +1173,20 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       expect.arrayContaining([
         expect.objectContaining({
           name: 'Stock count proof of concept',
+          starterId: 'data-validation',
           tier: 1,
           usesAiAtRuntime: false,
         }),
         expect.objectContaining({
           name: 'Purchase order pilot',
+          starterId: 'internal-api',
           tier: 3,
           usesAiAtRuntime: false,
           reviewStatus: 'pending',
         }),
         expect.objectContaining({
           name: 'Meeting summary demo',
+          starterId: 'gateway-assistant',
           lifecycle: 'active',
         }),
         expect.objectContaining({
@@ -1193,6 +1196,12 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         }),
       ]),
     );
+    const hostedRecords = seeded.filter(
+      (record: { type: string }) => record.type === 'provider-hosted app',
+    );
+    expect(hostedRecords).toHaveLength(2);
+    for (const record of hostedRecords)
+      expect(record).not.toHaveProperty('starterId');
     const hostedSnapshot = JSON.parse(
       await readFile(
         resolve(backendRoot, '../app/public/examples/hosted-inventory.json'),
