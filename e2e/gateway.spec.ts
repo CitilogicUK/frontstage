@@ -1453,7 +1453,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         'utf8',
       ),
     );
-    const hostedDemo = seeded.find(
+    const expectedUsageMatch = seeded.find(
       (record: { name: string }) => record.name === 'Hosted workspace demo',
     );
     const usagePreview = await request.post(
@@ -1466,8 +1466,8 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       rows: [
         {
           ...usageSample.rows[0],
-          appId: hostedDemo.id,
-          appName: hostedDemo.name,
+          appId: expectedUsageMatch.id,
+          appName: expectedUsageMatch.name,
         },
         usageSample.rows[1],
       ],
