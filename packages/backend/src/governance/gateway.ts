@@ -788,6 +788,22 @@ export function registerGatewayRoutes(options: {
         status: approved,
         detail,
       });
+      const nextDue = record.hostedAttestation?.nextDue;
+      const current = !!nextDue && Date.parse(nextDue) > Date.now();
+      let attestationDetail = 'Workspace attestation is due from the app owner.';
+      if (record.lifecycle === 'retired')
+        attestationDetail = 'The app is retired.';
+      else if (nextDue) {
+        const date = nextDue.slice(0, 10);
+        attestationDetail = current
+          ? `Current through ${date} UTC.`
+          : `Overdue since ${date} UTC.`;
+      }
+      checks.push({
+        name: 'Hosted workspace attestation',
+        status: record.lifecycle === 'retired' ? null : current,
+        detail: attestationDetail,
+      });
     } else {
       const modelFree = record.usesAiAtRuntime === false;
       checks.push({

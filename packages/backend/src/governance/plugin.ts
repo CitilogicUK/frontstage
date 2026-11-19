@@ -1,3 +1,10 @@
+import {
+  directoryRequestsMigration,
+  directoryRequestsTable,
+  directoryRequestView,
+  type DirectoryRequestRow,
+} from './directoryRequests';
+import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import { appSourceKey, repositorySourceMigration } from './sourceKey';
@@ -19,6 +26,7 @@ import {
   InputError,
   NotAllowedError,
   NotFoundError,
+  ServiceUnavailableError,
 } from '@backstage/errors';
 import express from 'express';
 import Router from 'express-promise-router';
@@ -62,6 +70,7 @@ import {
   effectiveClassification,
   nextReview,
   ReviewStatus,
+  reviewTicketUrlInput,
   riskInput,
   tierPolicyInput,
 } from './policy';
@@ -70,6 +79,19 @@ const importInput = z.union([
   z.object({ apps: z.array(z.unknown()).min(1).max(100) }).strict(),
   z.object({ csv: z.string().min(1).max(500_000) }).strict(),
 ]);
+
+const reviewTicketPatchInput = z.object({
+  url: z.preprocess(
+    value => (typeof value === 'string' ? value.trim() : value),
+    reviewTicketUrlInput.refine(value => {
+      if (value === null) return true;
+      if (value.length > 2048 || !URL.canParse(value)) return false;
+      const { username, password } = new URL(value);
+      return !username && !password;
+    }),
+  ),
+  expectedUpdatedAt: z.string().datetime(),
+});
 
 type RenewalException = {
   reason: string;
@@ -98,12 +120,18 @@ type Graduation = {
   | { status: 'accepted' | 'declined'; decidedAt: string; reason?: string }
 );
 
+function isAcceptedCoOwner(record: GovernanceRecord, actor: string) {
+  return (
+    record.graduation?.status === 'accepted' &&
+    record.graduation.nominee === actor
+  );
+}
+
 function isIndependentReviewer(record: GovernanceRecord, reviewer: string) {
   return (
     reviewer !== record.owner &&
     reviewer !== record.backupOwner &&
-    (record.graduation?.status !== 'accepted' ||
-      reviewer !== record.graduation.nominee)
+    !isAcceptedCoOwner(record, reviewer)
   );
 }
 
@@ -119,6 +147,7 @@ type RecordAction =
   | 'updated'
   | 'reviewed'
   | 'attested'
+  | 'hosted-attested'
   | 'renewal-exception-granted'
   | 'renewal-exception-revoked'
   | 'retirement-review-requested'
@@ -127,10 +156,20 @@ type RecordAction =
   | 'graduation-requested'
   | 'graduation-accepted'
   | 'graduation-declined'
-  | 'graduation-cancelled';
+  | 'graduation-cancelled'
+  | 'graduation-ended'
+  | 'directory-published'
+  | 'directory-unpublished'
+  | 'review-ticket-updated'
+  | 'ownership-handover';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
+const hostedAttestationIntervalMs = 90 * 86_400_000;
+const attestationInput = z.object({
+  confirmed: z.literal(true),
+  expectedUpdatedAt: z.string().datetime(),
+});
 
 function recordActor(
   principal: BackstageUserPrincipal | BackstageServicePrincipal,
@@ -158,10 +197,23 @@ export type GovernanceRecord = AppInput & {
   activeSince?: string;
   reviewNotes?: string;
   signoffs?: Signoffs;
+  hostedAttestation?: { at: string; nextDue: string };
   renewalException?: RenewalException;
   retirementReview?: RetirementReview;
   graduation?: Graduation;
+  directoryListing?: { summary: string; url: string };
 };
+
+function directoryListingAfterEdit(
+  previous: GovernanceRecord,
+  current: GovernanceRecord,
+) {
+  return previous.owner === current.owner &&
+    previous.lifecycle === 'active' &&
+    current.lifecycle === 'active'
+    ? previous.directoryListing
+    : undefined;
+}
 
 function activeSinceAfterEdit(
   previous: GovernanceRecord,
@@ -181,13 +233,29 @@ function isGraduationStage(record: GovernanceRecord) {
   );
 }
 
+function assertCanClearGraduation(
+  record: GovernanceRecord,
+  principal: BackstageUserPrincipal | BackstageServicePrincipal,
+) {
+  if (
+    principal.type === 'user' &&
+    record.graduation?.status === 'accepted' &&
+    record.graduation.nominee === principal.userEntityRef
+  )
+    throw new NotAllowedError(
+      'An accepted engineering co-owner cannot end their own handoff.',
+    );
+}
+
 function graduationAfterEdit(
   previous: GovernanceRecord,
   current: GovernanceRecord,
+  principal: BackstageUserPrincipal | BackstageServicePrincipal,
 ) {
-  return previous.owner === current.owner && isGraduationStage(current)
-    ? previous.graduation
-    : undefined;
+  if (previous.owner === current.owner && isGraduationStage(current))
+    return previous.graduation;
+  assertCanClearGraduation(previous, principal);
+  return undefined;
 }
 
 function retirementReviewAfterEdit(
@@ -316,6 +384,7 @@ export const governancePlugin = createBackendPlugin({
             '012_gateway_key_audit',
             '013_repository_source_keys',
             '014_discovery_visibility',
+            '015_directory_requests',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -323,6 +392,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '015_directory_requests')
+              return directoryRequestsMigration(table);
             if (name === '014_discovery_visibility')
               return discoveryVisibilityMigration();
             if (name === '003_gateway') return gatewayMigration(table);
@@ -396,7 +467,10 @@ export const governancePlugin = createBackendPlugin({
           ];
         }
 
-        async function activeCatalogEntities(entityRefs: string[]) {
+        async function activeCatalogEntities(
+          entityRefs: string[],
+          requireCompleteResponse = false,
+        ) {
           const active = new Map<string, Entity>();
           if (!entityRefs.length) return active;
           const { token } = await auth.getPluginRequestToken({
@@ -409,6 +483,19 @@ export const governancePlugin = createBackendPlugin({
               { entityRefs: batch },
               { token },
             );
+            if (
+              requireCompleteResponse &&
+              (items.length !== batch.length ||
+                items.some(
+                  (entity, index) =>
+                    entity !== null &&
+                    entity !== undefined &&
+                    stringifyEntityRef(entity) !== batch[index],
+                ))
+            )
+              throw new ServiceUnavailableError(
+                'Catalog returned an incomplete ownership lookup.',
+              );
             batch.forEach((ref, index) => {
               const entity = items[index];
               if (
@@ -492,11 +579,26 @@ export const governancePlugin = createBackendPlugin({
           );
         }
 
+        function workspaceMeetsLaunchRequirements(app: AppInput) {
+          return (
+            app.type !== 'provider-hosted app' ||
+            hostedWorkspaceApproved(app) !== false
+          );
+        }
+
+        function withHostedWorkspaceStatus(record: GovernanceRecord) {
+          return record.type === 'provider-hosted app'
+            ? {
+                ...record,
+                hostedWorkspaceAllowed: hostedWorkspaceApproved(record),
+              }
+            : record;
+        }
+
         function assertHostedWorkspaceForLaunch(app: AppInput) {
           if (
             app.lifecycle === 'active' &&
-            app.type === 'provider-hosted app' &&
-            hostedWorkspaceApproved(app) === false
+            !workspaceMeetsLaunchRequirements(app)
           ) {
             throw new InputError(
               'Choose an approved provider workspace before activating this app.',
@@ -540,6 +642,7 @@ export const governancePlugin = createBackendPlugin({
           lifecycleReason?: string,
           renewalException?: RenewalException,
           graduationNominee?: string,
+          graduationReason?: string,
         ) {
           const previous = await transaction(history)
             .where({ app_id: record.id, revision: revision - 1 })
@@ -552,6 +655,7 @@ export const governancePlugin = createBackendPlugin({
             lifecycleReason,
             renewalException,
             graduationNominee,
+            graduationReason,
             record,
           });
           await transaction(history).insert({
@@ -625,12 +729,14 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             expectedRetirementActivity,
             graduationNominee,
+            graduationReason,
           }: {
             ownerChanged?: boolean;
             lifecycleReason?: string;
             renewalException?: RenewalException;
             expectedRetirementActivity?: string;
             graduationNominee?: string;
+            graduationReason?: string;
           } = {},
         ) {
           await db.transaction(async transaction => {
@@ -678,6 +784,7 @@ export const governancePlugin = createBackendPlugin({
               lifecycleReason,
               renewalException,
               graduationNominee,
+              graduationReason,
             );
           });
         }
@@ -795,8 +902,20 @@ export const governancePlugin = createBackendPlugin({
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
         ) {
           const now = Date.now();
+          const canManageDirectory =
+            principal.type === 'user' &&
+            (principal.userEntityRef === record.owner ||
+              reviewers.includes(principal.userEntityRef));
           const result = {
-            ...record,
+            ...(principal.type === 'user'
+              ? withHostedWorkspaceStatus(record)
+              : record),
+            directoryListing: canManageDirectory
+              ? record.directoryListing
+              : undefined,
+            directoryLaunchEligible: canManageDirectory
+              ? canPublishInDirectory(record, now)
+              : undefined,
             effectiveClassification: effectiveClassification(record),
             ...(trackConfig &&
               record.tier === 3 && {
@@ -922,6 +1041,285 @@ export const governancePlugin = createBackendPlugin({
             );
           }
         }
+
+        function canPublishInDirectory(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          return (
+            record.lifecycle === 'active' &&
+            meetsLaunchRequirements(record, now) &&
+            workspaceMeetsLaunchRequirements(record)
+          );
+        }
+
+        function eligibleDirectoryListing(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          return canPublishInDirectory(record, now)
+            ? record.directoryListing
+            : undefined;
+        }
+
+        async function hasEligibleDirectoryListing(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          if (!eligibleDirectoryListing(record, now)) return false;
+          try {
+            return await ownersAreActive(record);
+          } catch {
+            throw new ServiceUnavailableError(
+              'Catalog ownership could not be verified. Retry when catalog is available.',
+            );
+          }
+        }
+
+        router.get('/directory', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const now = Date.now();
+          const [rows, ownRequests] = await Promise.all([
+            db(table).select('payload'),
+            db<DirectoryRequestRow>(directoryRequestsTable)
+              .where({ requester: principal.userEntityRef })
+              .select('app_id', 'status'),
+          ]);
+          const ownStatuses = new Map(
+            ownRequests.map(row => [row.app_id, row.status]),
+          );
+          const candidates = rows
+            .map(row => JSON.parse(row.payload) as GovernanceRecord)
+            .flatMap(record => {
+              const listing = eligibleDirectoryListing(record, now);
+              return listing ? [{ record, listing }] : [];
+            });
+          const unavailable = await unavailableOwners([
+            ...new Set(
+              candidates.flatMap(({ record }) => ownershipRefs(record)),
+            ),
+          ]);
+          const apps = candidates
+            .flatMap(({ record, listing }) => {
+              if (ownershipRefs(record).some(ref => unavailable.has(ref)))
+                return [];
+              const { summary, url } = listing;
+              return [
+                {
+                  id: record.id,
+                  name: record.name,
+                  summary,
+                  url,
+                  requestStatus: ownStatuses.get(record.id),
+                },
+              ];
+            })
+            .sort(
+              (a, b) =>
+                a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+            );
+          res.set('Cache-Control', 'no-store').json({ apps });
+        });
+
+        function assertCurrentDirectoryRecord(
+          record: GovernanceRecord,
+          expectedUpdatedAt: string,
+        ) {
+          if (record.updatedAt !== expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before changing its directory listing.',
+            );
+        }
+
+        router.put('/apps/:id/directory', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              summary: z.string().trim().min(1).max(500),
+              url: z.string().max(2048).refine(isHttpsUrlWithoutCredentials),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide a summary of up to 500 characters, an HTTPS URL of up to 2,048 characters without credentials, and the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          const { summary, url, expectedUpdatedAt } = input.data;
+          assertCurrentDirectoryRecord(record, expectedUpdatedAt);
+          if (!canPublishInDirectory(record))
+            throw new InputError(
+              'Resolve the current launch requirements before publishing an active app.',
+            );
+          await validateOwners(record);
+          const updated: GovernanceRecord = {
+            ...record,
+            directoryListing: { summary, url },
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'directory-published');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
+
+        router.delete('/apps/:id/directory', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const timestamp = z
+            .string()
+            .datetime()
+            .safeParse(req.body?.expectedUpdatedAt);
+          if (!timestamp.success)
+            throw new InputError('Provide the current app timestamp.');
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          assertCurrentDirectoryRecord(record, timestamp.data);
+          if (!record.directoryListing)
+            throw new NotFoundError('This app has no directory listing.');
+          const updated: GovernanceRecord = {
+            ...record,
+            directoryListing: undefined,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'directory-unpublished');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
+        });
+
+        router.post('/apps/:id/directory-requests', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const message = z
+            .string()
+            .trim()
+            .min(1)
+            .max(500)
+            .safeParse(req.body?.message);
+          if (!message.success)
+            throw new InputError(
+              'Provide an access request message of up to 500 characters.',
+            );
+          const created = await db.transaction(async transaction => {
+            const { record } = await load(req.params.id, transaction);
+            const now = Date.now();
+            if (!(await hasEligibleDirectoryListing(record, now)))
+              throw new NotFoundError(
+                'This app has no current directory listing.',
+              );
+            const [row] = await transaction<DirectoryRequestRow>(
+              directoryRequestsTable,
+            )
+              .insert({
+                id: randomUUID(),
+                app_id: record.id,
+                requester: principal.userEntityRef,
+                message: message.data,
+                status: 'pending',
+                requested_at: new Date(now).toISOString(),
+              })
+              .onConflict(['app_id', 'requester'])
+              .ignore()
+              .returning(['id', 'status']);
+            if (!row)
+              throw new ConflictError(
+                'You already have an access request for this app.',
+              );
+            return row;
+          });
+          res.set('Cache-Control', 'no-store').status(201).json(created);
+        });
+
+        router.get('/apps/:id/directory-requests', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const queue = await db.transaction(async transaction => {
+            const { record } = await load(req.params.id, transaction);
+            assertCanEdit(record, principal);
+            const requests = await transaction<DirectoryRequestRow>(
+              directoryRequestsTable,
+            )
+              .where({ app_id: record.id })
+              .orderBy('requested_at', 'desc')
+              .orderBy('id');
+            const canApprove = await hasEligibleDirectoryListing(record).catch(
+              () => undefined,
+            );
+            return {
+              requests: requests.map(directoryRequestView),
+              canApprove: canApprove === true,
+              ...(canApprove === undefined && {
+                approvalCheckUnavailable: true,
+              }),
+            };
+          });
+          res.set('Cache-Control', 'no-store').json(queue);
+        });
+
+        router.patch(
+          '/apps/:id/directory-requests/:requestId',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            const input = z
+              .enum(['approved', 'declined'])
+              .safeParse(req.body?.status);
+            if (!input.success)
+              throw new InputError(
+                'Choose whether to approve or decline the request.',
+              );
+            const saved = await db.transaction(async transaction => {
+              const { record } = await load(req.params.id, transaction);
+              assertCanEdit(record, principal);
+              const request = transaction<DirectoryRequestRow>(
+                directoryRequestsTable,
+              ).where({ app_id: record.id, id: req.params.requestId });
+              const current = await request.clone().first('status');
+              if (!current)
+                throw new NotFoundError(
+                  'This app has no matching access request.',
+                );
+              if (current.status !== 'pending')
+                throw new ConflictError(
+                  'This access request has already been decided.',
+                );
+              const now = Date.now();
+              if (
+                input.data === 'approved' &&
+                !(await hasEligibleDirectoryListing(record, now))
+              )
+                throw new ConflictError(
+                  'This app no longer has an eligible directory listing.',
+                );
+              const [updated] = await request
+                .where({ status: 'pending' })
+                .update({
+                  status: input.data,
+                  decided_at: new Date(now).toISOString(),
+                  decided_by: principal.userEntityRef,
+                })
+                .returning('*');
+              if (!updated)
+                throw new ConflictError(
+                  'This access request has already been decided.',
+                );
+              return updated;
+            });
+            res
+              .set('Cache-Control', 'no-store')
+              .json(directoryRequestView(saved));
+          },
+        );
 
         router.get('/apps', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
@@ -1098,7 +1496,7 @@ export const governancePlugin = createBackendPlugin({
             id: req.params.id,
             includePrivate,
           });
-          res.status(201).json(record);
+          res.status(201).json(withHostedWorkspaceStatus(record));
         });
 
         router.post('/apps', async (req, res) => {
@@ -1118,7 +1516,7 @@ export const governancePlugin = createBackendPlugin({
           await validateOwners(app);
           const record = buildRecord(app, 'registered');
           await insert([record], principal);
-          res.status(201).json(record);
+          res.status(201).json(withHostedWorkspaceStatus(record));
         });
 
         function isImportPreview(value: unknown) {
@@ -1193,7 +1591,7 @@ export const governancePlugin = createBackendPlugin({
             return;
           }
           await insert([record], principal);
-          res.status(201).json(record);
+          res.status(201).json(withHostedWorkspaceStatus(record));
         });
 
         router.post('/imports', async (req, res) => {
@@ -1256,7 +1654,7 @@ export const governancePlugin = createBackendPlugin({
             return;
           }
           await insert(records, principal);
-          res.status(201).json(records);
+          res.status(201).json(records.map(withHostedWorkspaceStatus));
         });
 
         function assertRetirementRevision(
@@ -1381,6 +1779,8 @@ export const governancePlugin = createBackendPlugin({
             lifecycle: retire ? 'retired' : record.lifecycle,
             activeSince: retire ? undefined : record.activeSince,
             graduation: retire ? undefined : record.graduation,
+            directoryListing: retire ? undefined : record.directoryListing,
+            hostedAttestation: retire ? undefined : record.hostedAttestation,
             renewalException: retire ? undefined : record.renewalException,
             retirementReview: {
               ...review,
@@ -1437,6 +1837,10 @@ export const governancePlugin = createBackendPlugin({
           const updated: GovernanceRecord = {
             ...record,
             lifecycle: lifecycle.data,
+            hostedAttestation:
+              lifecycle.data === 'retired'
+                ? undefined
+                : record.hostedAttestation,
             renewalException:
               record.lifecycle === 'active' && lifecycle.data === 'active'
                 ? record.renewalException
@@ -1445,7 +1849,8 @@ export const governancePlugin = createBackendPlugin({
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
-          updated.graduation = graduationAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated, principal);
+          updated.directoryListing = directoryListingAfterEdit(record, updated);
           assertCanLaunch(updated);
           if (updated.lifecycle === 'active') await validateOwners(updated);
           await save(updated, revision, principal, 'updated', {
@@ -1454,29 +1859,11 @@ export const governancePlugin = createBackendPlugin({
           res.json(visibleRecord(updated, principal));
         });
 
-        router.put('/apps/:id', async (req, res) => {
-          const { principal } = await httpAuth.credentials(req, {
-            allow: ['user', 'service'],
-          });
-          const { record, revision } = await load(req.params.id);
-          assertCanEdit(record, principal);
-          const expectedUpdatedAt = req.body?.expectedUpdatedAt;
-          if (
-            expectedUpdatedAt !== undefined &&
-            expectedUpdatedAt !== record.updatedAt
-          ) {
-            throw new ConflictError(
-              'The app changed since you opened it. Reopen the current record before editing.',
-            );
-          }
-          const app = parseApp({
-            evidence: record.evidence,
-            reviewTicketUrl: record.reviewTicketUrl,
-            ...req.body,
-          });
-          if (app.sourceUrl !== record.sourceUrl)
-            throw new InputError('The registered source URL is fixed.');
-          await validateOwners(app);
+        function recordAfterAppEdit(
+          record: GovernanceRecord,
+          app: AppInput,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ) {
           const previousInput = appInput.parse(record);
           const tier = evaluateTier(app);
           const riskFields = [
@@ -1545,15 +1932,176 @@ export const governancePlugin = createBackendPlugin({
                 };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
-          updated.graduation = graduationAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated, principal);
+          updated.directoryListing = directoryListingAfterEdit(record, updated);
           const ownerChanged = app.owner !== record.owner;
+          updated.hostedAttestation =
+            !ownerChanged &&
+            updated.lifecycle !== 'retired' &&
+            updated.type === 'provider-hosted app' &&
+            JSON.stringify(previousInput.hosted) === JSON.stringify(app.hosted)
+              ? record.hostedAttestation
+              : undefined;
           if (ownerChanged && updated.tier === 2) {
             updated.lastReview = null;
             updated.nextReview = updated.updatedAt;
           }
           assertCanLaunch(updated);
+          return updated;
+        }
+
+        router.put('/apps/:id', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user', 'service'],
+          });
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+          if (
+            expectedUpdatedAt !== undefined &&
+            expectedUpdatedAt !== record.updatedAt
+          ) {
+            throw new ConflictError(
+              'The app changed since you opened it. Reopen the current record before editing.',
+            );
+          }
+          const app = parseApp({
+            evidence: record.evidence,
+            reviewTicketUrl: record.reviewTicketUrl,
+            ...req.body,
+          });
+          if (app.sourceUrl !== record.sourceUrl)
+            throw new InputError('The registered source URL is fixed.');
+          await validateOwners(app);
+          const updated = recordAfterAppEdit(record, app, principal);
+          const ownerChanged = record.owner !== updated.owner;
           await save(updated, revision, principal, 'updated', { ownerChanged });
           res.json(visibleRecord(updated, principal));
+        });
+
+        function assertRegisteredBackup(
+          record: GovernanceRecord,
+          actor: string,
+        ) {
+          if (record.backupOwner !== actor)
+            throw new NotAllowedError(
+              'Only this app’s registered backup owner can use handover.',
+            );
+        }
+
+        async function handoverCatalog(
+          record: GovernanceRecord,
+          actor: string,
+          replacement?: string,
+        ) {
+          const refs = [record.owner, actor, record.team];
+          if (replacement) refs.push(replacement);
+          try {
+            return await activeCatalogEntities([...new Set(refs)], true);
+          } catch {
+            throw new ServiceUnavailableError(
+              'Catalog ownership could not be verified. Retry when catalog is available.',
+            );
+          }
+        }
+
+        function backupCanTakeOwnership(
+          record: GovernanceRecord,
+          actor: string,
+          active: ReadonlyMap<string, Entity>,
+        ) {
+          const mustKeepActiveHostedWorkspace =
+            record.lifecycle === 'active' &&
+            record.type === 'provider-hosted app' &&
+            evaluateTier(record) < 3;
+          return (
+            (!mustKeepActiveHostedWorkspace ||
+              hostedWorkspaceApproved(record) !== false) &&
+            record.lifecycle !== 'retired' &&
+            !active.has(record.owner) &&
+            active.has(actor) &&
+            active.has(record.team)
+          );
+        }
+
+        router.get('/apps/:id/backup-handover', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const { record } = await load(req.params.id);
+          const actor = principal.userEntityRef;
+          assertRegisteredBackup(record, actor);
+          const backupRequired = evaluateTier(record) >= 2;
+          let available = false;
+          if (
+            record.lifecycle !== 'retired' &&
+            !isAcceptedCoOwner(record, actor)
+          ) {
+            const active = await handoverCatalog(record, actor);
+            available = backupCanTakeOwnership(record, actor, active);
+          }
+          res
+            .set('Cache-Control', 'no-store')
+            .json({ available, backupRequired });
+        });
+
+        router.post('/apps/:id/backup-handover', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              backupOwner: z
+                .string()
+                .regex(/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/)
+                .optional(),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide the current app timestamp and a valid replacement backup owner when required.',
+            );
+          const { record, revision } = await load(req.params.id);
+          const actor = principal.userEntityRef;
+          assertRegisteredBackup(record, actor);
+          if (record.updatedAt !== input.data.expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before taking ownership.',
+            );
+          if (record.lifecycle === 'retired')
+            throw new ConflictError('Retired apps cannot be handed over.');
+          if (isAcceptedCoOwner(record, actor))
+            throw new NotAllowedError(
+              'An accepted engineering co-owner cannot end their own handoff.',
+            );
+
+          const replacement = input.data.backupOwner;
+          if (replacement === actor)
+            throw new InputError(
+              'Choose a backup owner other than the new owner.',
+            );
+          const app = parseApp({
+            ...record,
+            owner: actor,
+            backupOwner: replacement,
+          });
+          const active = await handoverCatalog(record, actor, replacement);
+          if (!backupCanTakeOwnership(record, actor, active))
+            throw new ConflictError(
+              'Handover requires an unavailable current owner, an active backup and team, and an eligible lifecycle.',
+            );
+          if (replacement && !active.has(replacement))
+            throw new InputError(
+              'Choose an active catalog user as the replacement backup owner.',
+            );
+          const updated = recordAfterAppEdit(record, app, principal);
+          await save(updated, revision, principal, 'ownership-handover', {
+            ownerChanged: true,
+          });
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
         });
 
         function assertGraduationAvailable(
@@ -1625,20 +2173,41 @@ export const governancePlugin = createBackendPlugin({
           assertCanEdit(record, principal);
           if (record.updatedAt !== timestamp.data)
             throw new ConflictError(
-              'The app changed. Reopen the current record before cancelling its engineering handoff.',
+              'The app changed. Reopen the current record before changing its engineering handoff.',
             );
-          if (record.graduation?.status !== 'pending')
+          const graduation = record.graduation;
+          if (!graduation || graduation.status === 'declined')
             throw new ConflictError(
-              'Only pending engineering nominations can be cancelled.',
+              'There is no pending or accepted engineering handoff to remove.',
             );
+          const ending = graduation.status === 'accepted';
+          let graduationReason: string | undefined;
+          if (ending) {
+            assertCanClearGraduation(record, principal);
+            const reason = z
+              .string()
+              .trim()
+              .min(1)
+              .max(500)
+              .safeParse(req.body?.reason);
+            if (!reason.success)
+              throw new InputError(
+                'Provide a reason of at most 500 characters to end the accepted engineering handoff.',
+              );
+            graduationReason = reason.data;
+          }
           const updated: GovernanceRecord = {
             ...record,
             graduation: undefined,
             updatedAt: nextRecordTimestamp(record.updatedAt),
           };
-          await save(updated, revision, principal, 'graduation-cancelled', {
-            graduationNominee: record.graduation.nominee,
-          });
+          await save(
+            updated,
+            revision,
+            principal,
+            ending ? 'graduation-ended' : 'graduation-cancelled',
+            { graduationNominee: graduation.nominee, graduationReason },
+          );
           res.json(visibleRecord(updated, principal));
         });
 
@@ -1695,6 +2264,40 @@ export const governancePlugin = createBackendPlugin({
           res.json(visibleRecord(updated, principal));
         });
 
+        router.patch('/apps/:id/review-ticket', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = reviewTicketPatchInput.safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide an HTTP or HTTPS review ticket URL of up to 2,048 characters without credentials, or clear it, and include the current app timestamp.',
+            );
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          if (record.updatedAt !== input.data.expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before changing its review ticket.',
+            );
+          if (record.tier !== 3 || record.lifecycle === 'retired')
+            throw new InputError(
+              'Review tickets apply to non-retired Tier 3 apps.',
+            );
+          const reviewTicketUrl = input.data.url ?? undefined;
+          res.set('Cache-Control', 'no-store');
+          if (reviewTicketUrl === record.reviewTicketUrl) {
+            res.json(visibleRecord(record, principal));
+            return;
+          }
+          const updated: GovernanceRecord = {
+            ...record,
+            reviewTicketUrl,
+            updatedAt: nextRecordTimestamp(record.updatedAt),
+          };
+          await save(updated, revision, principal, 'review-ticket-updated');
+          res.json(visibleRecord(updated, principal));
+        });
+
         router.post('/apps/:id/attestation', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
@@ -1705,12 +2308,7 @@ export const governancePlugin = createBackendPlugin({
               'Only the accountable owner can attest to this app.',
             );
           }
-          const input = z
-            .object({
-              confirmed: z.literal(true),
-              expectedUpdatedAt: z.string().datetime(),
-            })
-            .safeParse(req.body);
+          const input = attestationInput.safeParse(req.body);
           if (!input.success)
             throw new InputError(
               'Confirm the current record before attesting.',
@@ -1738,7 +2336,53 @@ export const governancePlugin = createBackendPlugin({
             nextReview: nextReview(2, at),
           };
           await save(updated, revision, principal, 'attested');
-          res.json(updated);
+          res.json(withHostedWorkspaceStatus(updated));
+        });
+
+        router.post('/apps/:id/hosted-attestation', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const { record, revision } = await load(req.params.id);
+          if (record.owner !== principal.userEntityRef)
+            throw new NotAllowedError(
+              'Only the accountable owner can attest to this hosted workspace.',
+            );
+          const input = attestationInput.safeParse(req.body);
+          if (!input.success)
+            throw new InputError('Confirm the current workspace settings.');
+          if (input.data.expectedUpdatedAt !== record.updatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before attesting.',
+            );
+          if (
+            record.type !== 'provider-hosted app' ||
+            !record.hosted ||
+            record.lifecycle === 'retired'
+          )
+            throw new InputError(
+              'Hosted workspace attestation applies to non-retired provider-hosted apps.',
+            );
+          if (hostedWorkspaceApproved(record) === false)
+            throw new InputError(
+              'Choose an approved provider workspace before attesting.',
+            );
+          await validateOwners(record);
+          const at = nextRecordTimestamp(record.updatedAt);
+          const updated: GovernanceRecord = {
+            ...record,
+            updatedAt: at,
+            hostedAttestation: {
+              at,
+              nextDue: new Date(
+                Date.parse(at) + hostedAttestationIntervalMs,
+              ).toISOString(),
+            },
+          };
+          await save(updated, revision, principal, 'hosted-attested');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
         });
 
         async function loadRenewalExceptionRecord(
@@ -1942,7 +2586,8 @@ export const governancePlugin = createBackendPlugin({
           };
           updated.activeSince = activeSinceAfterEdit(record, updated);
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
-          updated.graduation = graduationAfterEdit(record, updated);
+          updated.graduation = graduationAfterEdit(record, updated, principal);
+          updated.directoryListing = directoryListingAfterEdit(record, updated);
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });
