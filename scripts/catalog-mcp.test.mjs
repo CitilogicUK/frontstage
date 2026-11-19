@@ -77,6 +77,18 @@ test(
       reasons: ['takes-actions'],
       effectiveClassification: 'confidential',
     };
+    const models = [
+      {
+        id: 'example-basic',
+        allowedClassifications: ['public', 'internal'],
+        maxCompletionTokens: 1_024,
+      },
+      {
+        id: 'example-restricted',
+        allowedClassifications: ['public', 'internal', 'restricted'],
+        maxCompletionTokens: 2_048,
+      },
+    ];
     const server = createServer(async (request, response) => {
       requests.push({
         path: request.url,
@@ -90,6 +102,16 @@ test(
         return;
       }
       switch (request.url) {
+        case '/workspace/api/governance/gateway/models':
+          response.end(
+            JSON.stringify({
+              enabled: true,
+              productionAvailable: false,
+              ...hiddenFields,
+              models: models.map(model => ({ ...model, ...hiddenFields })),
+            }),
+          );
+          break;
         case '/workspace/api/governance/tier-preview': {
           const chunks = [];
           for await (const chunk of request) chunks.push(chunk);
@@ -145,6 +167,7 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'list_approved_models',
         'preview_risk',
         'search_apps',
       ]);
@@ -169,6 +192,28 @@ test(
       assert.deepEqual(riskRequests, [
         { body: riskInput, contentType: 'application/json' },
       ]);
+      const invalidModels = await call('list_approved_models', {
+        classification: 'secret',
+      });
+      assert.equal(invalidModels.isError, true);
+      assert.equal(requests.length, 1);
+      for (const [args, expected] of [
+        [{}, models],
+        [{ classification: 'restricted' }, [models[1]]],
+      ]) {
+        const listed = await call('list_approved_models', args);
+        assert.equal(listed.isError ?? false, false);
+        assert.deepEqual(listed.structuredContent, {
+          enabled: true,
+          productionAvailable: false,
+          models: expected,
+        });
+        assert.deepEqual(
+          JSON.parse(listed.content[0].text),
+          listed.structuredContent,
+        );
+        assertPrivateFieldsAbsent(listed);
+      }
 
       const search = await call('search_apps', {
         query: 'ORDER',
@@ -231,6 +276,8 @@ test(
         requests.map(request => request.path),
         [
           '/workspace/api/governance/tier-preview',
+          '/workspace/api/governance/gateway/models',
+          '/workspace/api/governance/gateway/models',
           '/workspace/api/governance/apps',
           '/workspace/api/governance/apps/order-workflow',
           '/workspace/api/governance/apps/missing',
@@ -241,7 +288,7 @@ test(
       );
       assert.deepEqual(
         requests.map(request => request.method),
-        ['POST', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET'],
+        ['POST', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET'],
       );
       assert.ok(
         requests.every(request => request.bearer === `Bearer ${token}`),
@@ -339,6 +386,7 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'list_approved_models',
         'preview_descriptor',
         'preview_risk',
         'register_descriptor',

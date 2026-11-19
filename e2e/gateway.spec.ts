@@ -1275,6 +1275,28 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       expect(detail.structuredContent).not.toHaveProperty('app.reviewNotes');
       expect(detail.structuredContent).not.toHaveProperty('app.evidence');
 
+      const restrictedModels = await catalogMcp.callTool({
+        name: 'list_approved_models',
+        arguments: { classification: 'restricted' },
+      });
+      expect(restrictedModels.isError).not.toBe(true);
+      expect(restrictedModels.structuredContent).toMatchObject({
+        enabled: true,
+        productionAvailable: false,
+        models: [
+          {
+            id: approvedModel,
+            maxCompletionTokens: 1024,
+            allowedClassifications: [
+              'public',
+              'internal',
+              'confidential',
+              'restricted',
+            ],
+          },
+        ],
+      });
+
       const personalApp = { audience: 'personal', classification: 'internal' };
       const baselineRisk = await catalogMcp.callTool({
         name: 'preview_risk',

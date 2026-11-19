@@ -29,6 +29,7 @@ function readConfig() {
     appsUrl: new URL('api/governance/apps', backend),
     repositoryUrl: new URL('api/governance/repository', backend),
     tierPreviewUrl: new URL('api/governance/tier-preview', backend),
+    gatewayModelsUrl: new URL('api/governance/gateway/models', backend),
     token,
     writeEnabled: process.env.FRONTSTAGE_MCP_WRITE_ENABLED === 'true',
   };
@@ -90,6 +91,17 @@ const classification = z.enum([
   'confidential',
   'restricted',
 ]);
+const modelPolicy = z.object({
+  enabled: z.boolean(),
+  productionAvailable: z.boolean(),
+  models: z.array(
+    z.object({
+      id: z.string(),
+      allowedClassifications: z.array(classification),
+      maxCompletionTokens: z.number().int().positive(),
+    }),
+  ),
+});
 const riskInput = z.object({
   audience: z.enum(['personal', 'team', 'company', 'external']),
   classification,
@@ -190,8 +202,14 @@ function toolResult(structuredContent) {
 }
 
 async function start() {
-  const { appsUrl, repositoryUrl, tierPreviewUrl, token, writeEnabled } =
-    readConfig();
+  const {
+    appsUrl,
+    repositoryUrl,
+    tierPreviewUrl,
+    gatewayModelsUrl,
+    token,
+    writeEnabled,
+  } = readConfig();
   const server = new McpServer({
     name: 'frontstage-catalog',
     version: '1.0.0',
@@ -253,6 +271,27 @@ async function start() {
           badRequest: 'Frontstage could not validate the risk questionnaire.',
         }),
       ),
+  );
+  server.registerTool(
+    'list_approved_models',
+    {
+      description:
+        'List approved gateway models, optionally filtered by an app data classification.',
+      inputSchema: z.object({ classification: classification.optional() }),
+      outputSchema: modelPolicy,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ classification: appClassification }) => {
+      const policy = await fetchCatalog(gatewayModelsUrl, token, modelPolicy);
+      return toolResult({
+        ...policy,
+        models: appClassification
+          ? policy.models.filter(model =>
+              model.allowedClassifications.includes(appClassification),
+            )
+          : policy.models,
+      });
+    },
   );
   if (writeEnabled) {
     const previewUrl = new URL(repositoryUrl);
