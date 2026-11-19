@@ -2580,6 +2580,13 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
   await search.fill('no matching records');
   await expect(exportButton).toHaveCount(0);
 
+  const exportedAppUrl = csv.match(/"(https?:[^"]+)"\r?\n$/)?.[1];
+  if (!exportedAppUrl) throw new Error('Export did not include an app URL');
+  await page.goto(exportedAppUrl);
+  await expect(
+    page.getByRole('dialog', { name: 'Matching pilot' }),
+  ).toBeVisible();
+
   canReview = false;
   await openReviews();
   await expect(reviewFilter).toHaveValue('attention');
