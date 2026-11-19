@@ -343,6 +343,16 @@ test('workspace screens share navigation and fit the viewport', async ({
 
   await page.getByRole('link', { name: 'Browse app templates' }).click();
   await assertWorkspace(page, 'App templates', 'Templates');
+  await page
+    .getByRole('link', { name: 'Approved AI coding tools', exact: true })
+    .click();
+  await expect(page).toHaveURL(/view=guide#approved-coding-tools-title$/);
+  await expect(
+    codingTools.getByRole('heading', { name: 'Approved AI coding tools' }),
+  ).toBeFocused();
+  const codingPolicyUrl = page.url();
+  await page.goBack();
+  await assertWorkspace(page, 'App templates', 'Templates');
   await page.getByLabel('Delivery stage').selectOption('poc');
   await page
     .getByRole('combobox', { name: 'Approved model' })
@@ -385,6 +395,7 @@ test('workspace screens share navigation and fit the viewport', async ({
       'preview_risk',
       'list_approved_models',
       'list_approved_connectors',
+      'list_approved_coding_tools',
       'preview_descriptor',
       'register_descriptor',
     ]) {
@@ -393,6 +404,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(agentGuide).toMatch(/only with the user['’]s authorization/);
     const brief = strFromU8(files[`${id}/PROJECT_BRIEF.md`]);
     expect(brief).toContain('Delivery stage: Proof of concept');
+    expect(brief).toContain(codingPolicyUrl);
     expect(brief).toContain(
       'Record whether the evidence supports the hypothesis.',
     );

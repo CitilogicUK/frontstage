@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { configApiRef, useApi } from '@backstage/core-plugin-api';
 import { Link } from 'react-router-dom';
 import GetAppIcon from '@material-ui/icons/GetApp';
+import { codingToolPolicyLink } from './ApprovedCodingToolsGuide';
 import { appClassifications } from './appDimensions';
 import { useGatewayModelPolicy } from './GatewayModelGuide';
 import {
@@ -229,6 +230,7 @@ export function AppTemplates() {
             stage,
             classification,
             starter.runtime ? model : undefined,
+            new URL(codingToolPolicyLink.slice(1), base).href,
           ),
         ),
       ]);
@@ -260,6 +262,11 @@ export function AppTemplates() {
 
   return (
     <div className="gov-template-groups">
+      <p>
+        Check the{' '}
+        <Link to={codingToolPolicyLink}>Approved AI coding tools</Link> before
+        sharing code or data with a coding assistant.
+      </p>
       <label className="gov-template-stage">
         Delivery stage
         <select

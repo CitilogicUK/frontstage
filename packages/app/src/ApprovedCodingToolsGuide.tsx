@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   discoveryApiRef,
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
+
+const headingId = 'approved-coding-tools-title';
+export const codingToolPolicyLink = `/?view=guide#${headingId}`;
 
 type CodingToolPolicy = {
   configured: boolean;
@@ -20,6 +24,14 @@ export function ApprovedCodingToolsGuide() {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [policy, setPolicy] = useState<CodingToolPolicy | null>();
+  const location = useLocation();
+  const heading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (location.hash !== `#${headingId}`) return;
+    heading.current?.focus({ preventScroll: true });
+    heading.current?.scrollIntoView?.({ block: 'start' });
+  }, [location.hash, location.key]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -40,12 +52,11 @@ export function ApprovedCodingToolsGuide() {
   }, [discovery, fetch]);
 
   return (
-    <section
-      className="gov-panel gov-model-guide"
-      aria-labelledby="approved-coding-tools-title"
-    >
+    <section className="gov-panel gov-model-guide" aria-labelledby={headingId}>
       <div className="gov-report-heading">
-        <h2 id="approved-coding-tools-title">Approved AI coding tools</h2>
+        <h2 id={headingId} ref={heading} tabIndex={-1}>
+          Approved AI coding tools
+        </h2>
         <p>
           Use this policy when choosing an AI tool to write or review code.
           Check the highest classification of code or data you share with it.
