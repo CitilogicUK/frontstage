@@ -243,8 +243,16 @@ export function OutsideGatewayUsage({
       return undefined;
     }
     if (response.status === 400) {
+      const body = csv
+        ? await response.json().catch(() => undefined)
+        : undefined;
+      if (signal.aborted) return undefined;
+      const message =
+        body?.error?.name === 'InputError' ? body.error.message : undefined;
       setError(
-        csv
+        typeof message === 'string' && message
+          ? message
+          : csv
           ? 'Use the sample CSV columns, one shared UTC reporting window, and 1 to 100 distinct usage rows with positive whole call counts.'
           : 'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
       );

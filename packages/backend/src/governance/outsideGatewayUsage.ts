@@ -10,25 +10,20 @@ import { appSourceKey } from './sourceKey';
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
 const reconciliationTable = 'governance_outside_gateway_reconciliations';
 
+const usageRow = z
+  .object({
+    sourceUrl: z.string().max(2048).refine(isHttpsUrlWithoutCredentials),
+    model: z.string().trim().min(1).max(128),
+    calls: z.number().int().min(1).max(1_000_000_000),
+  })
+  .strict();
+
+const utcDateTime = z.string().datetime();
 const usageInput = z
   .object({
-    from: z.string().datetime(),
-    to: z.string().datetime(),
-    rows: z
-      .array(
-        z
-          .object({
-            sourceUrl: z
-              .string()
-              .max(2048)
-              .refine(isHttpsUrlWithoutCredentials),
-            model: z.string().trim().min(1).max(128),
-            calls: z.number().int().min(1).max(1_000_000_000),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(100),
+    from: utcDateTime,
+    to: utcDateTime,
+    rows: z.array(usageRow).min(1).max(100),
   })
   .strict();
 
@@ -107,21 +102,62 @@ export function parseOutsideGatewayUsageCsv(content: unknown) {
   if (!records.length || records.length > 100) throw new InputError(invalidCsv);
   const from = records[0].window_start_utc.trim();
   const to = records[0].window_end_utc.trim();
-  const rows = records.map(record => {
+  if (
+    !utcDateTime.safeParse(from).success ||
+    !utcDateTime.safeParse(to).success ||
+    !(Date.parse(from) < Date.parse(to))
+  )
+    throw new InputError(
+      'Set a valid UTC reporting window with the start before the end.',
+    );
+
+  const seen = new Map<string, number>();
+  const sourceKeys: string[] = [];
+  const rows = records.map((record, index) => {
+    const rowNumber = index + 1;
+    const rowLabel = `Usage row ${rowNumber}`;
     const calls = record.calls.trim();
     if (
       record.window_start_utc.trim() !== from ||
-      record.window_end_utc.trim() !== to ||
-      !/^\d+$/.test(calls)
+      record.window_end_utc.trim() !== to
     )
-      throw new InputError(invalidCsv);
-    return {
+      throw new InputError(
+        `${rowLabel} must use the reporting window from usage row 1.`,
+      );
+
+    const result = usageRow.safeParse({
       sourceUrl: record.source_url.trim(),
       model: record.model,
-      calls: Number(calls),
-    };
+      calls: /^\d+$/.test(calls) ? Number(calls) : NaN,
+    });
+    if (!result.success) {
+      const field = result.error.issues[0].path[0];
+      const description =
+        field === 'sourceUrl'
+          ? 'an HTTPS source_url without credentials'
+          : field === 'model'
+          ? 'a model name of 1 to 128 characters'
+          : 'a whole call count from 1 to 1,000,000,000';
+      throw new InputError(`${rowLabel} needs ${description}.`);
+    }
+
+    const row = result.data;
+    const sourceKey = appSourceKey(row.sourceUrl);
+    const key = usageRowKey(sourceKey, row.model);
+    const previous = seen.get(key);
+    if (previous !== undefined)
+      throw new InputError(
+        `${rowLabel} duplicates the source and model in usage row ${previous}.`,
+      );
+    seen.set(key, rowNumber);
+    sourceKeys.push(sourceKey);
+    return row;
   });
-  return parseOutsideGatewayUsage({ from, to, rows });
+  return { input: { from, to, rows }, sourceKeys };
+}
+
+function usageRowKey(sourceKey: string, model: string) {
+  return JSON.stringify([sourceKey, model]);
 }
 
 export function parseOutsideGatewayUsage(input: unknown) {
@@ -135,7 +171,7 @@ export function parseOutsideGatewayUsage(input: unknown) {
 
   const sourceKeys = rows.map(row => appSourceKey(row.sourceUrl));
   const usageKeys = rows.map((row, index) =>
-    JSON.stringify([sourceKeys[index], row.model]),
+    usageRowKey(sourceKeys[index], row.model),
   );
   if (new Set(usageKeys).size !== rows.length)
     throw new InputError(invalidPeriodOrRows);
