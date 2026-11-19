@@ -109,9 +109,14 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         lifecycleReason?: string;
         renewalException?: RenewalException;
         graduationNominee?: string;
+        graduationReason?: string;
       } = JSON.parse(event);
       const { record } = entry;
       const details = [];
+      let action =
+        entry.action === 'review-ticket-updated'
+          ? 'Review ticket updated'
+          : `App ${entry.action}`;
       if (previous && previous.owner !== record.owner) {
         details.push(`Owner changed from ${previous.owner} to ${record.owner}`);
         if (record.tier === 2 && record.nextReview === record.updatedAt) {
@@ -147,7 +152,8 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         if (!record.reviewTicketUrl) change = 'Review ticket link removed';
         else if (previous?.reviewTicketUrl)
           change = 'Review ticket link updated';
-        details.push(change);
+        if (entry.action === 'review-ticket-updated') action = change;
+        else details.push(change);
       }
       const stage = parseDeliveryStage(record.deliveryStage ?? null);
       if (!previous || previous.deliveryStage !== record.deliveryStage)
@@ -162,7 +168,6 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         record.reviewStatus === 'pending'
       )
         details.push('Approval reopened');
-      let action = `App ${entry.action}`;
       if (entry.action === 'ownership-handover')
         action = 'Backup owner took ownership';
       if (entry.action === 'reviewed') {
@@ -231,14 +236,19 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         entry.action === 'graduation-requested' ||
         entry.action === 'graduation-accepted' ||
         entry.action === 'graduation-declined' ||
-        entry.action === 'graduation-cancelled'
+        entry.action === 'graduation-cancelled' ||
+        entry.action === 'graduation-ended'
       ) {
         action = `Graduation ${entry.action.slice('graduation-'.length)}`;
         const nominee = entry.graduationNominee ?? record.graduation?.nominee;
         if (nominee) details.push(`Nominated owner ${nominee}`);
-        if (record.graduation?.reason)
-          details.push(`Recorded reason “${record.graduation.reason}”`);
+        const reason = entry.graduationReason ?? record.graduation?.reason;
+        if (reason) details.push(`Recorded reason “${reason}”`);
       }
+      if (entry.action === 'directory-published')
+        action = 'Directory listing published';
+      if (entry.action === 'directory-unpublished')
+        action = 'Directory listing unpublished';
       previous = record;
       return {
         id: digest,
