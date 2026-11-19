@@ -831,7 +831,6 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     .click();
   const sample = await pendingSample;
   expect(sample.suggestedFilename()).toBe('outside-gateway-usage.json');
-  await usageJson.clear();
   await upload.setInputFiles(await sample.path());
   await expect(match).toBeHidden();
   const uploadedPreview = page.waitForResponse(
