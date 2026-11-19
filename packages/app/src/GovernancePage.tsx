@@ -48,6 +48,7 @@ import {
   type OutsideGatewayUsagePreview,
 } from './portfolioExport';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
+import { ReviewTicketContext } from './ReviewTicketContext';
 import { AppAuditHistory } from './AppAuditHistory';
 import {
   AppDirectory,
@@ -2555,6 +2556,10 @@ export function GovernancePage() {
                   key={`review-ticket-${selected.id}`}
                 >
                   <summary>Edit review ticket</summary>
+                  <ReviewTicketContext
+                    key={selected.updatedAt}
+                    app={selected}
+                  />
                   <p>Clear the URL and save to remove the ticket link.</p>
                   <form
                     key={selected.updatedAt}

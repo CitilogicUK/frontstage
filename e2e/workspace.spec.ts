@@ -5644,6 +5644,8 @@ test('the focused review ticket form saves and removes the link without reopenin
     purpose: 'Assist with priority operations decisions.',
     platform: 'GitHub',
     sourceUrl: 'https://example.com/source',
+    reviewNotes: 'Private approval notes for operations.',
+    evidence: { tests: 'https://example.com/private-evidence' },
     classification: 'internal',
     lifecycle: 'active',
     tier: 3,
@@ -5700,12 +5702,40 @@ test('the focused review ticket form saves and removes the link without reopenin
     route.fulfill({ json: { events, keyEvents: [] } }),
   );
 
-  await page.goto('/?app=quick-ticket');
+  await page.goto('/?view=reviews&app=quick-ticket');
   const details = page.getByRole('dialog', { name: app.name });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await details.getByText('Edit review ticket', { exact: true }).click();
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const copyContext = details.getByRole('button', {
+    name: 'Copy review ticket context',
+  });
+  await copyContext.click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain(app.name);
+  const context = await page.evaluate(() => navigator.clipboard.readText());
+  expect(context).toContain('Tier 3 review');
+  expect(context).toContain(owner);
+  expect(context).toContain(app.team);
+  expect(context).toContain(`${workspaceUrl}/?app=quick-ticket`);
+  expect(context).not.toContain('view=reviews');
+  expect(context).not.toContain(app.reviewNotes);
+  expect(context).not.toContain(app.evidence.tests);
+  expect(context).not.toContain(app.sourceUrl);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.reject(new Error('Clipboard permission denied')),
+    });
+  });
+  await copyContext.click();
+  await expect(
+    details.getByRole('textbox', { name: 'Review ticket context' }),
+  ).toHaveValue(context);
+
   const url = details.getByRole('textbox', { name: 'Ticket URL', exact: true });
   const save = details.getByRole('button', { name: 'Save review ticket' });
   const open = details.getByRole('link', { name: 'Open review ticket' });
