@@ -171,6 +171,8 @@ In Inventory, switch **Ownership** to **My apps** to see your apps, with upcomin
 
 Set `governance.reviewReminderIntervalMinutes` from 15 to 10,080 to enable in-app reminders. Frontstage checks scheduled Tier 2 attestations, Tier 3 renewals, and hosted workspace confirmations that are due within seven days or overdue. The current accountable owner receives one reminder per app, due date, and reminder type in **Notifications**, with a link to the app. Owners of active apps in explicitly approved hosted workspaces also get a prompt when a confirmation is missing, once per owner and activation. Changing declared hosted settings or transferring ownership clears an existing confirmation. The current owner gets a new confirmation prompt when the app is active in an approved workspace, even if they owned the app before. Leave the setting unset to disable scheduled reminders.
 
+With scheduled reminders enabled, set `governance.reviewManagerEscalationDays` to opt in to manager notifications. For example, use `14` to escalate a Tier 2 or Tier 3 renewal after 14 overdue calendar days. Set the `governance.backstage.io/manager` annotation on the owner's managed Backstage User entity to their manager's full User reference, such as `user:default/team-manager`. Frontstage sends the reminder to the owner first. It sends one escalation per owner and renewal date when the manager is active in the Catalog and the renewal is still overdue.
+
 ## Backup owner handover
 
 When Backstage marks an accountable owner inactive or no longer has their user record, the registered backup owner can open the app from **Inventory → Apps I back up** and confirm the handover. Tier 2 and Tier 3 apps need a different active backup owner. Frontstage checks the catalog and the current app revision before transferring ownership.
@@ -256,7 +258,7 @@ Backstage Analytics receives semantic events when a registration is saved or a s
 
 ## Deployment and roadmap
 
-The dev server uses seed identities and SQLite. Before deployment, configure company SSO and the Backstage identity catalog provider, map reviewers to company identities, supply Postgres and the production URLs, and configure permissions for accessing the inventory. Production gateway operations, provider controls, additional discovery connectors, escalation, and deeper reporting remain later phases.
+The dev server uses seed identities and SQLite. Before deployment, configure company SSO and the Backstage identity catalog provider, map reviewers to company identities, supply Postgres and the production URLs, and configure permissions for accessing the inventory. Production gateway operations, provider controls, additional discovery connectors, automatic key suspension, and deeper reporting remain later phases.
 
 ## Verify changes in a worktree
 

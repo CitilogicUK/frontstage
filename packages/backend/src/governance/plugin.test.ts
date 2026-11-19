@@ -383,6 +383,7 @@ describe('governance record access', () => {
     const owner = 'user:default/owner';
     const nextOwner = 'user:default/next';
     const inactiveOwner = 'user:default/inactive';
+    const manager = 'user:default/manager';
     const reviewer = 'user:default/reviewer';
     const backupOwner = 'user:default/backup';
     const inactive = new Set<string>();
@@ -394,9 +395,14 @@ describe('governance record access', () => {
           kind: ref.startsWith('group:') ? 'Group' : 'User',
           metadata: {
             name: ref.split('/')[1],
-            annotations: inactive.has(ref)
-              ? { 'governance.backstage.io/active': 'false' }
-              : undefined,
+            annotations: {
+              ...(inactive.has(ref) && {
+                'governance.backstage.io/active': 'false',
+              }),
+              ...(ref === owner && {
+                'governance.backstage.io/manager': manager,
+              }),
+            },
           },
         })),
       }));
@@ -420,6 +426,7 @@ describe('governance record access', () => {
             app: { baseUrl: 'https://portal.example.com/internal/' },
             governance: {
               reviewReminderIntervalMinutes: 15,
+              reviewManagerEscalationDays: 14,
               approvedHostedWorkspaces: [
                 { provider: 'Example AI', workspace: 'Company' },
                 { provider: 'Example AI', workspace: 'Company 2' },
@@ -746,6 +753,46 @@ describe('governance record access', () => {
     await run();
     expect(reconfirmations()).toHaveLength(3);
     expect(initialMessages()).toHaveLength(4);
+
+    const managerMessages = () =>
+      messages().filter(
+        message =>
+          message.recipients.type === 'entity' &&
+          message.recipients.entityRef === manager,
+      );
+    clock.mockReturnValue(now + 11 * day - 1);
+    await run();
+    expect(managerMessages()).toEqual([]);
+
+    clock.mockReturnValue(now + 11 * day);
+    inactive.add(manager);
+    await run();
+    expect(managerMessages()).toEqual([]);
+
+    inactive.delete(manager);
+    await run();
+    expect(managerMessages()).toEqual([
+      expect.objectContaining({
+        recipients: { type: 'entity', entityRef: manager },
+        payload: expect.objectContaining({
+          title: 'AI app renewal overdue',
+          link: `https://portal.example.com/internal/?app=${critical.id}`,
+        }),
+      }),
+    ]);
+    await run();
+    expect(managerMessages()).toHaveLength(1);
+
+    await savePayload(critical, { nextReview: dueAt(-4) });
+    notifications.send.mockRejectedValueOnce(
+      new Error('owner reminder temporarily unavailable'),
+    );
+    await run();
+    expect(managerMessages()).toHaveLength(1);
+    clock.mockReturnValue(now + 11 * day + hour);
+    await run();
+    await run();
+    expect(managerMessages()).toHaveLength(2);
   });
 
   it('summarizes only the current owner’s active scorecard issues', async () => {

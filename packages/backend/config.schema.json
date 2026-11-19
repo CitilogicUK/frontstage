@@ -29,6 +29,12 @@
           "maximum": 10080,
           "description": "Interval in minutes for sending owner inbox reminders for scheduled review renewals and hosted workspace confirmations. Unset disables reminders."
         },
+        "reviewManagerEscalationDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "description": "Optional number of overdue calendar days before escalating a Tier 2 or Tier 3 renewal to the owner's active Catalog manager after an owner reminder."
+        },
         "graduationGroups": {
           "type": "array",
           "description": "Active catalog Group entity references allowed to receive Tier 3 ownership transfers. An empty or unset list disables graduation.",
