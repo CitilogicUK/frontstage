@@ -1641,6 +1641,142 @@ describe('governance record access', () => {
     expect(notifications.send).toHaveBeenCalledTimes(2);
   });
 
+  it('collects one private registration rating per eligible user registration', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              collectRegistrationFeedback: true,
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const ownerAuth = mockCredentials.user.header(owner);
+    const reviewerAuth = mockCredentials.user.header(reviewer);
+    const path = '/api/governance/apps';
+    const submit = (credential: string, token: string, rating: number) =>
+      api
+        .post('/api/governance/registration-feedback')
+        .set('Authorization', credential)
+        .send({ token, rating });
+    const report = () =>
+      api.get('/api/governance/reports/registration-feedback');
+    const input = {
+      name: 'Feedback fixture',
+      purpose: 'Test anonymous feedback submission.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/feedback-fixture',
+      owner,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'personal',
+      classification: 'internal',
+      usesAiAtRuntime: false,
+    };
+    const { body: created } = await api
+      .post(path)
+      .set('Authorization', ownerAuth)
+      .send(input)
+      .expect('Cache-Control', 'no-store')
+      .expect(201);
+    const { body: outside } = await api
+      .post(`${path}?source=outside-gateway`)
+      .set('Authorization', reviewerAuth)
+      .send({ ...input, sourceUrl: 'https://example.com/outside-feedback' })
+      .expect(201);
+    const { body: service } = await api
+      .post(path)
+      .set('Authorization', mockCredentials.service.header())
+      .send({ ...input, sourceUrl: 'https://example.com/service-feedback' })
+      .expect(201);
+    expect(service).not.toHaveProperty('registrationFeedbackToken');
+    expect(created.registrationFeedbackToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(outside.registrationFeedbackToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await api
+      .post(path)
+      .set('Authorization', ownerAuth)
+      .send(input)
+      .expect(409);
+    const inventory = await api
+      .get(path)
+      .set('Authorization', ownerAuth)
+      .expect(200);
+    expect(inventory.body.collectRegistrationFeedback).toBe(true);
+    for (const app of inventory.body.apps) {
+      expect(app).not.toHaveProperty('registrationFeedbackToken');
+    }
+
+    const token = created.registrationFeedbackToken;
+    await submit(reviewerAuth, token, 3).expect(404);
+    await submit(ownerAuth, token, 4).expect(400);
+    const concurrent = await Promise.all([
+      submit(ownerAuth, token, 3),
+      submit(ownerAuth, token, 3),
+    ]);
+    expect(concurrent.map(result => result.status)).toEqual([204, 204]);
+    await submit(ownerAuth, token, 2).expect(409);
+    await report().set('Authorization', ownerAuth).expect(403);
+    const aggregate = {
+      enabled: true,
+      days: 30,
+      eligibleCount: 2,
+      responseCount: 1,
+      satisfiedCount: 1,
+    };
+    await report()
+      .set('Authorization', reviewerAuth)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, aggregate);
+    const ledger = await db('governance_registration_feedback').select('*');
+    expect(ledger).toHaveLength(2);
+    for (const row of ledger) {
+      expect(Object.keys(row).sort()).toEqual([
+        'rating',
+        'token_digest',
+        'utc_day',
+      ]);
+      expect(row.token_digest).toMatch(/^[a-f0-9]{64}$/);
+    }
+
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 30 * 86_400_000);
+    await submit(ownerAuth, token, 3).expect(404);
+    await report()
+      .set('Authorization', reviewerAuth)
+      .expect(200, {
+        ...aggregate,
+        eligibleCount: 0,
+        responseCount: 0,
+        satisfiedCount: 0,
+      });
+    await api
+      .post(path)
+      .set('Authorization', ownerAuth)
+      .send({ ...input, sourceUrl: 'https://example.com/current-feedback' })
+      .expect(201);
+    expect(
+      await db('governance_registration_feedback').select('*'),
+    ).toHaveLength(1);
+  });
+
   it('summarizes only the current owner’s active scorecard issues', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';
