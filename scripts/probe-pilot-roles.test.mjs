@@ -17,6 +17,7 @@ const reviewerRef = 'user:default/pilot-reviewer';
 const privateBody = 'synthetic private response detail';
 const appsPath = '/api/governance/apps';
 const feedbackPath = '/api/governance/reports/registration-feedback';
+const timingPath = '/api/governance/reports/registration-timing';
 
 async function mockPilot(t, override) {
   const requests = [];
@@ -38,9 +39,9 @@ async function mockPilot(t, override) {
           apps: [{ name: privateBody }],
         }),
       );
-    } else if (path === feedbackPath && reviewer) {
+    } else if ((path === feedbackPath || path === timingPath) && reviewer) {
       response.end(JSON.stringify({ enabled: true, privateBody }));
-    } else if (path === feedbackPath) {
+    } else if (path === feedbackPath || path === timingPath) {
       response.writeHead(403).end(JSON.stringify({ message: privateBody }));
     } else {
       response.writeHead(404).end();
@@ -96,14 +97,24 @@ test('pilot probe checks both roles and reports only role check results', async 
   assertRedacted(stdout, stderr);
   assert.deepEqual(JSON.parse(stdout), {
     checks: [
-      { role: 'builder', inventoryStatus: 200, registrationReportStatus: 403 },
-      { role: 'reviewer', inventoryStatus: 200, registrationReportStatus: 200 },
+      {
+        role: 'builder',
+        inventoryStatus: 200,
+        registrationReportStatus: 403,
+        registrationTimingReportStatus: 403,
+      },
+      {
+        role: 'reviewer',
+        inventoryStatus: 200,
+        registrationReportStatus: 200,
+        registrationTimingReportStatus: 200,
+      },
     ],
   });
   assert.deepEqual(
     requests,
     [builderToken, reviewerToken].flatMap(token =>
-      [appsPath, feedbackPath].map(path => ({
+      [appsPath, feedbackPath, timingPath].map(path => ({
         path,
         method: 'GET',
         authorization: `Bearer ${token}`,
@@ -130,10 +141,25 @@ test('pilot probe rejects role and identity mismatches', async t => {
   }
 });
 
-test('pilot probe rejects an unexpected feedback status without leaking the response', async t => {
+test('pilot probe rejects unexpected report statuses without leaking responses', async t => {
+  for (const reportPath of [feedbackPath, timingPath]) {
+    const { probe } = await mockPilot(t, (request, response) => {
+      if (request.url !== reportPath) return false;
+      response.writeHead(503).end(JSON.stringify({ message: privateBody }));
+      return true;
+    });
+    await assertFailure(probe());
+  }
+});
+
+test('pilot probe rejects a malformed reviewer timing report', async t => {
   const { probe } = await mockPilot(t, (request, response) => {
-    if (request.url !== feedbackPath) return false;
-    response.writeHead(503).end(JSON.stringify({ message: privateBody }));
+    if (
+      request.url !== timingPath ||
+      request.headers.authorization !== `Bearer ${reviewerToken}`
+    )
+      return false;
+    response.end(JSON.stringify({ enabled: 'true', privateBody }));
     return true;
   });
   await assertFailure(probe());

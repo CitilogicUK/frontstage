@@ -1,6 +1,7 @@
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
 const timeoutMs = 10_000;
-const reportPath = '/api/governance/reports/registration-feedback';
+const feedbackPath = '/api/governance/reports/registration-feedback';
+const timingPath = '/api/governance/reports/registration-timing';
 
 function readConfig(env) {
   let origin;
@@ -70,6 +71,15 @@ async function check(origin, { role, token }, path, expectedStatus) {
   }
 }
 
+async function checkRegistrationReport(origin, identity, path) {
+  const expected = identity.canReview ? 200 : 403;
+  const report = await check(origin, identity, path, expected);
+  if (identity.canReview && typeof report?.enabled !== 'boolean') {
+    throw new Error(`${identity.role} GET ${path} did not match the API.`);
+  }
+  return expected;
+}
+
 try {
   const { origin, roles } = readConfig(process.env);
   const results = [];
@@ -85,15 +95,21 @@ try {
       );
     }
 
-    const expected = identity.canReview ? 200 : 403;
-    const report = await check(origin, identity, reportPath, expected);
-    if (identity.canReview && typeof report?.enabled !== 'boolean') {
-      throw new Error('reviewer registration report did not match the API.');
-    }
+    const registrationReportStatus = await checkRegistrationReport(
+      origin,
+      identity,
+      feedbackPath,
+    );
+    const registrationTimingReportStatus = await checkRegistrationReport(
+      origin,
+      identity,
+      timingPath,
+    );
     results.push({
       role: identity.role,
       inventoryStatus: 200,
-      registrationReportStatus: expected,
+      registrationReportStatus,
+      registrationTimingReportStatus,
     });
   }
   console.log(JSON.stringify({ checks: results }, null, 2));

@@ -70,11 +70,13 @@ describe('governance record access', () => {
           role: 'builder',
           inventoryStatus: 200,
           registrationReportStatus: 403,
+          registrationTimingReportStatus: 403,
         },
         {
           role: 'reviewer',
           inventoryStatus: 200,
           registrationReportStatus: 200,
+          registrationTimingReportStatus: 200,
         },
       ],
     });
