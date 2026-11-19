@@ -4122,7 +4122,7 @@ describe('governance record access', () => {
     const publicApp = await register('public');
     const privateApp = await register('private');
     const incomplete = await register('incomplete');
-    await register('retired', 'retired');
+    const retiredApp = await register('retired', 'retired');
     await db('governance_apps')
       .where({ id: incomplete.id })
       .update({
@@ -4219,6 +4219,27 @@ describe('governance record access', () => {
       repositoryId: '101',
       reason: 'invalid-record',
     });
+    for (const [record, changes] of [
+      [incomplete, { classification: 'public' }],
+      [retiredApp, {}],
+      [privateApp, { name: '' }],
+    ] as const) {
+      await db('governance_apps')
+        .where({ id: record.id })
+        .update({
+          payload: JSON.stringify({
+            ...record,
+            ...changes,
+            sourceUrl: 'https://github.com/example/other-source',
+          }),
+        });
+    }
+    expect((await read()).body.recordCoverage.incompleteRecords).toEqual(
+      ['102', '101', '100', '103'].map(repositoryId => ({
+        repositoryId,
+        reason: 'source-mismatch',
+      })),
+    );
   });
 
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {

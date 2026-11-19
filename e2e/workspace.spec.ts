@@ -273,6 +273,11 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(
     incompleteRow.getByRole('link', { name: 'Open app record' }),
   ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Registered 1', exact: true }).click();
+  await expect(incompleteRow).toBeVisible();
+  await expect(
+    incompleteRow.getByRole('link', { name: 'Open app record' }),
+  ).toHaveCount(0);
   await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
   await coverage
     .getByRole('link', { name: 'Review 1 unowned repository' })

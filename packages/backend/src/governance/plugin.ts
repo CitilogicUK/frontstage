@@ -105,6 +105,7 @@ import {
   ReviewStatus,
   reviewTicketUrlInput,
   riskInput,
+  sourceUrl,
   tierPolicyInput,
 } from './policy';
 
@@ -2168,6 +2169,8 @@ export const governancePlugin = createBackendPlugin({
             ),
           ];
           const apps = new Map<string, RecordCheck>();
+          const persistedSourceKeys = new Map<string, string>();
+          const sourceField = z.object({ sourceUrl });
           for (let offset = 0; offset < appIds.length; offset += 100) {
             const rows = await db(table)
               .whereIn('id', appIds.slice(offset, offset + 100))
@@ -2180,6 +2183,12 @@ export const governancePlugin = createBackendPlugin({
                 apps.set(row.id, { reason: 'invalid-record' });
                 continue;
               }
+              const identity = sourceField.safeParse(input);
+              if (identity.success)
+                persistedSourceKeys.set(
+                  row.id,
+                  appSourceKey(identity.data.sourceUrl),
+                );
               const parsed = appInput.safeParse(input);
               if (!parsed.success) {
                 const onlyMissingBackup = parsed.error.issues.every(
@@ -2213,9 +2222,10 @@ export const governancePlugin = createBackendPlugin({
             let check: RecordCheck = apps.get(repo.appId) ?? {
               reason: 'missing-record',
             };
+            const persistedSourceKey = persistedSourceKeys.get(repo.appId);
             if (
-              'app' in check &&
-              appSourceKey(check.app.sourceUrl) !== appSourceKey(repo.sourceUrl)
+              persistedSourceKey !== undefined &&
+              persistedSourceKey !== appSourceKey(repo.sourceUrl)
             )
               check = { reason: 'source-mismatch' };
             return [{ repositoryId: repo.id, check }];

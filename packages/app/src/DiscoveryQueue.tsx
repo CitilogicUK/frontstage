@@ -202,7 +202,7 @@ export function DiscoveryQueue({
       ? new Set(recordCoverage.incompleteRepositoryIds)
       : undefined;
   const incompleteReasons = new Map(
-    filter === 'incomplete' && recordCoverage && 'complete' in recordCoverage
+    recordCoverage && 'complete' in recordCoverage
       ? recordCoverage.incompleteRecords?.map(({ repositoryId, reason }) => [
           repositoryId,
           reason,
@@ -234,7 +234,7 @@ export function DiscoveryQueue({
   const shownRange = start + 1 === end ? end : `${start + 1}–${end}`;
   const visibleRepositories = matches?.slice(start, end).map(repository => ({
     repository,
-    reason: incompleteReasons.get(repository.id),
+    incompleteReason: incompleteReasons.get(repository.id),
   }));
   const { eligible } = counts;
 
@@ -430,7 +430,7 @@ export function DiscoveryQueue({
               </tr>
             </thead>
             <tbody>
-              {visibleRepositories.map(({ repository, reason }) => (
+              {visibleRepositories.map(({ repository, incompleteReason }) => (
                 <tr key={repository.id}>
                   <td className="gov-app-cell">
                     <a className="gov-app-link" href={repository.sourceUrl}>
@@ -450,12 +450,14 @@ export function DiscoveryQueue({
                       {!repository.appId &&
                         (repository.dismissed ? 'Dismissed' : 'Unowned')}
                     </span>
-                    {reason && <p>{incompleteReasonLabels[reason]}</p>}
+                    {filter === 'incomplete' && incompleteReason && (
+                      <p>{incompleteReasonLabels[incompleteReason]}</p>
+                    )}
                   </td>
                   <td data-label="Action">
                     {repository.appId &&
-                      reason !== 'missing-record' &&
-                      reason !== 'source-mismatch' && (
+                      incompleteReason !== 'missing-record' &&
+                      incompleteReason !== 'source-mismatch' && (
                         <Link
                           className="gov-button"
                           to={appRecordPath(repository.appId, params)}
