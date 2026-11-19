@@ -2714,15 +2714,16 @@ describe('governance record access', () => {
     });
   });
 
-  it('previews outside gateway usage for reviewers without storing observations', async () => {
+  it('previews outside gateway usage and saves immutable reviewer reconciliations', async () => {
     const reviewer = 'user:default/reviewer';
+    const secondReviewer = 'user:default/second-reviewer';
     const db = await databases.init('SQLITE_3');
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
-          data: { governance: { reviewers: [reviewer] } },
+          data: { governance: { reviewers: [reviewer, secondReviewer] } },
         }),
       ],
     });
@@ -2803,6 +2804,96 @@ describe('governance record access', () => {
       await preview({ ...input, rows: [invalid] }).expect(400);
     }
     expect(await db('governance_apps').select('*')).toEqual([app]);
+    expect(await db('governance_gateway_usage').select('*')).toEqual([]);
+    expect(await db('governance_gateway_blocks').select('*')).toEqual([]);
+
+    const savedPath = '/api/governance/reports/outside-gateway/reconciliations';
+    const reviewerAuth = mockCredentials.user.header(reviewer);
+    const readerAuth = mockCredentials.user.header('user:default/builder');
+    const save = (payload: object, credentials = reviewerAuth) =>
+      api.post(savedPath).set('Authorization', credentials).send(payload);
+    const list = () => api.get(savedPath).set('Authorization', reviewerAuth);
+    await list()
+      .expect('Cache-Control', 'no-store')
+      .expect(200, { reconciliations: [] });
+    await save(input, readerAuth).expect(403);
+    await save(input, mockCredentials.service.header()).expect(403);
+    await api.get(savedPath).set('Authorization', readerAuth).expect(403);
+    for (const suffix of ['?token=example', '#fragment']) {
+      const withSuffix = {
+        ...input,
+        rows: [{ ...matching, sourceUrl: matching.sourceUrl + suffix }],
+      };
+      await preview(withSuffix).expect(200);
+      await save(withSuffix).expect(400);
+    }
+
+    const { body: saved } = await save(input)
+      .expect('Cache-Control', 'no-store')
+      .expect(201);
+    expect(saved).toEqual({
+      id: expect.any(String),
+      confirmedAt: expect.any(String),
+      confirmedBy: reviewer,
+      preview: {
+        from,
+        to,
+        rows: [{ ...matching, appId: app.id, appName: 'Known app' }, unmatched],
+      },
+    });
+    expect(new Date(saved.confirmedAt).toISOString()).toBe(saved.confirmedAt);
+    await db('governance_apps').insert({
+      id: 'new-app',
+      source_key: unmatched.sourceUrl,
+      payload: JSON.stringify({ name: 'Newly registered app' }),
+      revision: 0,
+    });
+    // Reordering or reformatting equivalent input should recover the original snapshot.
+    await save(
+      {
+        from: '2025-01-01T00:00:00Z',
+        to,
+        rows: [
+          unmatched,
+          { ...matching, sourceUrl: app.source_key, model: ' fixture-model ' },
+        ],
+      },
+      mockCredentials.user.header(secondReviewer),
+    ).expect(200, saved);
+    const detailPath = `${savedPath}/${saved.id}`;
+    await api.get(detailPath).set('Authorization', readerAuth).expect(403);
+    await api
+      .get(detailPath)
+      .set('Authorization', reviewerAuth)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, saved);
+    await api
+      .get(`${savedPath}/missing`)
+      .set('Authorization', reviewerAuth)
+      .expect(404);
+    await list().expect(200, {
+      reconciliations: [
+        {
+          id: saved.id,
+          confirmedAt: saved.confirmedAt,
+          confirmedBy: reviewer,
+          from,
+          to,
+          rowCount: 2,
+        },
+      ],
+    });
+
+    const changed = { ...input, rows: [{ ...matching, calls: 6 }, unmatched] };
+    const concurrent = await Promise.all([save(changed), save(changed)]);
+    expect(concurrent.map(result => result.status).sort()).toEqual([200, 201]);
+    expect(concurrent[0].body).toEqual(concurrent[1].body);
+    expect(concurrent[0].body.id).not.toBe(saved.id);
+    expect(concurrent[0].body.preview.rows[1]).toMatchObject({
+      appId: 'new-app',
+      appName: 'Newly registered app',
+    });
+    expect(await db('governance_history').select('*')).toEqual([]);
     expect(await db('governance_gateway_usage').select('*')).toEqual([]);
     expect(await db('governance_gateway_blocks').select('*')).toEqual([]);
   });

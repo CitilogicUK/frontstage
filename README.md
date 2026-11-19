@@ -221,7 +221,7 @@ Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080
 
 ### Review usage outside the gateway
 
-In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and counts unmatched rows. Download its CSV to share the reporting window, call totals, and matched app IDs for follow-up. It does not save the export or contact the provider.
+In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and counts unmatched rows. Download its CSV to share the reporting window, call totals, and matched app IDs for follow-up. The preview does not contact the provider or save the export. Select **Save reconciliation** to record the reporting window, usage rows, and app matches at save time. Open a result under **Saved reconciliations** to review or download it later. The list shows the 20 most recent saves. Equivalent submissions reopen the original save.
 
 ```json
 {
@@ -284,7 +284,7 @@ Preview matches the source URLs against Inventory. Select **Review registered se
 
 After running `yarn demo:seed` with the reviewer profile, open **Reports → Outside-gateway usage**. Select **Download sample usage JSON**, upload it, and select **Preview outside-gateway usage**. The synthetic file reports 15 calls. One row links to **Hosted workspace demo** in Inventory, and one has no matching record. Select **Download outside-gateway usage CSV** to export both outcomes. On the unmatched row, **Start registration** prefills the source URL. Complete the form and submit it to create the record. Cancel returns to the same preview. After a successful registration, Reports refreshes matches for the same usage rows. The app record shows **Outside-gateway usage** as its registration source. Use the same source to filter Inventory or group apps in Reports.
 
-For your own data, upload a JSON file up to 1 MB or paste JSON into the form. Supply UTC `from` and `to` timestamps and up to 100 rows with an HTTPS `sourceUrl`, a `model`, and a positive integer `calls` value. The preview matches by source URL and does not store the file or monitor provider traffic.
+For your own data, upload a JSON file up to 1 MB or paste JSON into the form. Supply UTC `from` and `to` timestamps and up to 100 rows with an HTTPS `sourceUrl`, a `model`, and a positive integer `calls` value. The preview matches by source URL and does not store the file or monitor provider traffic. Saving requires source URLs without query strings or fragments. Saved rows do not contribute to gateway totals.
 
 ## App directory
 
