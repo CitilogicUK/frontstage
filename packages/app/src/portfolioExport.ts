@@ -136,6 +136,7 @@ const inventoryColumns = [
   'app_url',
   'registration_source',
   'current_policy_tier',
+  'starter_id',
 ];
 
 export function inventoryCsv(
@@ -152,6 +153,7 @@ export function inventoryCsv(
     lifecycle: string;
     deliveryStage?: string;
     discoverySource?: string;
+    starterId?: string;
     usesAiAtRuntime?: boolean;
     models: string[];
     reviewStatus: string;
@@ -180,6 +182,7 @@ export function inventoryCsv(
       appRecordUrl(baseUrl, app.id).href,
       registrationSource(app.discoverySource),
       app.riskAssessment?.tier ?? '',
+      app.starterId ?? '',
     ]),
   );
 }

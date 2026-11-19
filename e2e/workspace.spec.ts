@@ -965,7 +965,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.getByRole('button', { name: 'Download inventory CSV' }).click();
   const sourceCsv = await readFile(await (await sourceDownload).path(), 'utf8');
   expect(sourceCsv.split('\r\n')[0]).toContain('registration_source');
-  expect(sourceCsv.trimEnd().endsWith(',"bulk import",""')).toBe(true);
+  expect(sourceCsv.trimEnd().endsWith(',"bulk import","",""')).toBe(true);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })
@@ -983,6 +983,19 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   ).toHaveValue('internal-web-app');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Due soon app');
+  const starterDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const starterCsv = await readFile(
+    await (await starterDownload).path(),
+    'utf8',
+  );
+  const [starterColumns, starterRow, ...additionalRows] = starterCsv
+    .trimEnd()
+    .split(/\r?\n/);
+  expect(starterColumns).toMatch(/,starter_id$/);
+  expect(starterRow).toContain('"Due soon app"');
+  expect(starterRow).toMatch(/,"internal-web-app"$/);
+  expect(additionalRows).toHaveLength(0);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })
@@ -1123,13 +1136,13 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const overdueCsv = await readFile(await overdueDownload.path(), 'utf8');
   const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
   expect(columns).toMatch(
-    /next_review_utc,days_overdue,app_url,registration_source,current_policy_tier$/,
+    /next_review_utc,days_overdue,app_url,registration_source,current_policy_tier,starter_id$/,
   );
   expect(
-    oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded",""`),
+    oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded","",""`),
   ).toBe(true);
   expect(
-    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered",""`),
+    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered","",""`),
   ).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
@@ -2279,9 +2292,11 @@ test('audit history shows production review and ownership handoff', async ({
     'utf8',
   );
   expect(reassessmentCsv.split('\r\n')[0]).toContain('risk_tier,lifecycle');
-  expect(reassessmentCsv.split('\r\n')[0]).toMatch(/current_policy_tier$/);
+  expect(reassessmentCsv.split('\r\n')[0]).toMatch(
+    /current_policy_tier,starter_id$/,
+  );
   expect(reassessmentCsv.split('\r\n')[1]).toContain(',3,"experimental",');
-  expect(reassessmentCsv.split('\r\n')[1]).toMatch(/,2$/);
+  expect(reassessmentCsv.split('\r\n')[1]).toMatch(/,2,""$/);
 
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
