@@ -23,6 +23,7 @@
     "test:gateway-probe": "node --test scripts/probe-sandbox-gateway.test.mjs",
     "pilot:probe-roles": "node scripts/probe-pilot-roles.mjs",
     "test:pilot-roles": "node --test scripts/probe-pilot-roles.test.mjs",
+    "test:pilot-compose": "sh scripts/test-pilot-compose.sh",
     "test:pilot-image": "node scripts/test-pilot-image.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "test:audit": "node --test scripts/verify-audit.test.mjs",

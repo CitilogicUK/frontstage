@@ -453,6 +453,8 @@ docker compose -f compose.pilot.yaml up -d --wait
 
 Only Frontstage is published, on loopback. PostgreSQL retains data in a named volume and creates the non-superuser Frontstage role during first initialization. Keep the configured credentials across restarts. Changing them in the environment after initialization does not rotate database passwords. Use `docker compose -f compose.pilot.yaml down` to stop the stack and retain its database.
 
+Run `yarn test:pilot-compose` to verify Compose with synthetic identities and placeholder OAuth credentials. The smoke test requires Docker Compose, OpenSSL, and curl. Pass a locally built image tag to test a different image. It starts a disposable Compose project, recreates the containers, and checks that PostgreSQL data survives and anonymous Inventory requests still fail. The test removes its own project and volume afterward. Set `FRONTSTAGE_COMPOSE_SMOKE_PORT` if the default port 7313 is already in use.
+
 ## Verify changes in a worktree
 
 Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, unit tests, the starter projects’ offline tests, and the audit verifier tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing. If Playwright's Chromium build is unavailable on your development host, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium executable.
