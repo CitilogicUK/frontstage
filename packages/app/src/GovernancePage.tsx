@@ -3411,7 +3411,12 @@ export function GovernancePage() {
                   required
                   name="purpose"
                   maxLength={1000}
-                  defaultValue={descriptor?.purpose ?? starter?.description}
+                  defaultValue={descriptor?.purpose}
+                  placeholder={
+                    starter
+                      ? 'Describe what your app does and who will use it.'
+                      : undefined
+                  }
                 />
               </label>
               <div className="governance-fields">

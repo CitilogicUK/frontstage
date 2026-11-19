@@ -429,6 +429,7 @@ test('workspace screens share navigation and fit the viewport', async ({
   await page
     .getByRole('link', { name: 'Register from internal web app' })
     .click();
+  await expect(page.getByLabel('Purpose', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Does the app use AI at runtime?')).toHaveValue(
     'no',
   );
@@ -474,6 +475,7 @@ test('workspace screens share navigation and fit the viewport', async ({
   await assertWorkspace(page, 'Register an AI app');
   await expect(page.getByLabel('App type')).toHaveValue('agent');
   await expect(page.getByLabel('App name')).toHaveValue('Gateway agent');
+  await expect(page.getByLabel('Purpose', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Highest data classification')).toHaveValue(
     'confidential',
   );
