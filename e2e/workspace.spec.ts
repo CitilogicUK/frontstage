@@ -288,8 +288,10 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     tier: 2,
     reviewStatus: 'not required',
   };
-  const dateInDays = (days: number) =>
-    new Date(Date.now() + days * 86_400_000).toISOString();
+  const now = Date.now();
+  await page.clock.setFixedTime(now);
+  const dateInDays = (days: number, offsetMs = 0) =>
+    new Date(now + days * 86_400_000 + offsetMs).toISOString();
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -307,21 +309,21 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             deliveryStage: 'poc',
             usesAiAtRuntime: false,
             models: [],
-            nextReview: dateInDays(60),
+            nextReview: dateInDays(30, 1),
           },
           {
             ...base,
             id: 'soon',
             name: 'Due soon app',
             models: ['gpt-4.1-mini', 'gpt-4.1-mini'],
-            nextReview: dateInDays(15),
+            nextReview: dateInDays(30),
           },
           {
             ...base,
             id: 'overdue',
             name: 'Overdue app',
             deliveryStage: 'production',
-            nextReview: dateInDays(-1),
+            nextReview: dateInDays(0),
           },
           {
             ...base,
