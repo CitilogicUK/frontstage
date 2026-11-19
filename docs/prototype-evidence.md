@@ -24,6 +24,8 @@ The AI App Governance Platform spec describes four phases. Frontstage demonstrat
 
 On 19 November 2026, revision `db54ea5` passed `yarn verify` under Node.js 24. The run covered code checks, the Backstage build, and 69 passing desktop and phone browser tests. The gateway contract ran once on desktop because it is independent of viewport. A Docker image built from the same revision passed the PostgreSQL 17 startup, restart, and logical restore checks. The image test verifies the GitHub OAuth redirect with placeholder credentials. [Commit verification](https://github.com/CitilogicUK/frontstage/commit/db54ea5)
 
+On 19 November 2026, revision `72d550c` passed `yarn verify:pilot` under Node.js 24. The check built a non-root image and verified PostgreSQL migrations and restore, Catalog identity import, anonymous API denial, and the GitHub OAuth redirect with placeholder credentials. Compose recreated the app container and verified database persistence and restricted database roles. [Packaged revision](https://github.com/CitilogicUK/frontstage/commit/72d550c)
+
 ## Pilot deployment verification
 
 Use one row per requirement when recording pilot results. Capture the Frontstage revision, environment, date, result, and an evidence link. Keep credentials and real prompt or response content out of the evidence bundle.
