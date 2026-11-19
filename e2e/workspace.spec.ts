@@ -4498,7 +4498,7 @@ test('a directory access request receives a recorded owner decision', async ({
     route.fulfill({
       json: {
         actor,
-        canReview: false,
+        canReview: actor === owner,
         apps: [app],
         appsWithPendingAccessRequests:
           actor === owner && status === 'pending' ? [app.id] : undefined,
