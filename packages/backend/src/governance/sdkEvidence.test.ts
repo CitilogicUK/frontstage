@@ -65,9 +65,6 @@ examples = ['anthropic @ https://example.com/package.whl', 'OPENAI']
 [build-system]
 requires = ['litellm']
 
-[tool.poetry.dependencies]
-llama-index = "^0.12"
-
 [dependency-groups]
 dev = ['langchain']
 `;
@@ -89,7 +86,75 @@ dev = ['langchain']
       "[project.optional-dependencies]\ndev = 'openai'",
     ),
   ).toBeUndefined();
-  expect(
-    sdkPackages('pyproject.toml', "[tool.poetry.dependencies]\nopenai = '1'"),
-  ).toEqual([]);
+});
+
+it('reads exact Poetry dependencies across main, legacy dev, and named groups', () => {
+  const manifest = `
+[project]
+dependencies = ['openai>=1']
+
+[tool.poetry]
+name = 'langchain'
+description = 'An example mentioning azure-ai-inference'
+
+[tool.poetry.dependencies]
+python = '^3.11'
+OPENAI = [{version = '^1', python = '<3.12'}, {version = '^2', python = '>=3.12'}]
+'google_genai' = {version = '^1', extras = ['example']}
+'openai-wrapper' = '^1'
+
+[tool.poetry.dev-dependencies]
+'LangChain.OpenAI' = '^0.2'
+'GOOGLE-GENAI' = '^1'
+
+[tool.poetry.group.evaluation]
+optional = true
+
+[tool.poetry.group.evaluation.dependencies]
+Anthropic = {version = '^0.50', optional = true}
+llama-index = '^0.12'
+anthropic-tools = '^1'
+
+[tool.poetry.group.test.dependencies]
+'LLAMA_INDEX' = '^0.12'
+`;
+  expect(sdkPackages('pyproject.toml', manifest)).toEqual([
+    'anthropic',
+    'google-genai',
+    'langchain-openai',
+    'llama-index',
+    'openai',
+  ]);
+});
+
+it('ignores Poetry metadata, build requirements, and PEP 735 dependency groups', () => {
+  const manifest = `
+[tool.poetry]
+name = 'openai'
+description = 'Uses anthropic and langchain'
+
+[tool.poetry.scripts]
+litellm = 'example:main'
+
+[tool.poetry.extras]
+examples = ['google-genai']
+
+[tool.poetry.group.documentation]
+description = 'Mentions llama-index'
+
+[build-system]
+requires = ['langchain-openai']
+
+[dependency-groups]
+dev = ['azure-ai-inference']
+`;
+  expect(sdkPackages('pyproject.toml', manifest)).toEqual([]);
+});
+
+it.each([
+  "[tool.poetry]\ndependencies = ['openai']",
+  "[tool.poetry]\ndev-dependencies = 'openai'",
+  "[tool.poetry.group.test]\ndependencies = ['openai']",
+])('treats malformed Poetry dependency tables as unavailable', manifest => {
+  expect(sdkPackages('pyproject.toml', manifest)).toBeUndefined();
 });
