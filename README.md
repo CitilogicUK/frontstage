@@ -180,4 +180,6 @@ gh workflow run verify.yml --ref main -f use_local_runner=true -f verification_r
 
 Use a commit you reviewed because the checkout runs its own install and test scripts on the local runner. When the runner is unavailable, run `yarn verify` in the feature worktree.
 
+For an isolated Docker runner, register the Linux runner for this repository with `--ephemeral --labels frontstage-local`. Give it an isolated Docker network with a disposable PostgreSQL 17 container and set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` in the runner container to that database. Set `BACKSTAGE_TEST_DISABLE_DOCKER=1` so Backstage uses the supplied test database without a Docker socket. The runner needs outbound access to GitHub and package registries and permission to install Playwright's Linux dependencies. The runner deregisters after the job, and you can remove its container, the test database, and the network.
+
 The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
