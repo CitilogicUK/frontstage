@@ -280,6 +280,12 @@ export function DiscoveryQueue({
             ) : (
               <p>No scans recorded yet.</p>
             )}
+            {result.lastScan?.partial && (
+              <p>
+                Some repositories may be missing from this scan. Frontstage kept
+                previously tracked repositories.
+              </p>
+            )}
             {eligible > 0 && (
               <p>
                 {counts.registered} of {eligible} tracked repositories
