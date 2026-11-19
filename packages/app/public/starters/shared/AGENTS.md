@@ -25,6 +25,8 @@ A trial that touches sensitive data, real users, or consequential actions still 
 
 ## Check Frontstage policy before registration
 
+Before sharing source code, prompts, or files with a coding tool, check **Approved AI coding tools** in the Builder guide for the workspace's allowed tools and data limits. Ask the project owner if policy is unavailable.
+
 When Frontstage MCP is configured, use the workspace policy to review the project brief and its `catalog-info.yaml`.
 
 1. Use `search_apps` to check for an existing app before creating a record. Use `get_app` to inspect a possible match.

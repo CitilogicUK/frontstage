@@ -20,7 +20,10 @@ import {
   type DirectoryRequestRow,
 } from './directoryRequests';
 import { isHttpsUrlWithoutCredentials } from './httpsUrl';
-import { approvedConnectorsInput } from './approvedConnectors';
+import {
+  approvedCodingToolsInput,
+  approvedConnectorsInput,
+} from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import {
   findManagerRenewalReminderDeliveryTimes,
@@ -415,6 +418,9 @@ export const governancePlugin = createBackendPlugin({
           )
           .optional()
           .parse(config.getOptional('governance.approvedHostedWorkspaces'));
+        const approvedCodingTools = approvedCodingToolsInput.parse(
+          config.getOptional('governance.approvedCodingTools'),
+        );
         const approvedConnectors = approvedConnectorsInput.parse(
           config.getOptional('governance.approvedConnectors'),
         );
@@ -1995,6 +2001,14 @@ export const governancePlugin = createBackendPlugin({
             canReview:
               principal.type === 'user' &&
               reviewers.includes(principal.userEntityRef),
+          });
+        });
+
+        router.get('/approved-coding-tools', async (req, res) => {
+          await httpAuth.credentials(req, { allow: ['user'] });
+          res.set('Cache-Control', 'no-store').json({
+            configured: approvedCodingTools !== undefined,
+            tools: approvedCodingTools ?? [],
           });
         });
 
