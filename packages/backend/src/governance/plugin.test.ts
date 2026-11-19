@@ -2636,6 +2636,99 @@ describe('governance record access', () => {
     });
   });
 
+  it('previews outside gateway usage for reviewers without storing observations', async () => {
+    const reviewer = 'user:default/reviewer';
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const api = request(server);
+    const app = {
+      id: 'known-app',
+      source_key: 'https://github.com/example/known-app',
+      payload: JSON.stringify({ name: 'Known app' }),
+      revision: 0,
+    };
+    await db('governance_apps').insert(app);
+
+    const endpoint = '/api/governance/reports/outside-gateway/preview';
+    const preview = (
+      input: Record<string, unknown>,
+      credentials = mockCredentials.user.header(reviewer),
+    ) => api.post(endpoint).set('Authorization', credentials).send(input);
+    const from = '2025-01-01T00:00:00.000Z';
+    const to = '2025-01-02T00:00:00.000Z';
+    const matching = {
+      sourceUrl: 'https://github.com/EXAMPLE/Known-App.git/',
+      model: 'fixture-model',
+      calls: 5,
+    };
+    const unmatched = {
+      sourceUrl: 'https://example.com/unknown-app',
+      model: 'fixture-model',
+      calls: 3,
+    };
+    const input = { from, to, rows: [matching, unmatched] };
+    await preview(input, mockCredentials.none.header()).expect(401);
+    await preview(input, mockCredentials.service.header()).expect(403);
+    await preview(
+      input,
+      mockCredentials.user.header('user:default/builder'),
+    ).expect(403);
+
+    const anotherModel = {
+      ...matching,
+      model: 'other-fixture-model',
+      calls: 1,
+    };
+    await preview({
+      from,
+      to,
+      rows: [
+        unmatched,
+        { ...matching, model: '  fixture-model  ' },
+        anotherModel,
+      ],
+    })
+      .expect('Cache-Control', 'no-store')
+      .expect(200, {
+        from,
+        to,
+        rows: [
+          unmatched,
+          { ...matching, appId: app.id, appName: 'Known app' },
+          { ...anotherModel, appId: app.id, appName: 'Known app' },
+        ],
+      });
+
+    await preview({ ...input, from: to, to: from }).expect(400);
+    await preview({ ...input, from: to }).expect(400);
+    await preview({
+      ...input,
+      rows: [
+        matching,
+        { ...matching, sourceUrl: app.source_key, model: ' fixture-model ' },
+      ],
+    }).expect(400);
+    for (const invalid of [
+      { ...matching, calls: 0 },
+      { ...matching, calls: 1.5 },
+      { ...matching, sourceUrl: 'https://user:secret@example.com/app' },
+      { ...matching, model: '  ' },
+    ]) {
+      await preview({ ...input, rows: [invalid] }).expect(400);
+    }
+    expect(await db('governance_apps').select('*')).toEqual([app]);
+    expect(await db('governance_gateway_usage').select('*')).toEqual([]);
+    expect(await db('governance_gateway_blocks').select('*')).toEqual([]);
+  });
+
   it('previews hosted inventory for reviewers without creating app records', async () => {
     const reviewer = 'user:default/reviewer';
     const db = await databases.init('SQLITE_3');

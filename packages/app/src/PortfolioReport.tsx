@@ -30,6 +30,7 @@ import {
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 import { NoLiveCallsSinceActivation } from './AppRetirementReview';
+import { OutsideGatewayUsage } from './OutsideGatewayUsage';
 import { findStarter } from './AppTemplates';
 
 type AppSummary = {
@@ -1161,6 +1162,7 @@ export function PortfolioReport({
           </div>
         </section>
       )}
+      {canReview && <OutsideGatewayUsage appLink={reportAppLink} />}
       {report?.retirementReview && (
         <section
           className="gov-panel gov-stage-report"
