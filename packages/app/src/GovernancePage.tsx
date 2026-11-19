@@ -2425,11 +2425,17 @@ export function GovernancePage() {
                         'PUT',
                       );
                       applySavedApp(updated);
-                      setMessage(
+                      const tierChanged = updated.tier !== selected.tier;
+                      const outcome = tierChanged
+                        ? `Risk tier updated to Tier ${updated.tier}.`
+                        : 'App updated.';
+                      const reviewRequired =
                         updated.reviewStatus === 'pending' &&
-                          selected.reviewStatus === 'approved'
-                          ? 'App updated. A new review is required before launch.'
-                          : 'App updated.',
+                        (tierChanged || selected.reviewStatus === 'approved');
+                      setMessage(
+                        reviewRequired
+                          ? `${outcome} A new review is required before launch.`
+                          : outcome,
                       );
                     })
                   }

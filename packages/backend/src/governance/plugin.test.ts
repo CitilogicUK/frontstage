@@ -3394,6 +3394,8 @@ describe('governance record access', () => {
     const legacyPayload = JSON.stringify({
       ...JSON.parse(originalPayload),
       tier: 2,
+      lifecycle: 'active',
+      reviewStatus: 'not required',
     });
     await row.clone().update({ payload: legacyPayload });
     const drift = await api
@@ -3402,19 +3404,52 @@ describe('governance record access', () => {
       .expect(200);
     expect(drift.body).toMatchObject({
       tier: 2,
-      reviewStatus: 'approved',
+      lifecycle: 'active',
+      reviewStatus: 'not required',
       updatedAt: linked.body.updatedAt,
       riskAssessment,
     });
     expect(await row.clone().first('payload')).toEqual({
       payload: legacyPayload,
     });
-    await row.update({ payload: originalPayload });
+    const { body: reassessed } = await api
+      .put(path)
+      .set('Authorization', auth(owner))
+      .send({ ...drift.body, expectedUpdatedAt: drift.body.updatedAt })
+      .expect(200);
+    const reassessedState = {
+      tier: 3,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      lastReview: null,
+      nextReview: null,
+    };
+    expect(reassessed).toMatchObject({ ...reassessedState, riskAssessment });
+    expect(reassessed.updatedAt).not.toBe(drift.body.updatedAt);
+
+    const { body: reassessmentHistory } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(reassessmentHistory.events).toHaveLength(
+      history.body.events.length + 1,
+    );
+    const lastEvent = JSON.parse(reassessmentHistory.events.at(-1).event);
+    expect(lastEvent).toMatchObject({
+      action: 'updated',
+      actor: owner,
+      record: { ...reassessedState, updatedAt: reassessed.updatedAt },
+    });
+    expect(lastEvent.record).not.toHaveProperty('riskAssessment');
 
     const current = await api
       .get(path)
       .set('Authorization', auth(owner))
       .expect(200);
+    expect(current.body).toMatchObject({
+      ...reassessedState,
+      updatedAt: reassessed.updatedAt,
+    });
     await api
       .put(path)
       .set('Authorization', auth(owner))
