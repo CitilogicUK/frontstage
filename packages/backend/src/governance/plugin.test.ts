@@ -2250,6 +2250,219 @@ describe('governance record access', () => {
     ).toEqual([]);
   });
 
+  it('requires the active nominee to accept a planned owner handover and reapplies ownership safeguards', async () => {
+    const owner = 'user:default/owner';
+    const nominee = 'user:default/nominee';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    let nomineeActive = true;
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            ...(ref === nominee &&
+              !nomineeActive && {
+                annotations: { 'governance.backstage.io/active': 'false' },
+              }),
+          },
+        })),
+      }));
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        notifications.factory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const register = async (slug: string) => {
+      const { body } = await api
+        .post(apps)
+        .set('Authorization', auth(owner))
+        .send({
+          name: 'Shared synthetic assistant',
+          purpose: 'Demonstrate an accepted transfer.',
+          type: 'assistant',
+          platform: 'GitHub',
+          sourceUrl: `https://example.com/${slug}`,
+          owner,
+          backupOwner: backup,
+          team: 'group:default/platform',
+          lifecycle: 'active',
+          audience: 'team',
+          classification: 'internal',
+          models: ['test-model'],
+        })
+        .expect(201);
+      return body;
+    };
+    const app = await register('planned-owner-handover');
+    const path = `${apps}/${app.id}`;
+    const route = `${path}/owner-handover`;
+    const nominate = (expectedUpdatedAt: string, actor = owner) =>
+      api
+        .post(route)
+        .set('Authorization', auth(actor))
+        .send({ nominee, expectedUpdatedAt });
+    const decide = (
+      expectedUpdatedAt: string,
+      changes: object,
+      actor = nominee,
+    ) =>
+      api
+        .patch(route)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt, decision: 'accept', ...changes });
+    const cancel = (expectedUpdatedAt: string, actor = owner) =>
+      api
+        .delete(route)
+        .set('Authorization', auth(actor))
+        .send({ expectedUpdatedAt });
+    const read = (actor: string) =>
+      api.get(path).set('Authorization', auth(actor)).expect(200);
+    const key = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    await nominate(app.updatedAt, reviewer).expect(403);
+    nomineeActive = false;
+    await nominate(app.updatedAt).expect(400);
+    nomineeActive = true;
+    const { body: requested } = await nominate(app.updatedAt).expect(200);
+    expect(requested.owner).toBe(owner);
+    expect(requested.ownerHandover).toEqual({
+      nominee,
+      requestedAt: requested.updatedAt,
+      backupRequired: true,
+    });
+    for (const actor of [nominee, reviewer]) {
+      expect((await read(actor)).body.ownerHandover).toEqual(
+        requested.ownerHandover,
+      );
+    }
+    expect((await read(backup)).body).not.toHaveProperty('ownerHandover');
+    expect(notifications.send).toHaveBeenLastCalledWith({
+      recipients: { type: 'entity', entityRef: nominee },
+      payload: {
+        title: 'App ownership handover requested',
+        description:
+          'Open the app in Inventory to review the ownership handover.',
+        link: `https://portal.example.com/workspace?app=${app.id}`,
+        topic: 'AI App Governance',
+        scope: `governance-owner-handover-request-${app.id}-${requested.updatedAt}`,
+      },
+    });
+    await nominate(requested.updatedAt).expect(409);
+    await cancel(requested.updatedAt, reviewer).expect(403);
+    await decide(requested.updatedAt, {}, owner).expect(403);
+    await decide(app.updatedAt, { backupOwner: backup }).expect(409);
+    const { body: declined } = await decide(requested.updatedAt, {
+      decision: 'decline',
+    }).expect(200);
+    expect(declined).not.toHaveProperty('ownerHandover');
+    expect(declined.owner).toBe(owner);
+    const { body: nominatedAgain } = await nominate(declined.updatedAt).expect(
+      200,
+    );
+    const { body: cancelled } = await cancel(nominatedAgain.updatedAt).expect(
+      200,
+    );
+    expect(cancelled).not.toHaveProperty('ownerHandover');
+    const { body: pending } = await nominate(cancelled.updatedAt).expect(200);
+    await decide(pending.updatedAt, {}).expect(400);
+    await decide(pending.updatedAt, { backupOwner: nominee }).expect(400);
+    nomineeActive = false;
+    await decide(pending.updatedAt, { backupOwner: backup }).expect(400);
+    nomineeActive = true;
+    const { body: transferred } = await decide(pending.updatedAt, {
+      backupOwner: backup,
+    }).expect(200);
+    expect(transferred).toMatchObject({
+      owner: nominee,
+      backupOwner: backup,
+      tier: 2,
+      lifecycle: 'active',
+      lastReview: null,
+      nextReview: transferred.updatedAt,
+    });
+    expect(transferred).not.toHaveProperty('ownerHandover');
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key.body.key}`)
+      .send({
+        model: 'test-model',
+        prompt: 'Synthetic check after ownership transfer.',
+      })
+      .expect(401);
+    expect(notifications.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        recipients: { type: 'entity', entityRef: owner },
+        payload: expect.objectContaining({
+          title: 'App ownership handover accepted',
+        }),
+      }),
+    );
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(
+      history.events
+        .map(({ event }: { event: string }) => JSON.parse(event))
+        .at(-1),
+    ).toMatchObject({
+      action: 'owner-handover-accepted',
+      actor: nominee,
+      ownerHandoverNominee: nominee,
+      record: { owner: nominee },
+    });
+
+    const another = await register('planned-handover-retired');
+    const otherRoute = `${apps}/${another.id}/owner-handover`;
+    const { body: otherPending } = await api
+      .post(otherRoute)
+      .set('Authorization', auth(owner))
+      .send({ nominee, expectedUpdatedAt: another.updatedAt })
+      .expect(200);
+    const { body: retired } = await api
+      .patch(`${apps}/${another.id}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'retired', expectedUpdatedAt: otherPending.updatedAt })
+      .expect(200);
+    expect(retired).not.toHaveProperty('ownerHandover');
+  });
+
   it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';

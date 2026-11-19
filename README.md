@@ -231,6 +231,12 @@ With scheduled reminders enabled, set `governance.reviewManagerEscalationDays` t
 
 Set `governance.reviewGatewayPauseDays` to opt in to pausing Tier 2 gateway requests after the configured number of overdue calendar days. This requires scheduled reminders and manager escalation, and the pause delay must be at least the manager escalation delay. Frontstage pauses requests once the manager notification has succeeded for the current app owner and deadline. The app scorecard and **My scorecard issues** show when gateway access is paused. The playground disables prompts while it shows the pause and offers a usage refresh. Completing the attestation resumes access with the same credential. Tier 3 continues to use its approval and renewal exception rules.
 
+## Planned owner handover
+
+In an app’s details, the accountable owner can open **Planned owner handover** and nominate a different active Catalog user. Frontstage notifies the nominee privately. The current owner remains responsible until the nominee accepts, and can cancel while the nomination is pending. The nominee can decline or accept and name a distinct active backup if the app’s tier requires one.
+
+Acceptance records who took ownership and when in Audit history. Frontstage applies the same ownership-change rules as a backup handover, including revoking gateway keys and reopening required reviews.
+
 ## Backup owner handover
 
 When Backstage marks an accountable owner inactive or no longer has their user record, the registered backup owner can open the app from **Inventory → Apps I back up** and confirm the handover. Tier 2 and Tier 3 apps need a different active backup owner. Frontstage checks the catalog and the current app revision before transferring ownership.

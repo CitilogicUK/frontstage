@@ -6899,6 +6899,104 @@ test('the focused review ticket form saves and removes the link without reopenin
   ).toBeVisible();
 });
 
+test('a nominated owner can accept a planned handover', async ({ page }) => {
+  const owner = 'user:default/owner';
+  const nominee = 'user:default/incoming-owner';
+  const backup = 'user:default/replacement-backup';
+  const requestedAt = '2025-05-02T00:00:00.000Z';
+  const acceptedAt = '2025-05-03T00:00:00.000Z';
+  const app = {
+    id: 'planned-owner-handover',
+    name: 'Shared planning app',
+    owner,
+    backupOwner: 'user:default/backup',
+    team: 'group:default/operations',
+    purpose: 'Prepare synthetic planning summaries.',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/planning',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'not required',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  let actor = owner;
+  let current: typeof app & {
+    ownerHandover?: {
+      nominee: string;
+      requestedAt: string;
+      backupRequired: boolean;
+    };
+  } = app;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [current] } }),
+  );
+  await page.route(
+    '**/api/governance/apps/planned-owner-handover/owner-handover',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(actor).toBe(owner);
+        expect(request.postDataJSON()).toEqual({
+          nominee,
+          expectedUpdatedAt: app.updatedAt,
+        });
+        current = {
+          ...app,
+          updatedAt: requestedAt,
+          ownerHandover: { nominee, requestedAt, backupRequired: true },
+        };
+      } else {
+        expect(actor).toBe(nominee);
+        expect(request.method()).toBe('PATCH');
+        expect(request.postDataJSON()).toEqual({
+          decision: 'accept',
+          backupOwner: backup,
+          expectedUpdatedAt: requestedAt,
+        });
+        current = {
+          ...app,
+          owner: nominee,
+          backupOwner: backup,
+          updatedAt: acceptedAt,
+        };
+      }
+      return route.fulfill({ json: current });
+    },
+  );
+  const path = '/?app=planned-owner-handover';
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await page.goto(path);
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await details
+    .getByRole('textbox', { name: 'New accountable owner' })
+    .fill(nominee);
+  await details.getByRole('button', { name: 'Request owner handover' }).click();
+  await expect(
+    details.getByText(`Awaiting a decision from ${nominee}.`),
+  ).toBeVisible();
+
+  actor = nominee;
+  await page.goto(path);
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(details).toBeVisible();
+  await expect(
+    details.getByText('Edit app details', { exact: true }),
+  ).toHaveCount(0);
+  await details
+    .getByRole('textbox', { name: 'Replacement backup owner' })
+    .fill(backup);
+  await details.getByRole('button', { name: 'Accept owner handover' }).click();
+  await expect(
+    details.getByText('Edit app details', { exact: true }),
+  ).toBeVisible();
+});
+
 test('a backup owner can confirm handover when the app is eligible', async ({
   page,
 }) => {
