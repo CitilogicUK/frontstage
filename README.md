@@ -1,6 +1,6 @@
 # AI App Governance
 
-A Backstage portal for registering AI apps, agents, and automations and reviewing critical apps before launch. The governance backend owns the records. A Backstage entity provider publishes them as `AIApp` entities, using the app ID as the entity name.
+A Backstage portal for registering AI apps, agents, and automations and reviewing critical apps before launch. The governance backend owns the records. A Backstage entity provider publishes them as `AIApp` entities, using the app ID as the entity name. The published entity includes registration fields, ownership, lifecycle, and review status. Review notes, evidence links, tickets, and reminder state stay in governance records.
 
 ## Run locally
 

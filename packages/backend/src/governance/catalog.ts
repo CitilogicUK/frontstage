@@ -18,6 +18,60 @@ import {
 import type { GovernanceRecord } from './plugin';
 import { appInput } from './policy';
 
+export function governanceCatalogEntity(app: GovernanceRecord): Entity {
+  const data = appInput.parse(app);
+  return {
+    apiVersion: 'governance.backstage.io/v1alpha1',
+    kind: 'AIApp',
+    metadata: {
+      name: app.id,
+      title: data.name,
+      description: data.purpose,
+      annotations: {
+        [ANNOTATION_LOCATION]: 'governance:inventory',
+        [ANNOTATION_ORIGIN_LOCATION]: 'governance:inventory',
+      },
+      links: [{ url: data.sourceUrl, title: 'Source' }],
+    },
+    spec: {
+      id: app.id,
+      name: data.name,
+      purpose: data.purpose,
+      type: data.type,
+      platform: data.platform,
+      sourceUrl: data.sourceUrl,
+      owner: data.owner,
+      backupOwner: data.backupOwner,
+      team: data.team,
+      lifecycle: data.lifecycle,
+      audience: data.audience,
+      classification: data.classification,
+      effectiveClassification: app.effectiveClassification,
+      usesAiAtRuntime: data.usesAiAtRuntime,
+      deliveryStage: data.deliveryStage,
+      models: data.models,
+      connections: data.connections,
+      takesActions: data.takesActions,
+      actionDescription: data.actionDescription,
+      affectsPeople: data.affectsPeople,
+      critical: data.critical,
+      personalData: data.personalData,
+      hosted: data.hosted,
+      hostedAttestation: app.hostedAttestation && {
+        at: app.hostedAttestation.at,
+        nextDue: app.hostedAttestation.nextDue,
+      },
+      tier: app.tier,
+      reviewStatus: app.reviewStatus,
+      lastReview: app.lastReview,
+      nextReview: app.nextReview,
+      discoverySource: app.discoverySource,
+      updatedAt: app.updatedAt,
+      activeSince: app.activeSince,
+    },
+  };
+}
+
 export const governanceCatalog = createBackendModule({
   pluginId: 'catalog',
   moduleId: 'governance',
@@ -97,35 +151,10 @@ export const governanceCatalog = createBackendModule({
                 };
                 await connection.applyMutation({
                   type: 'full',
-                  entities: apps.map(app => {
-                    const data = appInput.parse(app);
-                    const entity: Entity = {
-                      apiVersion: 'governance.backstage.io/v1alpha1',
-                      kind: 'AIApp',
-                      metadata: {
-                        name: app.id,
-                        title: data.name,
-                        description: data.purpose,
-                        annotations: {
-                          [ANNOTATION_LOCATION]: 'governance:inventory',
-                          [ANNOTATION_ORIGIN_LOCATION]: 'governance:inventory',
-                        },
-                        links: [{ url: data.sourceUrl, title: 'Source' }],
-                      },
-                      spec: {
-                        ...app,
-                        reviewNotes: undefined,
-                        renewalException: undefined,
-                        retirementReview: undefined,
-                        graduation: undefined,
-                        directoryListing: undefined,
-                        reviewTicketUrl: undefined,
-                        evidence: undefined,
-                        signoffs: undefined,
-                      },
-                    };
-                    return { entity, locationKey: provider };
-                  }),
+                  entities: apps.map(app => ({
+                    entity: governanceCatalogEntity(app),
+                    locationKey: provider,
+                  })),
                 });
               },
             });
