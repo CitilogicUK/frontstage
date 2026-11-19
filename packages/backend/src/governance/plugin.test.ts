@@ -823,9 +823,19 @@ describe('governance record access', () => {
         .set('Authorization', `Bearer ${credential.key}`)
         .send({ model: 'test-model', prompt: 'Synthetic test prompt' });
 
+    const gatewayAccess = async () => {
+      const { body } = await api
+        .get(`${laterPath}/scorecard`)
+        .set('Authorization', ownerAuth)
+        .expect(200);
+      return body.checks.find(
+        ({ name }: { name: string }) => name === 'Gateway access',
+      );
+    };
     const pauseAt = now + 38 * day;
     clock.mockReturnValue(pauseAt);
     await call().expect(200);
+    expect(await gatewayAccess()).toBeUndefined();
     clock.mockReturnValue(pauseAt - 1);
     await run();
     expect(managerMessages()).toContainEqual(
@@ -842,6 +852,12 @@ describe('governance record access', () => {
       .expect(({ body }) => {
         expect(body.error.message).toContain('overdue attestation');
       });
+    expect(await gatewayAccess()).toEqual({
+      name: 'Gateway access',
+      status: 'attention',
+      detail:
+        'Gateway access is paused until the app owner completes the overdue attestation.',
+    });
     const usage = await api
       .get(`${laterPath}/usage`)
       .set('Authorization', ownerAuth)
@@ -856,6 +872,7 @@ describe('governance record access', () => {
       .send({ confirmed: true, expectedUpdatedAt: active.updatedAt })
       .expect(200);
     await call().expect(200);
+    expect(await gatewayAccess()).toBeUndefined();
   });
 
   it('summarizes only the current owner’s active scorecard issues', async () => {

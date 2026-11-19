@@ -922,6 +922,7 @@ export function registerGatewayRoutes(options: {
     const ownership = await ownersAreActive(record).catch(() => undefined);
     let recentModes;
     let issuedKey = false;
+    let accessPaused = false;
     if (isScorecardGatewayApp(record)) {
       recentModes = await db(usageTable)
         .where({ app_id: record.id })
@@ -932,6 +933,9 @@ export function registerGatewayRoutes(options: {
         )
         .distinct<{ execution_mode: string | null }[]>('execution_mode');
       if (record.lifecycle === 'active') {
+        accessPaused =
+          !launchBlock(record) &&
+          Boolean(await attestationPaused?.(record, db));
         issuedKey = Boolean(
           await db(keysTable)
             .where({ app_id: record.id, environment: readinessEnvironment })
@@ -939,9 +943,19 @@ export function registerGatewayRoutes(options: {
         );
       }
     }
-    res.set('Cache-Control', 'no-store').json({
-      checks: scorecardChecks(record, { ownership, issuedKey, recentModes }),
+    const checks = scorecardChecks(record, {
+      ownership,
+      issuedKey,
+      recentModes,
     });
+    if (accessPaused) {
+      checks.push({
+        name: 'Gateway access',
+        status: 'attention',
+        detail: attestationPauseBlock.message,
+      });
+    }
+    res.set('Cache-Control', 'no-store').json({ checks });
   });
 
   router.get('/owner-scorecard', async (req, res) => {
