@@ -1,0 +1,10 @@
+# Copy and review this overlay before using it in a pilot.
+catalog:
+  locations:
+    - type: file
+      target: /app/pilot-identities.yaml
+      rules:
+        - allow: [User, Group]
+governance:
+  reviewers:
+    - user:default/pilot-reviewer

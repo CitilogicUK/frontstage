@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 
 const image = process.argv[2] ?? 'frontstage:pilot';
 const network = `frontstage-pilot-${randomUUID()}`;
@@ -79,7 +80,23 @@ function startPilotApp(container, targetDatabase) {
     `APP_CONFIG_backend_baseUrl=${appOrigin}`,
     '-e',
     `APP_CONFIG_backend_cors_origin=${appOrigin}`,
+    '-v',
+    `${fileURLToPath(
+      new URL('../examples/pilot-identity-config.yaml', import.meta.url),
+    )}:/app/app-config.identity.local.yaml:ro`,
+    '-v',
+    `${fileURLToPath(
+      new URL('../examples/pilot-identities.yaml', import.meta.url),
+    )}:/app/pilot-identities.yaml:ro`,
     image,
+    '--config',
+    'app-config.yaml',
+    '--config',
+    'app-config.postgres.yaml',
+    '--config',
+    'app-config.github-signin.yaml',
+    '--config',
+    'app-config.identity.local.yaml',
   ]);
 }
 
@@ -192,6 +209,17 @@ try {
     ]);
   }
 
+  const identityMappings = `SELECT entity_ref || '=' || (final_entity::jsonb #>> '{metadata,annotations,github.com/user-id}')
+    FROM catalog.final_entities
+    WHERE entity_ref IN ('user:default/pilot-builder', 'user:default/pilot-reviewer')
+    ORDER BY entity_ref`;
+  await waitFor(
+    'pilot Catalog identity import',
+    () =>
+      queryPilotDatabase(sourceDatabase, identityMappings) ===
+      'user:default/pilot-builder=example-builder-node-id\nuser:default/pilot-reviewer=example-reviewer-node-id',
+  );
+
   queryPilotDatabase(
     sourceDatabase,
     'SELECT 1 FROM governance.governance_apps LIMIT 0',
@@ -234,7 +262,7 @@ try {
     throw new Error('The synthetic timing sample was missing after restore.');
 
   console.log(
-    'Pilot image is healthy and non-root. PostgreSQL migrations, anonymous API denial, OAuth redirect, restart persistence, and database restore verified.',
+    'Pilot image is healthy and non-root. PostgreSQL migrations, Catalog identity import, anonymous API denial, OAuth redirect, restart persistence, and database restore verified.',
   );
 } catch (error) {
   if (interruption.signal.aborted) {
