@@ -393,6 +393,20 @@ export function GovernancePage() {
     },
     [],
   );
+  const [appsAwaitingAccessFulfillment, setAppsAwaitingAccessFulfillment] =
+    useState<Set<string>>(new Set());
+  const updateAccessFulfillment = useCallback(
+    (id: string, hasFulfillment: boolean) => {
+      setAppsAwaitingAccessFulfillment(previous => {
+        if (previous.has(id) === hasFulfillment) return previous;
+        const next = new Set(previous);
+        if (hasFulfillment) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [],
+  );
   const [actor, setActor] = useState('');
   const [canReview, setCanReview] = useState(false);
   const [graduationEnabled, setGraduationEnabled] = useState(false);
@@ -882,6 +896,9 @@ export function GovernancePage() {
         setAppsWithPendingAccessRequests(
           new Set(result.appsWithPendingAccessRequests ?? []),
         );
+        setAppsAwaitingAccessFulfillment(
+          new Set(result.appsAwaitingAccessFulfillment ?? []),
+        );
         setActor(result.actor ?? '');
         setCanReview(result.canReview);
         setGraduationEnabled(result.graduationEnabled === true);
@@ -1273,6 +1290,13 @@ export function GovernancePage() {
             app.owner === actor && appsWithPendingAccessRequests.has(app.id),
         ).length
       : 0;
+  const myAccessFulfillmentAppCount =
+    view === 'Inventory' && actor
+      ? apps.filter(
+          app =>
+            app.owner === actor && appsAwaitingAccessFulfillment.has(app.id),
+        ).length
+      : 0;
   const ownerScorecard =
     view === 'Inventory' &&
     scorecardResponse?.actor === actor &&
@@ -1337,6 +1361,7 @@ export function GovernancePage() {
       inventoryReview === 'upcoming' ||
       inventoryReview === 'retirement' ||
       inventoryReview === 'access' ||
+      inventoryReview === 'fulfillment' ||
       inventoryReview === 'workspace' ||
       inventoryReview === 'scorecard' ||
       (inventoryReview === 'reassess' && canFilterReassessment))
@@ -1406,6 +1431,8 @@ export function GovernancePage() {
         ownerCanDecideRetirement(app, actor)) &&
       (inventoryReviewFilter !== 'access' ||
         (app.owner === actor && appsWithPendingAccessRequests.has(app.id))) &&
+      (inventoryReviewFilter !== 'fulfillment' ||
+        (app.owner === actor && appsAwaitingAccessFulfillment.has(app.id))) &&
       (inventoryReviewFilter !== 'workspace' ||
         ownerWorkspaceIssues.has(app.id)) &&
       (inventoryReviewFilter !== 'scorecard' ||
@@ -1443,7 +1470,12 @@ export function GovernancePage() {
       const next = new URLSearchParams(previous);
       if (value) next.set(key, value);
       else next.delete(key);
-      if (key === 'review' && (value === 'workspace' || value === 'scorecard'))
+      if (
+        key === 'review' &&
+        (value === 'workspace' ||
+          value === 'scorecard' ||
+          value === 'fulfillment')
+      )
         next.set('owner', 'me');
       return next;
     });
@@ -1726,6 +1758,15 @@ export function GovernancePage() {
               </Link>
             </p>
           )}
+          {!loading && !error && myAccessFulfillmentAppCount > 0 && (
+            <p className="gov-notice">
+              <Link to="/?owner=me&review=fulfillment">
+                {myAccessFulfillmentAppCount === 1
+                  ? '1 of your apps has access to provision'
+                  : `${myAccessFulfillmentAppCount} of your apps have access to provision`}
+              </Link>
+            </p>
+          )}
           {view === 'Inventory' &&
             !loading &&
             !error &&
@@ -1977,6 +2018,9 @@ export function GovernancePage() {
                       </option>
                       <option value="scorecard">My scorecard issues</option>
                       <option value="access">My pending access requests</option>
+                      <option value="fulfillment">
+                        My access fulfillment queue
+                      </option>
                       <option value="retirement">
                         My retirement decisions
                       </option>
@@ -3055,6 +3099,7 @@ export function GovernancePage() {
                 appRevision={selected.updatedAt}
                 canRecordFulfillment={actor === selected.owner}
                 onPendingChange={updatePendingAccessRequests}
+                onFulfillmentChange={updateAccessFulfillment}
                 onDecisionSaved={() => setAuditVersion(version => version + 1)}
                 listingMeetsLaunchRequirements={
                   selected.lifecycle === 'active' &&

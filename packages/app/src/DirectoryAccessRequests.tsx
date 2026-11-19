@@ -189,6 +189,7 @@ export function DirectoryRequestQueue({
   appRevision,
   canRecordFulfillment,
   onPendingChange,
+  onFulfillmentChange,
   onDecisionSaved,
 }: {
   appId: string;
@@ -196,6 +197,7 @@ export function DirectoryRequestQueue({
   appRevision: string;
   canRecordFulfillment: boolean;
   onPendingChange: (appId: string, hasPending: boolean) => void;
+  onFulfillmentChange: (appId: string, hasFulfillment: boolean) => void;
   onDecisionSaved: () => void;
 }) {
   const api = useDirectoryRequestApi(appId);
@@ -221,6 +223,14 @@ export function DirectoryRequestQueue({
             appId,
             result.requests.some(item => item.status === 'pending'),
           );
+          if (canRecordFulfillment) {
+            onFulfillmentChange(
+              appId,
+              result.requests.some(
+                item => item.status === 'approved' && !item.provisionedAt,
+              ),
+            );
+          }
         }
       },
       reason => {
@@ -229,7 +239,16 @@ export function DirectoryRequestQueue({
       },
     );
     return () => controller.abort();
-  }, [api, appId, appRevision, onPendingChange, open, queueVersion]);
+  }, [
+    api,
+    appId,
+    appRevision,
+    canRecordFulfillment,
+    onFulfillmentChange,
+    onPendingChange,
+    open,
+    queueVersion,
+  ]);
 
   async function decide(event: FormEvent<HTMLFormElement>, requestId: string) {
     event.preventDefault();
@@ -277,6 +296,17 @@ export function DirectoryRequestQueue({
             ),
           },
       );
+      if (requests) {
+        onFulfillmentChange(
+          appId,
+          requests.some(
+            item =>
+              item.id !== requestId &&
+              item.status === 'approved' &&
+              !item.provisionedAt,
+          ),
+        );
+      }
       setConfirmProvisioning(undefined);
       onDecisionSaved();
     } catch (reason) {

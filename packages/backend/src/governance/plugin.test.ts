@@ -1821,6 +1821,7 @@ describe('governance record access', () => {
       .expect('Cache-Control', 'no-store')
       .expect(200);
     expect(ownerInventory.appsWithPendingAccessRequests).toEqual([app.id]);
+    expect(ownerInventory.appsAwaitingAccessFulfillment).toEqual([]);
     expect(JSON.stringify(ownerInventory)).not.toContain(requestMessage);
     for (const credentials of [
       auth(requester),
@@ -1832,6 +1833,11 @@ describe('governance record access', () => {
         .set('Authorization', credentials)
         .expect(200);
       expect(body).not.toHaveProperty('appsWithPendingAccessRequests');
+      if (credentials === mockCredentials.service.header()) {
+        expect(body).not.toHaveProperty('appsAwaitingAccessFulfillment');
+      } else {
+        expect(body.appsAwaitingAccessFulfillment).toEqual([]);
+      }
     }
     expect(reviewerQueue.requests).toHaveLength(2);
     expect(reviewerQueue.canApprove).toBe(true);
@@ -1933,6 +1939,9 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .expect(200);
     expect(partiallyDecidedInventory.appsWithPendingAccessRequests).toEqual([
+      app.id,
+    ]);
+    expect(partiallyDecidedInventory.appsAwaitingAccessFulfillment).toEqual([
       app.id,
     ]);
     await feed(requester).expect(200, {
@@ -2156,6 +2165,14 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ expectedUpdatedAt: listedAgain.updatedAt })
       .expect(200);
+    const fulfillmentQueue = (actor = owner) =>
+      api.get(collection).set('Authorization', auth(actor)).expect(200);
+    expect(
+      (await fulfillmentQueue()).body.appsAwaitingAccessFulfillment,
+    ).toEqual([app.id]);
+    expect(
+      (await fulfillmentQueue(reviewer)).body.appsAwaitingAccessFulfillment,
+    ).toEqual([]);
     notifications.send.mockClear();
     const { body: provisioned } = await fulfill(owner, created.id)
       .expect('Cache-Control', 'no-store')
@@ -2165,6 +2182,9 @@ describe('governance record access', () => {
       provisionedAt: expect.any(String),
     });
     await fulfill(owner, created.id).expect(200, provisioned);
+    expect(
+      (await fulfillmentQueue()).body.appsAwaitingAccessFulfillment,
+    ).toEqual([]);
     expect(notifications.send).toHaveBeenCalledTimes(1);
     expect(notifications.send).toHaveBeenCalledWith({
       recipients: { type: 'entity', entityRef: requester },
@@ -2215,6 +2235,21 @@ describe('governance record access', () => {
       apps: [{ ...entry, ...requesterStatus }],
     });
     await feed(reviewer).expect(200, { apps: [entry] });
+    const first = await createRequest('user:default/first').expect(201);
+    const second = await createRequest('user:default/second').expect(201);
+    await decide(owner, first.body.id, 'approved').expect(200);
+    await decide(owner, second.body.id, 'approved').expect(200);
+    expect(
+      (await fulfillmentQueue()).body.appsAwaitingAccessFulfillment,
+    ).toEqual([app.id]);
+    await fulfill(owner, first.body.id).expect(200);
+    expect(
+      (await fulfillmentQueue()).body.appsAwaitingAccessFulfillment,
+    ).toEqual([app.id]);
+    await fulfill(owner, second.body.id).expect(200);
+    expect(
+      (await fulfillmentQueue()).body.appsAwaitingAccessFulfillment,
+    ).toEqual([]);
   });
 
   it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {

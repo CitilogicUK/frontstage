@@ -6269,6 +6269,10 @@ test('a directory access request receives a recorded owner decision', async ({
         apps: [app],
         appsWithPendingAccessRequests:
           actor === owner && status === 'pending' ? [app.id] : undefined,
+        appsAwaitingAccessFulfillment:
+          actor === owner && status === 'approved' && !provisionedAt
+            ? [app.id]
+            : [],
       },
     }),
   );
@@ -6476,6 +6480,16 @@ test('a directory access request receives a recorded owner decision', async ({
     app.updatedAt,
   );
 
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(workQueue).toHaveCount(0);
+  const fulfillmentQueue = page.getByRole('link', {
+    name: '1 of your apps has access to provision',
+  });
+  await fulfillmentQueue.click();
+  await expect(page).toHaveURL(/review=fulfillment/);
+  await page.getByRole('button', { name: app.name }).click();
+  await details.getByText('Directory access requests', { exact: true }).click();
+
   await details
     .getByRole('button', { name: 'Mark access provisioned' })
     .click();
@@ -6487,6 +6501,7 @@ test('a directory access request receives a recorded owner decision', async ({
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(workQueue).toHaveCount(0);
   await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
+  await expect(fulfillmentQueue).toHaveCount(0);
 
   actor = requester;
   await page.goto('/?view=directory&directoryAccess=mine');
