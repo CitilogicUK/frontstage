@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { configApiRef, useApi } from '@backstage/core-plugin-api';
 import { appRecordUrl, scheduledReviewDate } from './reviewDue';
-import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
+import {
+  reviewSignoffLines,
+  type ReviewSignoffs,
+  type ReviewTrack,
+} from './reviewTracks';
 
 type ReviewTicketApp = Parameters<typeof scheduledReviewDate>[0] & {
   id: string;
@@ -9,7 +13,7 @@ type ReviewTicketApp = Parameters<typeof scheduledReviewDate>[0] & {
   owner: string;
   team: string;
   reviewStatus: string;
-  signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
+  signoffs?: ReviewSignoffs;
 };
 
 function httpsTicketDestination(value: string | undefined) {
@@ -56,12 +60,7 @@ export function ReviewTicketContext({
       `Owner: ${app.owner}`,
       `Team: ${app.team}`,
       `Review status: ${app.reviewStatus}`,
-      ...tracks.map(
-        track =>
-          `${reviewTrackLabels[track]} sign-off: ${
-            app.signoffs?.[track]?.status ?? 'pending'
-          }`,
-      ),
+      ...reviewSignoffLines(tracks, app.signoffs),
       ...(due ? [`Renewal due: ${due.toISOString().slice(0, 10)} UTC`] : []),
     ].join('\n');
     try {
