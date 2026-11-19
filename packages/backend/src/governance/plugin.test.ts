@@ -3537,10 +3537,10 @@ describe('governance record access', () => {
     const api = request(server);
     const auth = (user: string) => mockCredentials.user.header(user);
     const apps = '/api/governance/apps';
-    const create = (workspace: string) =>
+    const create = (workspace: string, actor = owner, fromSnapshot = false) =>
       api
-        .post(apps)
-        .set('Authorization', auth(owner))
+        .post(fromSnapshot ? `${apps}?source=hosted-snapshot` : apps)
+        .set('Authorization', auth(actor))
         .send({
           name: `Hosted ${workspace}`,
           purpose: 'Track workspace governance.',
@@ -3560,10 +3560,21 @@ describe('governance record access', () => {
             sharing: 'private',
             dataAccess: 'none',
           },
-        })
-        .expect(201);
-    const { body: original } = await create('Company');
-    const { body: unapproved } = await create('Other');
+        });
+    await create('Company', owner, true).expect(403);
+    const { body: original } = await create('Company', reviewer, true).expect(
+      201,
+    );
+    const { body: unapproved } = await create('Other').expect(201);
+    expect(original.discoverySource).toBe('hosted snapshot');
+    expect(unapproved.discoverySource).toBe('registered');
+    const history = await api
+      .get(`${apps}/${original.id}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(
+      JSON.parse(history.body.events[0].event).record.discoverySource,
+    ).toBe('hosted snapshot');
     expect(original.hostedWorkspaceAllowed).toBe(true);
     expect(unapproved.hostedWorkspaceAllowed).toBe(false);
     const attest = (

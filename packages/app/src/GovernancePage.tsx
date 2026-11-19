@@ -3176,6 +3176,8 @@ export function GovernancePage() {
                   ? `/discovery/github/${encodeURIComponent(
                       candidate.id,
                     )}/claim`
+                  : hostedRegistration
+                  ? '/apps?source=hosted-snapshot'
                   : '/apps';
                 const deliveryStage = parseDeliveryStage(
                   value('deliveryStage'),

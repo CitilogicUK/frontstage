@@ -221,7 +221,7 @@ export type GovernanceRecord = AppInput & {
   reviewStatus: ReviewStatus;
   lastReview: string | null;
   nextReview: string | null;
-  discoverySource: 'registered' | 'git' | 'bulk import';
+  discoverySource: 'registered' | 'git' | 'bulk import' | 'hosted snapshot';
   updatedAt: string;
   activeSince?: string;
   reviewNotes?: string;
@@ -1733,6 +1733,14 @@ export const governancePlugin = createBackendPlugin({
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
           });
+          const fromHostedSnapshot = req.query.source === 'hosted-snapshot';
+          if (
+            fromHostedSnapshot &&
+            (principal.type !== 'user' ||
+              !reviewers.includes(principal.userEntityRef))
+          ) {
+            throw new NotAllowedError('Reviewer access is required.');
+          }
           const app = parseApp(req.body);
           if (
             principal.type === 'user' &&
@@ -1743,8 +1751,20 @@ export const governancePlugin = createBackendPlugin({
               'Register as the owner or ask a reviewer to register on their behalf.',
             );
           }
+          if (
+            fromHostedSnapshot &&
+            (app.type !== 'provider-hosted app' ||
+              !isHttpsUrlWithoutCredentials(app.sourceUrl))
+          ) {
+            throw new InputError(
+              'Hosted snapshot registration requires a provider-hosted app with an HTTPS source URL without credentials.',
+            );
+          }
           await validateOwners(app);
-          const record = buildRecord(app, 'registered');
+          const record = buildRecord(
+            app,
+            fromHostedSnapshot ? 'hosted snapshot' : 'registered',
+          );
           await insert([record], principal);
           res
             .status(201)
