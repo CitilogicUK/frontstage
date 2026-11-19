@@ -233,6 +233,30 @@ tbody th span {
   }
 }
 
+@media (max-width: 24rem) {
+  table,
+  thead th {
+    font-size: 0.82rem;
+  }
+  thead th:first-child {
+    width: 37%;
+  }
+  thead th:last-child {
+    width: 38%;
+  }
+  th,
+  td {
+    padding-inline: 0.35rem;
+  }
+  tbody th span,
+  .status {
+    font-size: 0.75rem;
+  }
+  .status {
+    padding-inline: 0.2rem;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .intro {
     animation: arrive 0.35s ease-out both;
