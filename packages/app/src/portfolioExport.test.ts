@@ -1,4 +1,36 @@
-import { pendingSignoffsCsv, portfolioCsv } from './portfolioExport';
+import {
+  hostedSnapshotCsv,
+  pendingSignoffsCsv,
+  portfolioCsv,
+} from './portfolioExport';
+
+it('exports hosted observations without inferring unsupplied declarations', () => {
+  const csv = hostedSnapshotCsv([
+    {
+      name: '=formula',
+      sourceUrl: 'https://example.com/app',
+      appId: 'app',
+      provider: 'Example AI',
+      workspace: 'Corporate',
+      sharing: 'private',
+      dataClassification: 'internal',
+      settingDifferences: [{ field: 'dataClassification', registered: null }],
+    },
+    {
+      name: 'Wrong type',
+      sourceUrl: 'https://example.com/wrong-type',
+      appId: 'wrong-type',
+      provider: 'Example AI',
+      workspace: 'Corporate',
+      sharing: 'private',
+      mismatch: 'app-type',
+    },
+  ]);
+  expect(csv.split('\r\n').slice(1, 3)).toEqual([
+    `"'=formula","https://example.com/app","app","matched","Example AI","Corporate","Example AI","Corporate","","private","","internal","private","","","dataClassification",""`,
+    `"Wrong type","https://example.com/wrong-type","wrong-type","matched","Example AI","Corporate","","","app-type","private","","","","","","",""`,
+  ]);
+});
 
 it('preserves values and treats formula-like names as spreadsheet text', () => {
   const output = portfolioCsv([

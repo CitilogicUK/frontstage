@@ -3330,6 +3330,29 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(
     knownRow.getByRole('button', { name: 'Register app' }),
   ).toHaveCount(0);
+  const pendingCsv = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download hosted snapshot CSV' })
+    .click();
+  const download = await pendingCsv;
+  expect(download.suggestedFilename()).toBe('frontstage-hosted-snapshot.csv');
+  const csv = await readFile(await download.path(), 'utf8');
+  const [, ...dataRows] = csv.trimEnd().split(/\r?\n/);
+  expect(dataRows).toHaveLength(2);
+  const mismatchRow = dataRows.find(row =>
+    row.includes(`"${known.sourceUrl}"`),
+  );
+  expect(mismatchRow).toContain('"known-hosted-app"');
+  expect(mismatchRow).toContain('"matched"');
+  expect(mismatchRow).toContain('"public link"');
+  expect(mismatchRow).toContain('"private"');
+  expect(mismatchRow).toContain('"settings-mismatch"');
+  const unmatchedRow = dataRows.find(row =>
+    row.includes(`"${candidate.sourceUrl}"`),
+  );
+  expect(unmatchedRow).toContain(`"${candidate.name}"`);
+  expect(unmatchedRow).toContain('"named people"');
+  expect(unmatchedRow).toContain('"unmatched"');
   const reviewSettings = knownRow.getByRole('link', {
     name: 'Review registered settings',
   });
