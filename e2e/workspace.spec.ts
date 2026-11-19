@@ -1911,6 +1911,28 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(missingAppRow).toContainText('Record unavailable');
   await expect(missingAppRow).toContainText('Risk reassessment required');
   await expect(missingAppRow.getByRole('link')).toHaveCount(0);
+  const searchBlocks = blockReport.getByRole('searchbox', {
+    name: 'Search policy blocks',
+  });
+  await searchBlocks.fill(renewal.name.toUpperCase());
+  await expect(missingAppRow).toHaveCount(0);
+  await expect(
+    blockReport.getByRole('link', { name: renewal.name }),
+  ).toBeVisible();
+  const searchDownloadPending = page.waitForEvent('download');
+  await blockReport
+    .getByRole('button', { name: 'Download policy blocks CSV' })
+    .click();
+  const searchDownload = await searchDownloadPending;
+  const searchCsv = await readFile(await searchDownload.path(), 'utf8');
+  expect(searchCsv).toContain(renewal.id);
+  expect(searchCsv).not.toContain('missing-app');
+  await searchBlocks.fill('missing-app');
+  await expect(missingAppRow).toBeVisible();
+  await expect(
+    blockReport.getByRole('link', { name: renewal.name }),
+  ).toHaveCount(0);
+  await searchBlocks.clear();
   const blockReason = blockReport.getByRole('combobox', {
     name: 'Block reason',
   });
