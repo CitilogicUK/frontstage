@@ -1233,8 +1233,9 @@ test('owners can filter Inventory to active requests for review changes', async 
   const enter = page.getByRole('button', { name: 'Enter', exact: true });
   await expect(filter.or(enter)).toBeVisible();
   if (await enter.isVisible()) await enter.click();
-  await filter.selectOption('changes');
-  await expect(page).toHaveURL(/review=changes/);
+  await page.getByRole('link', { name: 'Changes requested on 1 app' }).click();
+  await expect(page).toHaveURL(/owner=me&review=changes/);
+  await expect(filter).toHaveValue('changes');
   await expect(
     page.getByRole('button', { name: 'Needs changes app' }),
   ).toBeVisible();
