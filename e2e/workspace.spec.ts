@@ -3551,7 +3551,7 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(escalationLink).toHaveCount(0);
   await expect(
     retirementReview.getByText(
-      'No apps match this gateway activity threshold.',
+      'No apps need a new retirement review request.',
     ),
   ).toBeVisible();
 
