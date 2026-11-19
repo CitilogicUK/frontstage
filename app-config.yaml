@@ -11,6 +11,7 @@ backend:
   cors:
     origin: http://localhost:3000
     credentials: true
+    exposedHeaders: [Server-Timing]
   database:
     client: better-sqlite3
     connection:

@@ -5581,6 +5581,12 @@ test('the playground clears a revealed key after environment or ownership change
       expectedEnvironment: production ? 'production' : 'sandbox',
     });
     return route.fulfill({
+      headers: {
+        'Access-Control-Expose-Headers': 'Server-Timing',
+        'Server-Timing': production
+          ? 'frontstage;dur=6, provider;dur=120'
+          : 'frontstage;dur=0',
+      },
       json: {
         output: production ? 'Synthetic production reply' : 'Sandbox reply',
         model: 'gpt-4.1-mini',
@@ -5670,6 +5676,9 @@ test('the playground clears a revealed key after environment or ownership change
     playground.getByText('Sandbox reply', { exact: true }),
   ).toBeVisible();
 
+  await expect(playground.getByText(/Frontstage 0 ms/)).toBeVisible();
+  await expect(playground.getByText(/Provider \d+ ms/)).toHaveCount(0);
+
   const environment = playground.getByRole('combobox', {
     name: 'Gateway key environment',
   });
@@ -5699,6 +5708,10 @@ test('the playground clears a revealed key after environment or ownership change
   await send.click();
   await expect(
     playground.getByText('Synthetic production reply', { exact: true }),
+  ).toBeVisible();
+
+  await expect(
+    playground.getByText(/Frontstage 6 ms · Provider 120 ms/),
   ).toBeVisible();
 
   const readsBeforeTransfer = statusReads;

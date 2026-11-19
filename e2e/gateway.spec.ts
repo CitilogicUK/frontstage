@@ -258,7 +258,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
 
     const callGateway = (model: string) =>
       request.post(`${api}/gateway/chat`, {
-        headers: { Authorization: `Bearer ${key}` },
+        headers: { Authorization: `Bearer ${key}`, Origin: demoOrigin },
         data: { model, prompt: 'This text is synthetic gateway test data.' },
       });
     await expectStatus(
@@ -317,6 +317,12 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       await new Promise(resolve => setTimeout(resolve, remaining));
     const completion = await callGateway(approvedModel);
     await expectStatus(completion, 200, 'Run an approved simulated model');
+    expect(completion.headers()['server-timing']).toMatch(
+      /^frontstage;dur=\d+$/,
+    );
+    expect(completion.headers()['access-control-expose-headers']).toMatch(
+      /\bServer-Timing\b/i,
+    );
     expect(await completion.json()).toMatchObject({
       model: approvedModel,
       simulated: true,
