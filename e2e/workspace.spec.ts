@@ -4671,9 +4671,22 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
   const exportedAppUrl = csv.match(/"(https?:[^"]+)"\r?\n$/)?.[1];
   if (!exportedAppUrl) throw new Error('Export did not include an app URL');
   await page.goto(exportedAppUrl);
+  const record = page.getByRole('dialog', { name: 'Matching pilot' });
+  await expect(record).toBeVisible();
+  const goToDecision = record.getByRole('button', {
+    name: 'Go to review decision',
+  });
+  await goToDecision.click();
   await expect(
-    page.getByRole('dialog', { name: 'Matching pilot' }),
-  ).toBeVisible();
+    record.getByRole('combobox', { name: 'Decision' }),
+  ).toBeFocused();
+
+  await page.goto('/?app=owner-conflict');
+  const owned = page.getByRole('dialog', { name: 'Matching owner conflict' });
+  await expect(owned).toBeVisible();
+  await expect(
+    owned.getByRole('button', { name: 'Go to review decision' }),
+  ).toHaveCount(0);
 
   canReview = false;
   await openReviews();

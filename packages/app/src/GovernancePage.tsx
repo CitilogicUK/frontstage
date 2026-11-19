@@ -558,6 +558,14 @@ export function GovernancePage() {
     appEditorToggle?.key === appEditorKey
       ? appEditorToggle.open
       : params.get('edit') === '1';
+  const decisionField = useRef<HTMLSelectElement>(null);
+  const canRecordReview =
+    selected &&
+    canReview &&
+    isIndependentReviewer(selected, actor) &&
+    (!reviewTracks.length || reviewerTracks.length > 0) &&
+    selected.tier === 3 &&
+    selected.lifecycle !== 'retired';
   const reviewDate = selected && scheduledReviewDate(selected);
   const actorIsAcceptedCoOwner =
     selected !== undefined && isAcceptedEngineeringCoOwner(selected, actor);
@@ -2177,6 +2185,17 @@ export function GovernancePage() {
                 : selected.models.join(', ')}{' '}
               · <a href={selected.sourceUrl}>Open source</a>
             </p>
+            {canRecordReview &&
+              selected &&
+              requiresCriticalReview(selected, now) && (
+                <button
+                  className="gov-button"
+                  type="button"
+                  onClick={() => decisionField.current?.focus()}
+                >
+                  Go to review decision
+                </button>
+              )}
             {selected.deliveryStage && (
               <p>
                 Delivery stage:{' '}
@@ -2915,52 +2934,48 @@ export function GovernancePage() {
                   </ul>
                 </section>
               )}
-            {canReview &&
-              isIndependentReviewer(selected, actor) &&
-              (!reviewTracks.length || reviewerTracks.length > 0) &&
-              selected.tier === 3 &&
-              selected.lifecycle !== 'retired' && (
-                <form
-                  key={selected.id}
-                  onSubmit={event =>
-                    submit(event, async data => {
-                      applySavedApp(
-                        await api(`/apps/${selected.id}/reviews`, {
-                          status: data.get('status'),
-                          track: data.get('track') ?? undefined,
-                          notes: data.get('notes'),
-                          expectedUpdatedAt: selected.updatedAt,
-                        }),
-                      );
-                      setMessage('Review recorded.');
-                    })
-                  }
-                >
-                  {reviewerTracks.length > 0 && (
-                    <label>
-                      Review track
-                      <select name="track">
-                        {reviewerTracks.map(track => (
-                          <option key={track} value={track}>
-                            {reviewTrackLabels[track]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
+            {canRecordReview && (
+              <form
+                key={selected.id}
+                onSubmit={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/reviews`, {
+                        status: data.get('status'),
+                        track: data.get('track') ?? undefined,
+                        notes: data.get('notes'),
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('Review recorded.');
+                  })
+                }
+              >
+                {reviewerTracks.length > 0 && (
                   <label>
-                    Decision
-                    <select name="status">
-                      {options(['approved', 'changes needed'])}
+                    Review track
+                    <select name="track">
+                      {reviewerTracks.map(track => (
+                        <option key={track} value={track}>
+                          {reviewTrackLabels[track]}
+                        </option>
+                      ))}
                     </select>
                   </label>
-                  <label>
-                    Review notes
-                    <textarea name="notes" required />
-                  </label>
-                  <button disabled={busy}>Record decision</button>
-                </form>
-              )}
+                )}
+                <label>
+                  Decision
+                  <select name="status" ref={decisionField}>
+                    {options(['approved', 'changes needed'])}
+                  </select>
+                </label>
+                <label>
+                  Review notes
+                  <textarea name="notes" required />
+                </label>
+                <button disabled={busy}>Record decision</button>
+              </form>
+            )}
             {selected.tier === 3 && selected.lifecycle === 'active' && (
               <AppRenewalException
                 key={`renewal-exception-${selected.updatedAt}`}
