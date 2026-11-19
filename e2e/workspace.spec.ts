@@ -2257,7 +2257,8 @@ test('registration explains the highest matching tier and clears outdated reason
   await expect(risk.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
 
-  const classification = page.getByLabel('Highest data classification', {
+  const classification = page.getByRole('combobox', {
+    name: 'Highest data classification',
     exact: true,
   });
   const reasons = risk.getByRole('list', { name: 'Reasons for this tier' });
