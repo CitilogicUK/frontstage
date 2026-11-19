@@ -1,0 +1,7 @@
+backend:
+  database:
+    client: pg
+    pluginDivisionMode: schema
+    ensureExists: false
+    ensureSchemaExists: true
+    connection: ${FRONTSTAGE_POSTGRES_URL}
