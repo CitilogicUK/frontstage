@@ -3704,6 +3704,17 @@ export function GovernancePage() {
               need a backup owner and yearly attestation. Critical apps need
               approval before launch.
             </p>
+            <h2>Check your risk tier</h2>
+            <p>
+              In <Link to="/?view=register">registration</Link>, Risk assessment
+              shows which answers or workspace rules determine the estimated
+              tier. For an existing app, open Current risk assessment on its
+              record. If policy has changed the tier, update any required
+              details and save the record to apply it.
+            </p>
+            <Link className="gov-button" to="/?owner=me&review=reassess">
+              Check my apps for reassessment
+            </Link>
             <h2>Register from a repository</h2>
             <p>
               Commit the catalog descriptor to your source repository and upload
