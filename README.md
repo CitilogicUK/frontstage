@@ -276,6 +276,12 @@ A reviewer can open **Discovery → Hosted inventory snapshot** and upload or pa
 
 Preview matches the source URLs against Inventory. Open the record for a match or prefill registration for an unmatched entry. Complete ownership, model and risk details before submitting. Submitted apps appear under **Hosted snapshot** in Inventory and Reports. Preview does not save the snapshot or create records. This prototype uses an offline snapshot supplied by the reviewer. To demonstrate the three outcomes, seed a fresh reviewer-profile database, select **Download sample JSON**, then upload it before changing the workspace on **Hosted workspace demo**. The preview shows one match, one workspace mismatch and one unregistered app.
 
+## Preview outside-gateway usage
+
+After running `yarn demo:seed` with the reviewer profile, open **Reports → Outside-gateway usage**. Select **Download sample usage JSON**, upload it, and select **Preview outside-gateway usage**. The synthetic file reports 15 calls. One row links to **Hosted workspace demo** in Inventory, and one has no matching record. Select **Download outside-gateway usage CSV** to export both outcomes.
+
+For your own data, upload a JSON file up to 1 MB or paste JSON into the form. Supply UTC `from` and `to` timestamps and up to 100 rows with an HTTPS `sourceUrl`, a `model`, and a positive integer `calls` value. The preview matches by source URL and does not store the file or monitor provider traffic.
+
 ## App directory
 
 The **Directory** lets signed-in teammates find apps that their owners or reviewers have published. Open an active app in Inventory, enter a summary suitable for the directory and its HTTPS launch URL, then publish it. The listing shows the app name, summary, and launch link. The destination app handles access.
