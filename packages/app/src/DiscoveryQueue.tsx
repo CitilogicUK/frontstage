@@ -14,6 +14,9 @@ import {
 export type DiscoveryResult = {
   source: { organization: string; topic: string } | null;
   intervalMinutes: number | null;
+  recordCoverage?:
+    | { complete: number; eligible: number }
+    | { eligible: number; unavailable: true };
   lastScan: {
     at: string;
     status: 'completed' | 'failed';
@@ -167,6 +170,7 @@ export function DiscoveryQueue({
     });
   }
   const counts = discoveryCounts(result?.repositories ?? []);
+  const recordCoverage = canReview ? result?.recordCoverage : undefined;
   const search = query.trim().toLowerCase();
   const matches = result?.repositories.filter(repository => {
     const status = repositoryStatus(repository);
@@ -238,6 +242,13 @@ export function DiscoveryQueue({
                 {' · '}
                 {formatDiscoveryCoverage(counts.registered, eligible)} coverage
                 {counts.dismissed > 0 && ' · Excludes dismissed repositories'}
+              </p>
+            )}
+            {recordCoverage && (
+              <p>
+                {'unavailable' in recordCoverage
+                  ? 'Complete record coverage unavailable'
+                  : `${recordCoverage.complete} of ${recordCoverage.eligible} tracked repositories have complete app records`}
               </p>
             )}
           </div>
