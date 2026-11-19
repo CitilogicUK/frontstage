@@ -6,6 +6,8 @@ import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test, type APIResponse } from '@playwright/test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const demoOrigin = 'http://localhost:3000';
 const constrainedAppSource = 'https://example.com/gateway-test/constrained';
@@ -1228,6 +1230,52 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         }),
       ]),
     );
+    const meetingDemo = seeded.find(
+      (record: { name: string }) => record.name === 'Meeting summary demo',
+    );
+    const catalogMcp = new Client({
+      name: 'frontstage-gateway-e2e',
+      version: '1.0.0',
+    });
+    try {
+      await catalogMcp.connect(
+        new StdioClientTransport({
+          command: process.execPath,
+          args: [resolve(backendRoot, '../../scripts/catalog-mcp.mjs')],
+          env: {
+            FRONTSTAGE_MCP_BACKEND_URL: backendUrl,
+            FRONTSTAGE_MCP_TOKEN: identity.backstageIdentity.token,
+          },
+        }),
+      );
+      const search = await catalogMcp.callTool({
+        name: 'search_apps',
+        arguments: { query: 'Meeting summary' },
+      });
+      expect(search.isError).not.toBe(true);
+      expect(search.structuredContent).toMatchObject({
+        apps: [{ id: meetingDemo.id, name: meetingDemo.name }],
+      });
+      const detail = await catalogMcp.callTool({
+        name: 'get_app',
+        arguments: { id: meetingDemo.id },
+      });
+      expect(detail.isError).not.toBe(true);
+      expect(detail.structuredContent).toMatchObject({
+        app: {
+          id: meetingDemo.id,
+          name: 'Meeting summary demo',
+          tier: meetingDemo.tier,
+          lifecycle: 'active',
+        },
+      });
+      expect(search.structuredContent).not.toHaveProperty('apps.0.reviewNotes');
+      expect(search.structuredContent).not.toHaveProperty('apps.0.evidence');
+      expect(detail.structuredContent).not.toHaveProperty('app.reviewNotes');
+      expect(detail.structuredContent).not.toHaveProperty('app.evidence');
+    } finally {
+      await catalogMcp.close();
+    }
     const hostedRecords = seeded.filter(
       (record: { type: string }) => record.type === 'provider-hosted app',
     );

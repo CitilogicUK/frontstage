@@ -1,0 +1,168 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+
+const timeoutMs = 5_000;
+const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function readConfig() {
+  const rawBackend = process.env.FRONTSTAGE_MCP_BACKEND_URL ?? '';
+  const backend = URL.parse(rawBackend);
+  if (
+    !backend ||
+    !/^https?:\/\/[^/?#@]+(?:\/[^?#]*)?$/i.test(rawBackend) ||
+    /[\s\\]/.test(rawBackend) ||
+    (backend.protocol !== 'https:' &&
+      !(backend.protocol === 'http:' && loopbackHosts.has(backend.hostname)))
+  ) {
+    throw new Error(
+      'Set FRONTSTAGE_MCP_BACKEND_URL to an HTTPS or loopback HTTP backend URL without credentials, query, or fragment.',
+    );
+  }
+  const token = process.env.FRONTSTAGE_MCP_TOKEN;
+  if (!token || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) {
+    throw new Error('Set FRONTSTAGE_MCP_TOKEN to a valid bearer token.');
+  }
+  backend.pathname = backend.pathname.replace(/\/?$/, '/');
+  return { appsUrl: new URL('api/governance/apps', backend), token };
+}
+
+const appId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
+const appSummary = z.object({
+  id: appId,
+  name: z.string(),
+  owner: z.string().optional(),
+  team: z.string().optional(),
+  type: z.string().optional(),
+  platform: z.string().optional(),
+  tier: z.number().optional(),
+  lifecycle: z.string().optional(),
+  classification: z.string().optional(),
+  effectiveClassification: z.string().optional(),
+  reviewStatus: z.string().optional(),
+  usesAiAtRuntime: z.boolean().optional(),
+  starterId: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  deliveryStage: z.string().optional(),
+});
+const inventory = z.object({ apps: z.array(appSummary) });
+const appResult = z.object({ app: appSummary });
+
+function safeSummary(app) {
+  if (!app.sourceUrl) return app;
+  // Legacy registration allowed URLs with embedded credentials.
+  const url = URL.parse(app.sourceUrl);
+  if (
+    !url ||
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    const summary = { ...app };
+    delete summary.sourceUrl;
+    return summary;
+  }
+  return app;
+}
+
+async function fetchCatalog(url, token, schema) {
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    throw new Error('Frontstage is unavailable.');
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    if (response.status >= 300 && response.status < 400)
+      throw new Error('Frontstage returned an unexpected redirect.');
+    if (response.status === 401 || response.status === 403)
+      throw new Error('Frontstage authentication failed.');
+    if (response.status === 404 && schema === appSummary)
+      throw new Error('App not found.');
+    throw new Error(`Frontstage request failed (HTTP ${response.status}).`);
+  }
+
+  const body = await response.json().catch(() => undefined);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success)
+    throw new Error('Frontstage returned an invalid catalog response.');
+  return parsed.data;
+}
+
+function toolResult(structuredContent) {
+  return {
+    structuredContent,
+    content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
+  };
+}
+
+async function start() {
+  const { appsUrl, token } = readConfig();
+  const server = new McpServer({
+    name: 'frontstage-catalog',
+    version: '1.0.0',
+  });
+  server.registerTool(
+    'search_apps',
+    {
+      description: 'Search registered Frontstage apps by name or ID.',
+      inputSchema: z.object({
+        query: z.string().trim().max(100).optional(),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+      outputSchema: inventory,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ query = '', limit }) => {
+      const term = query.toLowerCase();
+      const { apps } = await fetchCatalog(appsUrl, token, inventory);
+      return toolResult({
+        apps: apps
+          .filter(app =>
+            [app.id, app.name].some(value =>
+              value.toLowerCase().includes(term),
+            ),
+          )
+          .slice(0, limit)
+          .map(safeSummary),
+      });
+    },
+  );
+  server.registerTool(
+    'get_app',
+    {
+      description: 'Read a registered Frontstage app summary by ID.',
+      inputSchema: z.object({ id: appId }),
+      outputSchema: appResult,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id }) => {
+      const url = new URL(appsUrl);
+      url.pathname += `/${encodeURIComponent(id)}`;
+      const app = await fetchCatalog(url, token, appSummary);
+      return toolResult({ app: safeSummary(app) });
+    },
+  );
+  await server.connect(new StdioServerTransport());
+}
+
+try {
+  await start();
+} catch (error) {
+  // Print only local configuration errors, never SDK or network diagnostics.
+  const message =
+    error instanceof Error && error.message.startsWith('Set FRONTSTAGE_MCP_')
+      ? error.message
+      : 'Frontstage catalog MCP server could not start.';
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
+}
