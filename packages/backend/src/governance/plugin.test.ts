@@ -4601,12 +4601,12 @@ describe('governance record access', () => {
     const connectionPath = `${collection}/${lowRisk.id}`;
     const editConnectionApp = async (
       record: { updatedAt: string },
-      changes: object,
+      updates: object,
     ) => {
       const { body } = await api
         .put(connectionPath)
         .set('Authorization', auth(owner))
-        .send({ ...record, ...changes, expectedUpdatedAt: record.updatedAt })
+        .send({ ...record, ...updates, expectedUpdatedAt: record.updatedAt })
         .expect(200);
       return body;
     };
