@@ -661,6 +661,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   };
   let registered = false;
   let previewCalls = 0;
+  let sampleCsv: string | undefined;
   let currentMatchRemoved = false;
   await page.route(/\/api\/governance\/apps(?:\?|$)/, route => {
     const request = route.request();
@@ -686,8 +687,16 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await page.route(
     '**/api/governance/reports/outside-gateway/preview',
     route => {
-      expect(route.request().method()).toBe('POST');
-      expect(route.request().postDataJSON()).toEqual(snapshot);
+      const request = route.request();
+      expect(request.method()).toBe('POST');
+      const contentType = request.headers()['content-type'];
+      if (contentType?.startsWith('text/csv')) {
+        expect(sampleCsv).toBeDefined();
+        expect(request.postData()).toBe(sampleCsv);
+      } else {
+        expect(contentType).toMatch(/^application\/json(?:;|$)/);
+        expect(request.postDataJSON()).toEqual(snapshot);
+      }
       previewCalls += 1;
       return route.fulfill({
         json: {
@@ -792,16 +801,37 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(
     report.getByText('15 reported calls · 2 rows · 1 unmatched'),
   ).toBeVisible();
+  const upload = report.getByLabel('Upload usage file');
+  const pendingCsvSample = page.waitForEvent('download');
+  await report.getByRole('link', { name: 'Download sample usage CSV' }).click();
+  const csvSample = await pendingCsvSample;
+  const csvSamplePath = await csvSample.path();
+  sampleCsv = await readFile(csvSamplePath, 'utf8');
+  expect(sampleCsv).toContain(app.sourceUrl);
+  expect(sampleCsv).toContain(snapshot.rows[1].sourceUrl);
+  await usageJson.clear();
+  await upload.setInputFiles({
+    name: csvSample.suggestedFilename(),
+    mimeType: 'text/csv',
+    buffer: Buffer.from(sampleCsv),
+  });
+  await expect(match).toBeHidden();
+  const csvPreview = page.waitForResponse(
+    response =>
+      response.url().endsWith('/reports/outside-gateway/preview') &&
+      response.request().headers()['content-type']?.startsWith('text/csv'),
+  );
+  await preview.click();
+  expect((await csvPreview).ok()).toBe(true);
+  await expect(match).toBeVisible();
+
   const pendingSample = page.waitForEvent('download');
   await report
     .getByRole('link', { name: 'Download sample usage JSON' })
     .click();
   const sample = await pendingSample;
   expect(sample.suggestedFilename()).toBe('outside-gateway-usage.json');
-  await usageJson.clear();
-  await report
-    .getByLabel('Upload usage JSON')
-    .setInputFiles(await sample.path());
+  await upload.setInputFiles(await sample.path());
   await expect(match).toBeHidden();
   const uploadedPreview = page.waitForResponse(
     response =>
@@ -850,7 +880,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     name: 'Start registration',
   });
   await expect(startRegistration).toBeVisible();
-  expect(previewCalls).toBe(2);
+  expect(previewCalls).toBe(3);
   expect(registered).toBe(false);
 
   await startRegistration.click();
@@ -873,7 +903,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     .getByRole('button', { name: 'Close app details' })
     .click();
   await expect(startRegistration).toHaveCount(0);
-  expect(previewCalls).toBe(3);
+  expect(previewCalls).toBe(4);
 
   await report.getByRole('button', { name: 'Save reconciliation' }).click();
   await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
@@ -906,7 +936,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(
     report.getByRole('row', { name: new RegExp(draft.name) }),
   ).toContainText('3');
-  expect(previewCalls).toBe(3);
+  expect(previewCalls).toBe(4);
 
   currentMatchRemoved = true;
   await report
@@ -917,7 +947,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(startRegistration).toBeVisible();
   await expect(report.getByRole('link', { name: draft.name })).toHaveCount(0);
   await expect(report.getByRole('link', { name: app.name })).toBeVisible();
-  expect(previewCalls).toBe(4);
+  expect(previewCalls).toBe(5);
 
   await expect(
     report.getByRole('button', { name: 'Save reconciliation', exact: true }),
@@ -928,7 +958,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
   await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
   await expect(startRegistration).toHaveCount(0);
-  expect(previewCalls).toBe(4);
+  expect(previewCalls).toBe(5);
 
   const directLink = report.getByRole('link', {
     name: 'Direct link to saved reconciliation',
@@ -943,7 +973,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(report.getByRole('link', { name: app.name })).toBeVisible();
   await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
   await expect(startRegistration).toHaveCount(0);
-  expect(previewCalls).toBe(4);
+  expect(previewCalls).toBe(5);
 
   await page.getByRole('link', { name: 'Inventory', exact: true }).click();
   await page

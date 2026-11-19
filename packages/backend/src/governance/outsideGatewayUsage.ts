@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseService } from '@backstage/backend-plugin-api';
 import { InputError, NotFoundError } from '@backstage/errors';
+import { parse } from 'csv-parse/sync';
 import { z } from 'zod';
+import { spreadsheetCsvDialect } from './csv';
 import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { appSourceKey } from './sourceKey';
 
@@ -66,6 +68,60 @@ export function outsideGatewayUsageMigration() {
       await db.schema.dropTable(reconciliationTable);
     },
   };
+}
+
+const usageCsvColumns = [
+  'window_start_utc',
+  'window_end_utc',
+  'source_url',
+  'model',
+  'calls',
+] as const;
+
+export function parseOutsideGatewayUsageCsv(content: unknown) {
+  const invalidCsv =
+    'Supply a valid CSV with the five required usage columns, a single UTC period, and 1 to 100 usage rows.';
+  if (typeof content !== 'string') throw new InputError(invalidCsv);
+  const { csv, delimiter } = spreadsheetCsvDialect(content);
+  let records: Array<Record<(typeof usageCsvColumns)[number], string>>;
+  try {
+    records = parse(csv, {
+      bom: true,
+      delimiter,
+      trim: true,
+      skip_empty_lines: true,
+      max_record_size: 16_384,
+      to: 101,
+      columns(headers: string[]) {
+        if (
+          headers.length !== usageCsvColumns.length ||
+          !usageCsvColumns.every(column => headers.includes(column))
+        )
+          throw new InputError(invalidCsv);
+        return headers;
+      },
+    });
+  } catch {
+    throw new InputError(invalidCsv);
+  }
+  if (!records.length || records.length > 100) throw new InputError(invalidCsv);
+  const from = records[0].window_start_utc.trim();
+  const to = records[0].window_end_utc.trim();
+  const rows = records.map(record => {
+    const calls = record.calls.trim();
+    if (
+      record.window_start_utc.trim() !== from ||
+      record.window_end_utc.trim() !== to ||
+      !/^\d+$/.test(calls)
+    )
+      throw new InputError(invalidCsv);
+    return {
+      sourceUrl: record.source_url.trim(),
+      model: record.model,
+      calls: Number(calls),
+    };
+  });
+  return parseOutsideGatewayUsage({ from, to, rows });
 }
 
 export function parseOutsideGatewayUsage(input: unknown) {

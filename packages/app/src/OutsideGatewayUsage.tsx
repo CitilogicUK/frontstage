@@ -161,7 +161,7 @@ export function OutsideGatewayUsage({
   }, [readHistory, historyVersion]);
   const sampleUrl = `${config
     .getString('app.baseUrl')
-    .replace(/\/$/, '')}/examples/outside-gateway-usage.json`;
+    .replace(/\/$/, '')}/examples/outside-gateway-usage`;
   const preview = saved?.preview ?? livePreview;
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
 
@@ -225,13 +225,17 @@ export function OutsideGatewayUsage({
     clearPreview();
   }
 
-  async function requestPreview(payload: unknown, signal: AbortSignal) {
+  async function requestPreview(
+    payload: unknown,
+    signal: AbortSignal,
+    csv = false,
+  ) {
     const base = await discovery.getBaseUrl('governance');
     const response = await fetch(`${base}/reports/outside-gateway/preview`, {
       signal,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': csv ? 'text/csv' : 'application/json' },
+      body: csv ? String(payload) : JSON.stringify(payload),
     });
     if (signal.aborted) return undefined;
     if (response.status === 413) {
@@ -240,7 +244,9 @@ export function OutsideGatewayUsage({
     }
     if (response.status === 400) {
       setError(
-        'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
+        csv
+          ? 'Use the sample CSV columns, one shared UTC reporting window, and 1 to 100 distinct usage rows with positive whole call counts.'
+          : 'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
       );
       return undefined;
     }
@@ -253,7 +259,7 @@ export function OutsideGatewayUsage({
     event.preventDefault();
     clearPreview();
     if (file && file.size > maxUsageFileSize) {
-      setError('Choose a JSON file that is 1 MB or smaller.');
+      setError('Choose a usage file that is 1 MB or smaller.');
       return;
     }
 
@@ -268,19 +274,22 @@ export function OutsideGatewayUsage({
         try {
           input = await file.text();
         } catch {
-          setError('The selected JSON file could not be read.');
+          setError('The selected usage file could not be read.');
           return;
         }
       }
-      let payload: unknown;
+      const csv = Boolean(
+        file && (/\.csv$/i.test(file.name) || file.type === 'text/csv'),
+      );
+      let payload: unknown = input;
       try {
-        payload = JSON.parse(input);
+        if (!csv) payload = JSON.parse(input);
       } catch {
         setError('Enter valid JSON for the usage preview.');
         return;
       }
 
-      const result = await requestPreview(payload, controller.signal);
+      const result = await requestPreview(payload, controller.signal, csv);
       if (result) onPreview(result);
     } catch {
       if (!controller.signal.aborted)
@@ -356,21 +365,25 @@ export function OutsideGatewayUsage({
     >
       <h2 id="outside-gateway-usage-title">Outside-gateway usage</h2>
       <p id="outside-gateway-usage-help">
-        Upload or paste JSON with UTC timestamps in <code>from</code> and{' '}
-        <code>to</code> and up to 100 <code>rows</code> with{' '}
-        <code>sourceUrl</code>, <code>model</code>, and <code>calls</code> for
-        each entry.
+        Upload CSV using the sample columns, or upload or paste JSON with UTC
+        timestamps in <code>from</code> and <code>to</code> and up to 100{' '}
+        <code>rows</code> with <code>sourceUrl</code>, <code>model</code>, and{' '}
+        <code>calls</code> for each entry.
       </p>
-      <a href={sampleUrl} download>
+      <a href={`${sampleUrl}.json`} download>
         Download sample usage JSON
+      </a>
+      {' · '}
+      <a href={`${sampleUrl}.csv`} download>
+        Download sample usage CSV
       </a>
       <form onSubmit={loadPreview}>
         <label>
-          Upload usage JSON
+          Upload usage file
           <input
             ref={fileInput}
             type="file"
-            accept=".json,application/json"
+            accept=".csv,text/csv,.json,application/json"
             aria-describedby="outside-gateway-usage-help"
             disabled={busy}
             onChange={event => selectFile(event.target.files?.[0])}

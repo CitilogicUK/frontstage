@@ -2786,6 +2786,52 @@ describe('governance record access', () => {
         ],
       });
 
+    const previewCsv = (
+      content: string,
+      credentials = mockCredentials.user.header(reviewer),
+    ) =>
+      api
+        .post(endpoint)
+        .set('Authorization', credentials)
+        .set('Content-Type', 'text/csv; charset=utf-8')
+        .send(content);
+    const csvHeader = 'window_start_utc,window_end_utc,source_url,model,calls';
+    const csvRow = `${from},${to},${matching.sourceUrl},fixture-model,5`;
+    const csv = [
+      '\uFEFFsep=;',
+      'calls;window_end_utc;model;source_url;window_start_utc',
+      `5;${to};"fixture-model";"${matching.sourceUrl}";${from}`,
+      `3;${to};"fixture-model";"${unmatched.sourceUrl}";${from}`,
+    ].join('\r\n');
+    await previewCsv(
+      csv,
+      mockCredentials.user.header('user:default/builder'),
+    ).expect(403);
+    await previewCsv(csv)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, (await preview(input).expect(200)).body);
+    await previewCsv([csvHeader, csvRow].join('\n')).expect(200, {
+      from,
+      to,
+      rows: [{ ...matching, appId: app.id, appName: 'Known app' }],
+    });
+    for (const malformed of [
+      csvHeader,
+      `${csvHeader.replace('calls', 'model')}\n${csvRow}`,
+      `${csvHeader},app_id\n${csvRow},known-app`,
+      `${csvHeader}\n${csvRow},unexpected`,
+      `${csvHeader}\n${csvRow}\n${to},${from},${unmatched.sourceUrl},fixture-model,3`,
+      `${csvHeader}\n${csvRow.replace(/5$/, '5e0')}`,
+      `${csvHeader}\n${csvRow.replace(/5$/, '5.0')}`,
+      `${csvHeader}\n${csvRow.replace(/5$/, '5 calls')}`,
+      `${csvHeader}\n${csvRow.replace(/5$/, '1000000001')}`,
+      `${csvHeader}\n${Array.from({ length: 101 }, (_, index) =>
+        csvRow.replace('fixture-model', `model-${index}`),
+      ).join('\n')}`,
+    ]) {
+      await previewCsv(malformed).expect(400);
+    }
+
     await preview({ ...input, from: to, to: from }).expect(400);
     await preview({ ...input, from: to }).expect(400);
     await preview({
@@ -2816,6 +2862,12 @@ describe('governance record access', () => {
     await list()
       .expect('Cache-Control', 'no-store')
       .expect(200, { reconciliations: [] });
+    await api
+      .post(savedPath)
+      .set('Authorization', reviewerAuth)
+      .set('Content-Type', 'text/csv')
+      .send(csv)
+      .expect(400);
     await save(input, readerAuth).expect(403);
     await save(input, mockCredentials.service.header()).expect(403);
     await api.get(savedPath).set('Authorization', readerAuth).expect(403);
