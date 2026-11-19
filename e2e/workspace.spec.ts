@@ -678,6 +678,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             id: 'soon',
             discoverySource: 'git',
             name: 'Due soon app',
+            starterId: 'internal-web-app',
             models: ['gpt-4.1-mini', 'gpt-4.1-mini'],
             nextReview: dateInDays(30),
           },
@@ -965,6 +966,36 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const sourceCsv = await readFile(await (await sourceDownload).path(), 'utf8');
   expect(sourceCsv.split('\r\n')[0]).toContain('registration_source');
   expect(sourceCsv.trimEnd().endsWith(',"bulk import",""')).toBe(true);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('starter');
+  const starterReport = page.getByRole('region', { name: 'Apps by starter' });
+  await expect(
+    starterReport.getByRole('link', { name: 'No starter recorded: 3 apps' }),
+  ).toBeVisible();
+  await starterReport
+    .getByRole('link', { name: 'Internal web app: 1 app' })
+    .click();
+  await expect(page).toHaveURL(`${workspaceUrl}/?starter=internal-web-app`);
+  await expect(
+    page.getByRole('combobox', { name: 'Starter', exact: true }),
+  ).toHaveValue('internal-web-app');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('starter');
+  await starterReport
+    .getByRole('link', { name: 'No starter recorded: 3 apps' })
+    .click();
+  await expect(page).toHaveURL(`${workspaceUrl}/?starter=none`);
+  await expect(
+    page.getByRole('combobox', { name: 'Starter', exact: true }),
+  ).toHaveValue('none');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: 'Due soon app' })).toHaveCount(0);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })

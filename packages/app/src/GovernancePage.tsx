@@ -1227,6 +1227,7 @@ export function GovernancePage() {
       : undefined;
   const platformFilter = view === 'Inventory' ? params.get('platform') : null;
   const teamFilter = view === 'Inventory' ? params.get('team') : null;
+  const starterFilter = view === 'Inventory' ? params.get('starter') : null;
   const accountableOwnerFilter =
     view === 'Inventory' ? params.get('accountableOwner') : null;
   const modelFilter = view === 'Inventory' ? params.get('model') : null;
@@ -1248,6 +1249,9 @@ export function GovernancePage() {
   const platforms = [...new Set(apps.map(app => app.platform))].sort((a, b) =>
     a.localeCompare(b),
   );
+  const recordedStarters = [
+    ...new Set(apps.flatMap(app => (app.starterId ? [app.starterId] : []))),
+  ].sort((a, b) => a.localeCompare(b));
   const hasListFilters = Boolean(
     query ||
       tier ||
@@ -1260,6 +1264,7 @@ export function GovernancePage() {
       teamFilter ||
       accountableOwnerFilter ||
       registrationSourceFilter ||
+      starterFilter ||
       modelFilter,
   );
   const filteredApps = scopedApps.filter(
@@ -1291,6 +1296,7 @@ export function GovernancePage() {
       (!accountableOwnerFilter || app.owner === accountableOwnerFilter) &&
       (!registrationSourceFilter ||
         registrationSource(app.discoverySource) === registrationSourceFilter) &&
+      (!starterFilter || (app.starterId ?? 'none') === starterFilter) &&
       (!modelFilter || app.models.includes(modelFilter)),
   );
 
@@ -1305,6 +1311,7 @@ export function GovernancePage() {
       | 'team'
       | 'accountableOwner'
       | 'registrationSource'
+      | 'starter'
       | 'model'
       | 'tier',
     value: string,
@@ -1744,6 +1751,30 @@ export function GovernancePage() {
                     </select>
                   </label>
                   <label>
+                    <span className="gov-visually-hidden">Starter</span>
+                    <select
+                      value={starterFilter ?? ''}
+                      onChange={event =>
+                        setAppListFilter('starter', event.target.value)
+                      }
+                    >
+                      <option value="">All starters</option>
+                      <option value="none">No starter recorded</option>
+                      {starterFilter &&
+                        starterFilter !== 'none' &&
+                        !recordedStarters.includes(starterFilter) && (
+                          <option value={starterFilter}>
+                            {findStarter(starterFilter)?.name ?? starterFilter}
+                          </option>
+                        )}
+                      {recordedStarters.map(id => (
+                        <option key={id} value={id}>
+                          {findStarter(id)?.name ?? id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
                     <span className="gov-visually-hidden">Platform</span>
                     <select
                       value={platformFilter ?? ''}
@@ -2024,6 +2055,7 @@ export function GovernancePage() {
                           teamFilter ||
                           accountableOwnerFilter ||
                           registrationSourceFilter ||
+                          starterFilter ||
                           modelFilter ||
                           tier
                         ) {
@@ -2037,6 +2069,7 @@ export function GovernancePage() {
                             next.delete('team');
                             next.delete('accountableOwner');
                             next.delete('registrationSource');
+                            next.delete('starter');
                             next.delete('model');
                             next.delete('tier');
                             if (inventoryReviewFilter) next.delete('review');
