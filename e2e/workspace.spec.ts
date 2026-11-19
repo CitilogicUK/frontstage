@@ -4348,7 +4348,18 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(
     appConnectors.getByText('Public reference', { exact: true }),
   ).toHaveCount(0);
+  await appConnectors
+    .getByRole('button', { name: 'Use Catalog search' })
+    .click();
+  const connectedSystem = page.getByRole('textbox', {
+    name: 'Connected system',
+    exact: true,
+  });
+  await expect(connectedSystem).toHaveValue('Catalog search');
+  await expect(connectedSystem).toBeFocused();
+  await connectedSystem.fill('Custom catalog integration');
   await classification.selectOption('confidential');
+  await expect(connectedSystem).toHaveValue('Custom catalog integration');
   await expect(appConnectors.getByText(/No approved connectors/)).toBeVisible();
   await expect(
     appConnectors.getByText('Catalog search', { exact: true }),

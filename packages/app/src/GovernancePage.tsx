@@ -1113,6 +1113,7 @@ export function GovernancePage() {
   }
 
   const additionalConnections = descriptor?.connections.slice(1) ?? [];
+  const primarySystemField = useRef<HTMLInputElement>(null);
   const runtimeDefault = starter?.runtime === false ? 'no' : 'yes';
   const registerType = hostedRegistration
     ? 'provider-hosted app'
@@ -3846,9 +3847,12 @@ export function GovernancePage() {
                   <label>
                     Connected system
                     <input
+                      ref={primarySystemField}
                       required
                       name="system"
-                      defaultValue={descriptor?.connections[0]?.name}
+                      value={
+                        draft.system ?? descriptor?.connections[0]?.name ?? ''
+                      }
                     />
                   </label>
                 )}
@@ -3944,6 +3948,11 @@ export function GovernancePage() {
               {registrationAccesses.length > 0 && (
                 <RegistrationConnectorGuidance
                   accesses={registrationAccesses}
+                  primaryAccess={draft.connections}
+                  onUseConnector={name => {
+                    setDraft(previous => ({ ...previous, system: name }));
+                    primarySystemField.current?.focus();
+                  }}
                   classification={
                     hosted &&
                     registrationDataAccess !== 'none' &&
