@@ -1,11 +1,13 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type Ref } from 'react';
 
 type Connection = { name: string; access: string };
 
 export function EditConnections({
   connections = [],
+  fieldsetRef,
 }: {
   connections?: Connection[];
+  fieldsetRef?: Ref<HTMLFieldSetElement>;
 }) {
   const [rows, setRows] = useState(() =>
     connections.map((connection, id) => ({ ...connection, id })),
@@ -13,7 +15,7 @@ export function EditConnections({
   const nextId = useRef(connections.length);
 
   return (
-    <fieldset className="gov-fieldset">
+    <fieldset className="gov-fieldset" ref={fieldsetRef} tabIndex={-1}>
       <legend>Connected systems</legend>
       {rows.map((row, index) => (
         <div className="governance-fields" key={row.id}>

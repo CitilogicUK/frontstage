@@ -356,10 +356,10 @@ export function PortfolioReport({
     }
   }
 
-  function reportAppLink(appId: string, edit = false) {
+  function reportAppLink(appId: string, edit: boolean | 'connections' = false) {
     const next = new URLSearchParams(params);
     next.set('app', appId);
-    if (edit) next.set('edit', '1');
+    if (edit) next.set('edit', edit === 'connections' ? edit : '1');
     else next.delete('edit');
     return { search: next.toString() };
   }
@@ -1144,7 +1144,10 @@ export function PortfolioReport({
         <ManagerEscalations key={appSaveVersion} appLink={reportAppLink} />
       )}
       {canReview && (
-        <ConnectorDiscrepancies apps={apps} appLink={reportAppLink} />
+        <ConnectorDiscrepancies
+          apps={apps}
+          appLink={appId => reportAppLink(appId, 'connections')}
+        />
       )}
       {report?.monthlySpendAlerts && (
         <section

@@ -4265,7 +4265,8 @@ test('Builder guide shows connector approval limits and registry states', async 
     ],
   };
   const updatedConnections = [
-    ...app.connections.slice(1),
+    { name: 'Sandbox orders', access: 'write' },
+    app.connections[2],
     { name: 'New reporting feed', access: 'read' },
   ];
   let current = app;
@@ -4480,12 +4481,16 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(discrepancies).not.toContainText('Catalog search');
   const reviewApp = discrepancies.getByRole('link', { name: app.name });
   await expect(reviewApp).toHaveAttribute('href', /app=connector-review/);
+  await expect(reviewApp).toHaveAttribute(
+    'href',
+    /[?&]edit=connections(?:&|$)/,
+  );
   await reviewApp.click();
   await expect(details).toBeVisible();
   await expect(connections).toContainText('Catalog search');
 
-  await details.getByText('Edit app details', { exact: true }).click();
   const systems = details.getByRole('group', { name: 'Connected systems' });
+  await expect(systems).toBeFocused();
   await expect(
     systems.getByLabel('Connected system 1', { exact: true }),
   ).toHaveValue('Catalog search');
@@ -4501,6 +4506,12 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(
     systems.getByLabel('Connected system 1', { exact: true }),
   ).toHaveValue('Sandbox orders');
+  await systems
+    .getByRole('combobox', {
+      name: 'Connected system 1 access',
+      exact: true,
+    })
+    .selectOption('write');
   await systems.getByRole('button', { name: 'Add connected system' }).click();
   await systems
     .getByLabel('Connected system 3', { exact: true })
@@ -4525,10 +4536,18 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(updateEvent).toContainText(
     `Connected system added · ${updatedConnections[2].name} (read)`,
   );
-  await expect(updateEvent).not.toContainText('Sandbox orders');
+  await expect(updateEvent).toContainText(
+    'Connected system removed · Sandbox orders (read)',
+  );
+  await expect(updateEvent).toContainText(
+    'Connected system added · Sandbox orders (write)',
+  );
   await expect(updateEvent).not.toContainText('Unlisted CRM');
 
   await details.getByRole('button', { name: 'Close app details' }).click();
+
+  await expect(discrepancies).toContainText('Unlisted CRM');
+  await expect(discrepancies).not.toContainText('Sandbox orders');
 
   state = 'unconfigured';
   await reopenGuide();
