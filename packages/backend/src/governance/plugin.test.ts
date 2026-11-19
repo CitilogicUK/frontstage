@@ -1786,10 +1786,17 @@ describe('governance record access', () => {
 
     github
       .mockResolvedValueOnce(
-        Response.json({
-          dependencies: { openai: '^4', 'unrelated-package': '^1' },
-          devDependencies: { '@anthropic-ai/sdk': '^1' },
-        }),
+        Response.json(
+          {
+            dependencies: { openai: '^4', 'unrelated-package': '^1' },
+            devDependencies: { '@anthropic-ai/sdk': '^1' },
+          },
+          {
+            headers: {
+              'Content-Type': 'application/vnd.github.raw+json; charset=utf-8',
+            },
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response('google_genai>=1\n# langchain', {
@@ -1861,11 +1868,18 @@ describe('governance record access', () => {
     });
 
     github
-      .mockResolvedValueOnce(Response.json({}))
+      .mockResolvedValueOnce(
+        Response.json(
+          { type: 'submodule', path: 'package.json' },
+          {
+            headers: { 'Content-Type': 'application/vnd.github.object+json' },
+          },
+        ),
+      )
       .mockResolvedValueOnce(Response.json({ type: 'dir', entries: [] }));
     await evidence(100, owner).expect(200, {
       manifests: [
-        { path: 'package.json', status: 'checked', packages: [] },
+        { path: 'package.json', status: 'unavailable', packages: [] },
         { path: 'requirements.txt', status: 'unavailable', packages: [] },
       ],
     });
@@ -1915,7 +1929,10 @@ describe('governance record access', () => {
         await db('governance_discovered_repositories')
           .where({ id: '400' })
           .update({ is_stale: true });
-        return Response.json({ dependencies: { openai: '^4' } });
+        return Response.json(
+          { dependencies: { openai: '^4' } },
+          { headers: { 'Content-Type': 'application/vnd.github.raw+json' } },
+        );
       })
       .mockResolvedValueOnce(new Response('openai'));
     await evidence(400, reviewer).expect(404);

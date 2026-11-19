@@ -263,9 +263,9 @@ export function githubDiscovery(
         ?.split(';', 1)[0]
         .trim()
         .toLowerCase();
-      // A GitHub JSON object or directory listing is not requirements text.
+      // GitHub can return metadata or a directory listing for a repository path.
       if (
-        path === 'requirements.txt' &&
+        path !== 'catalog-info.yaml' &&
         mediaType !== 'application/vnd.github.raw+json' &&
         (mediaType === 'application/json' ||
           mediaType === 'text/json' ||
