@@ -23,7 +23,7 @@ const nextSteps: Record<string, string> = {
   lifecycle:
     'Check whether the app should be returned to Active before retrying.',
   ownership:
-    'Check that the app has an active owner and a valid team in the Catalog.',
+    'Check the app’s owner, backup owner and team in the Catalog. Restore any missing or inactive assignments.',
   model:
     'Check that the app uses AI at runtime and that its model is approved for its effective data classification.',
   'spend-threshold':

@@ -349,14 +349,15 @@ export function GatewayPlayground({
         <details>
           <summary>Blocked requests by reason</summary>
           <ul>
-            {usage.blocks.map(block => (
-              <li key={block.reason}>
-                {gatewayBlockReason(block.reason)} · {block.calls}
-                {gatewayBlockNextStep(block.reason) && (
-                  <p>{gatewayBlockNextStep(block.reason)}</p>
-                )}
-              </li>
-            ))}
+            {usage.blocks.map(block => {
+              const nextStep = gatewayBlockNextStep(block.reason);
+              return (
+                <li key={block.reason}>
+                  {gatewayBlockReason(block.reason)} · {block.calls}
+                  {nextStep && <p>{nextStep}</p>}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
