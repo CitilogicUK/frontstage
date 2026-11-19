@@ -55,6 +55,16 @@ export function scheduledReviewDate(app: {
   return Number.isFinite(due.getTime()) ? due : undefined;
 }
 
+export function reviewDaysOverdue(
+  app: Parameters<typeof scheduledReviewDate>[0],
+  now: number,
+) {
+  const due = scheduledReviewDate(app)?.getTime();
+  return due !== undefined && due <= now
+    ? Math.floor((now - due) / 86_400_000)
+    : undefined;
+}
+
 export function appRecordUrl(baseUrl: string, appId: string) {
   const url = new URL(baseUrl);
   url.search = new URLSearchParams({ app: appId }).toString();

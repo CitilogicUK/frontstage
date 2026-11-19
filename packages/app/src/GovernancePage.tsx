@@ -32,6 +32,7 @@ import {
   isReviewOverdue,
   requiresCriticalReview,
   reviewCalendar,
+  reviewDaysOverdue,
   scheduledReviewDate,
 } from './reviewDue';
 import {
@@ -1041,9 +1042,17 @@ export function GovernancePage() {
         (pendingFirstDecisions.get(a.id) ?? 0) -
         (pendingFirstDecisions.get(b.id) ?? 0),
     );
-  } else if (view === 'Reviews' || ownershipScope !== 'all') {
+  } else if (
+    view === 'Reviews' ||
+    ownershipScope !== 'all' ||
+    inventoryReviewFilter === 'overdue'
+  ) {
     matching.sort((a, b) => {
-      if (view === 'Inventory' && ownershipScope === 'me') {
+      if (
+        view === 'Inventory' &&
+        ownershipScope === 'me' &&
+        inventoryReviewFilter !== 'overdue'
+      ) {
         const retirementPriority =
           Number(ownerCanDecideRetirement(b, actor)) -
           Number(ownerCanDecideRetirement(a, actor));
@@ -1337,7 +1346,11 @@ export function GovernancePage() {
                     type="button"
                     onClick={() =>
                       downloadCsv(
-                        inventoryCsv(matching),
+                        inventoryCsv(
+                          matching,
+                          now,
+                          config.getString('app.baseUrl'),
+                        ),
                         'frontstage-inventory.csv',
                       )
                     }
@@ -1503,6 +1516,7 @@ export function GovernancePage() {
                         app.deliveryStage ?? null,
                       );
                       const review = appReview(app, now);
+                      const daysOverdue = reviewDaysOverdue(app, now);
                       const waitingDays = firstDecisionQueue
                         ? firstDecisionWait.get(app.id)
                         : undefined;
@@ -1561,6 +1575,15 @@ export function GovernancePage() {
                                   Engineering co-owner decision requested
                                 </small>
                               )}
+                            {daysOverdue !== undefined && (
+                              <small>
+                                {daysOverdue === 0
+                                  ? 'Less than a day overdue'
+                                  : `${daysOverdue} ${
+                                      daysOverdue === 1 ? 'day' : 'days'
+                                    } overdue`}
+                              </small>
+                            )}
                             {waitingDays !== undefined && (
                               <small>
                                 {waitingDays.toLocaleString('en-US', {
