@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 import {
   discoveryApiRef,
   fetchApiRef,
@@ -172,6 +178,8 @@ function GatewayEnvironmentPanel({
   const [pendingAction, setPendingAction] = useState<
     'issue' | 'send' | 'revoke' | 'refresh'
   >();
+  const promptRequest = useRef<AbortController>();
+  useEffect(() => () => promptRequest.current?.abort(), []);
   const spend = usageError ? undefined : usage?.monthlySpend;
   const spendPaused =
     environment === 'production' &&
@@ -275,13 +283,17 @@ function GatewayEnvironmentPanel({
 
   async function sendPrompt(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!key || promptsPaused) return;
+    if (!key || promptsPaused || promptRequest.current) return;
     const data = new FormData(event.currentTarget);
     const prompt = String(data.get('prompt') ?? '').trim();
     if (!prompt) {
       setError('Enter a prompt.');
       return;
     }
+    const controller = new AbortController();
+    promptRequest.current = controller;
+    const deadline = AbortSignal.timeout(75_000);
+    const signal = AbortSignal.any([controller.signal, deadline]);
     setPendingAction('send');
     setError('');
     setReply(undefined);
@@ -290,6 +302,7 @@ function GatewayEnvironmentPanel({
       const response = await globalThis.fetch(`${base}/gateway/chat`, {
         method: 'POST',
         credentials: 'omit',
+        signal,
         headers: {
           Authorization: `Bearer ${key}`,
           'Content-Type': 'application/json',
@@ -304,6 +317,7 @@ function GatewayEnvironmentPanel({
         response,
         gatewayRetryHint(response),
       );
+      signal.throwIfAborted();
       const timing = response.headers.get('Server-Timing');
       setReply({
         ...result,
@@ -315,10 +329,15 @@ function GatewayEnvironmentPanel({
           : undefined,
       });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (!controller.signal.aborted) {
+        let message = reason instanceof Error ? reason.message : String(reason);
+        if (deadline.aborted) message = 'The gateway request timed out.';
+        setError(message);
+      }
     } finally {
-      await readUsage();
-      setPendingAction(undefined);
+      if (!signal.aborted) await readUsage(signal);
+      if (!controller.signal.aborted) setPendingAction(undefined);
+      promptRequest.current = undefined;
     }
   }
 
