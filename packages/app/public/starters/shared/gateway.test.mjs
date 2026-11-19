@@ -13,6 +13,7 @@ test('gateway requests stay within the configured endpoint and propagate failure
     FRONTSTAGE_MODEL: 'test-model',
   };
   delete process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT;
+  delete process.env.FRONTSTAGE_GATEWAY_TIMEOUT_MS;
   t.after(() => {
     process.env = originalEnv;
   });
@@ -69,6 +70,42 @@ test('gateway requests stay within the configured endpoint and propagate failure
     /HTTPS Frontstage backend URL/,
   );
   assert.equal(request.mock.callCount(), 4);
+
+  process.env.FRONTSTAGE_BACKEND_URL = 'http://127.0.0.1:7007/frontstage';
+  process.env.FRONTSTAGE_GATEWAY_TIMEOUT_MS = '70000';
+  const deadline = t.mock.method(AbortSignal, 'timeout', () =>
+    AbortSignal.abort(),
+  );
+  request.mock.mockImplementation(async (_endpoint, init) => {
+    init.signal.throwIfAborted();
+  });
+  await assert.rejects(
+    runModel('Synthetic prompt'),
+    /gateway request timed out/,
+  );
+  assert.deepEqual(deadline.mock.calls[0].arguments, [70000]);
+  assert.equal(request.mock.callCount(), 5);
+  deadline.mock.restore();
+
+  process.env.FRONTSTAGE_GATEWAY_TIMEOUT_MS = 'invalid';
+  await assert.rejects(
+    runModel('Synthetic prompt'),
+    /integer from 1000 to 120000/,
+  );
+  assert.equal(request.mock.callCount(), 5);
+
+  delete process.env.FRONTSTAGE_GATEWAY_TIMEOUT_MS;
+  request.mock.mockImplementation(async () =>
+    Response.json(
+      { error: { message: 'Model unavailable.' } },
+      { status: 503, headers: { 'Retry-After': '12' } },
+    ),
+  );
+  await assert.rejects(
+    runModel('Synthetic prompt'),
+    /Model unavailable\. Wait 12 seconds before trying again\./,
+  );
+  assert.equal(request.mock.callCount(), 6);
 });
 
 test('input is trimmed and rejects blank or oversized streams', async () => {

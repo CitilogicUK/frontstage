@@ -20,4 +20,6 @@ The default backend is `http://localhost:7007` and the default model is `gpt-4.1
 
 The starter requests Sandbox by default. For approved live calls, use a Production key and set `FRONTSTAGE_GATEWAY_ENVIRONMENT=production`. Frontstage rejects a request when its key is scoped to a different environment.
 
+The client waits up to 30 seconds by default. Set `FRONTSTAGE_GATEWAY_TIMEOUT_MS` from 1,000 to 120,000 milliseconds if your gateway requires a different deadline. If the gateway returns a retry hint, the client prints when to try again. Each attempt is explicit.
+
 Keep the key out of source control. If a key is exposed, revoke it in Frontstage.
