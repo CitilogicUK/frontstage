@@ -2111,9 +2111,11 @@ test('audit history shows production review and ownership handoff', async ({
   let currentHandoff = handoff;
   let currentRenewal = renewal;
   let escalationDue = renewal.nextReview;
+  let escalationDays: number | null = 14;
   await page.route('**/api/governance/reports/manager-escalations', route =>
     route.fulfill({
       json: {
+        escalationDays,
         apps:
           currentRenewal.lifecycle === 'retired'
             ? []
@@ -2366,6 +2368,11 @@ test('audit history shows production review and ownership handoff', async ({
     escalations.getByRole('heading', { name: 'Manager escalations' }),
   ).toBeVisible();
   await expect(escalations).toContainText(renewal.nextReview.slice(0, 10));
+  await expect(
+    escalations.getByText(
+      'Renewals become eligible for manager notification after 14 days overdue.',
+    ),
+  ).toBeVisible();
   await expect(
     escalations.getByText(handoff.name, { exact: true }),
   ).toHaveCount(0);
@@ -2778,7 +2785,10 @@ test('audit history shows production review and ownership handoff', async ({
     .getByRole('button', { name: 'Update lifecycle' })
     .click();
   await expect(retirementDialog.getByText('Lifecycle updated.')).toBeVisible();
-  expect(await (await escalationReload).json()).toEqual({ apps: [] });
+  expect(await (await escalationReload).json()).toEqual({
+    escalationDays: 14,
+    apps: [],
+  });
   await retirementDialog
     .getByRole('button', { name: 'Close app details' })
     .click();
@@ -2788,6 +2798,14 @@ test('audit history shows production review and ownership handoff', async ({
     retirementReview.getByText(
       'No apps match this gateway activity threshold.',
     ),
+  ).toBeVisible();
+
+  escalationDays = null;
+  await escalations
+    .getByRole('button', { name: 'Refresh manager escalations' })
+    .click();
+  await expect(
+    escalations.getByText('Scheduled manager escalations are disabled.'),
   ).toBeVisible();
 });
 
