@@ -213,11 +213,15 @@ try {
     FROM catalog.final_entities
     WHERE entity_ref IN ('user:default/pilot-builder', 'user:default/pilot-reviewer')
     ORDER BY entity_ref`;
+  const expectedIdentityMappings = [
+    'user:default/pilot-builder=example-builder-node-id',
+    'user:default/pilot-reviewer=example-reviewer-node-id',
+  ].join('\n');
   await waitFor(
     'pilot Catalog identity import',
     () =>
       queryPilotDatabase(sourceDatabase, identityMappings) ===
-      'user:default/pilot-builder=example-builder-node-id\nuser:default/pilot-reviewer=example-reviewer-node-id',
+      expectedIdentityMappings,
   );
 
   queryPilotDatabase(
@@ -256,6 +260,13 @@ try {
     restoredDatabase,
     backupPath,
   ]);
+  if (
+    queryPilotDatabase(restoredDatabase, identityMappings) !==
+    expectedIdentityMappings
+  )
+    throw new Error(
+      'The pilot Catalog identity mappings were missing after restore.',
+    );
   startPilotApp(restoredApp, restoredDatabase);
   await waitForAppHealth(restoredApp, 'database restore');
   if (queryPilotDatabase(restoredDatabase, readSample) !== '12')
