@@ -27,7 +27,8 @@ export function reviewRemindersMigration() {
 type ReminderKind =
   | 'risk-renewal'
   | 'hosted-confirmation'
-  | 'initial-hosted-confirmation';
+  | 'initial-hosted-confirmation'
+  | 'hosted-reconfirmation';
 type Reminder = {
   appId: string;
   owner: string;
@@ -89,11 +90,12 @@ function candidatesFor(
     workspaceApproved === true &&
     !record.hostedAttestation
   ) {
+    const reconfirmAt = record.hostedReconfirmationAt;
     reminders.push(
       createReminder(
-        'initial-hosted-confirmation',
+        reconfirmAt ? 'hosted-reconfirmation' : 'initial-hosted-confirmation',
         null,
-        record.activeSince ?? null,
+        reconfirmAt ?? record.activeSince ?? null,
       ),
     );
   }
@@ -191,7 +193,12 @@ export async function sendReviewReminders(options: {
           'risk-renewal': riskTitle,
           'hosted-confirmation': 'Hosted workspace confirmation due',
           'initial-hosted-confirmation': 'Confirm your hosted workspace',
+          'hosted-reconfirmation': 'Reconfirm your hosted workspace',
         };
+        const description =
+          kind === 'hosted-reconfirmation'
+            ? `Workspace settings changed for ${record.name}. Confirm the updated workspace and sharing settings.`
+            : `Confirm the approved workspace and sharing settings for ${record.name}.`;
         const retryAfter = new Date(now + retryDelayMs);
         const claimed = await db(remindersTable)
           .insert({ reminder_key: key, retry_after: retryAfter })
@@ -208,7 +215,7 @@ export async function sendReviewReminders(options: {
             title: titles[kind],
             description: due
               ? `${record.name} is due on ${due.slice(0, 10)} UTC.`
-              : `Confirm the approved workspace and sharing settings for ${record.name}.`,
+              : description,
             link: link.toString(),
             topic: 'AI App Governance',
             scope: `governance-review-reminder-${key}`,
