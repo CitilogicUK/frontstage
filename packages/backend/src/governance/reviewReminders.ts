@@ -47,6 +47,32 @@ type ReminderPolicy = {
   hostedWorkspaceApproved: (record: GovernanceRecord) => boolean | undefined;
 };
 
+function reminderKey(
+  appId: string,
+  kind: ReminderKind,
+  identity: string | null,
+  owner: string,
+) {
+  return createHash('sha256')
+    .update(JSON.stringify([appId, kind, identity, owner]))
+    .digest('hex');
+}
+
+export async function managerRenewalReminderWasSent(
+  db: Knex,
+  appId: string,
+  owner: string,
+  due: string,
+) {
+  const key = reminderKey(appId, 'manager-risk-renewal', due, owner);
+  return Boolean(
+    await db(remindersTable)
+      .where({ reminder_key: key })
+      .whereNotNull('sent_at')
+      .first('reminder_key'),
+  );
+}
+
 function candidatesFor(
   record: GovernanceRecord,
   policy: ReminderPolicy,
@@ -79,9 +105,7 @@ function candidatesFor(
     tier,
     kind,
     due,
-    key: createHash('sha256')
-      .update(JSON.stringify([record.id, kind, identity, record.owner]))
-      .digest('hex'),
+    key: reminderKey(record.id, kind, identity, record.owner),
   });
   const reminders = deadlines.flatMap(([kind, deadline]) => {
     const dueTime = Date.parse(deadline ?? '');
