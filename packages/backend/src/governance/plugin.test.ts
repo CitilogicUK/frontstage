@@ -981,6 +981,152 @@ describe('governance record access', () => {
     },
   );
 
+  it('records the first observed unavailable owner and resets after recovery or handover', async () => {
+    const owner = 'user:default/owner';
+    const replacement = 'user:default/replacement';
+    const reviewer = 'user:default/reviewer';
+    const inactive = new Set<string>();
+    const missing = new Set<string>();
+    const catalog = jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref =>
+          missing.has(ref)
+            ? undefined
+            : {
+                apiVersion: 'backstage.io/v1alpha1',
+                kind: ref.startsWith('group:') ? 'Group' : 'User',
+                metadata: {
+                  name: ref.split('/')[1],
+                  ...(inactive.has(ref) && {
+                    annotations: { 'governance.backstage.io/active': 'false' },
+                  }),
+                },
+              },
+        ),
+      }));
+    const scheduleTask = jest.fn<
+      Promise<void>,
+      Parameters<SchedulerService['scheduleTask']>
+    >();
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.scheduler.mock({ scheduleTask }).factory,
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              ownershipObservationIntervalMinutes: 15,
+            },
+          },
+        }),
+      ],
+    });
+    expect(scheduleTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'governance-ownership-observation',
+        scope: 'global',
+        frequency: { minutes: 15 },
+      }),
+    );
+    const api = request(server);
+    const ownerAuth = mockCredentials.user.header(owner);
+    const reviewerAuth = mockCredentials.user.header(reviewer);
+    const { body: app } = await api
+      .post('/api/governance/apps')
+      .set('Authorization', ownerAuth)
+      .send({
+        name: 'Observed assistant',
+        purpose: 'Check scheduled accountable ownership observation.',
+        type: 'assistant',
+        platform: 'GitHub',
+        sourceUrl: 'https://example.com/ownership',
+        owner,
+        team: 'group:default/platform',
+        lifecycle: 'active',
+        audience: 'personal',
+        classification: 'internal',
+        models: ['test-model'],
+      })
+      .expect(201);
+    const { fn: observe } = scheduleTask.mock.calls[0][0];
+    const run = () => observe(new AbortController().signal);
+    const readReport = () =>
+      api
+        .get('/api/governance/reports/ownership')
+        .set('Authorization', reviewerAuth)
+        .expect(200);
+    const observation = () =>
+      db('governance_owner_observations').where({ app_id: app.id }).first();
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+    const iso = (offset: number) => new Date(now + offset).toISOString();
+    inactive.add(owner);
+    expect((await readReport()).body.issues[0]).not.toHaveProperty(
+      'ownerUnavailableObservedSince',
+    );
+    await run();
+    expect((await readReport()).body.issues[0]).toHaveProperty(
+      'ownerUnavailableObservedSince',
+      iso(0),
+    );
+    clock.mockReturnValue(now + 1000);
+    inactive.delete(owner);
+    missing.add(owner);
+    await run();
+    expect((await readReport()).body.issues[0]).toMatchObject({
+      ownerUnavailableObservedSince: iso(0),
+      unavailableDetails: [{ role: 'owner', ref: owner, reason: 'missing' }],
+    });
+
+    missing.delete(owner);
+    catalog.mockRejectedValueOnce(new Error('Catalog unavailable'));
+    await expect(run()).rejects.toThrow('Catalog unavailable');
+    expect((await observation()).unavailable_since).toBe(iso(0));
+    const controller = new AbortController();
+    catalog.mockImplementationOnce(async ({ entityRefs }) => {
+      controller.abort();
+      return {
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      };
+    });
+    await observe(controller.signal);
+    expect((await observation()).unavailable_since).toBe(iso(0));
+    await run();
+    expect(await observation()).toBeUndefined();
+    expect((await readReport()).body.issues).toEqual([]);
+
+    clock.mockReturnValue(now + 2000);
+    inactive.add(owner);
+    await run();
+    expect((await readReport()).body.issues[0]).toHaveProperty(
+      'ownerUnavailableObservedSince',
+      iso(2000),
+    );
+    await api
+      .put(`/api/governance/apps/${app.id}`)
+      .set('Authorization', reviewerAuth)
+      .send({ ...app, owner: replacement, expectedUpdatedAt: app.updatedAt })
+      .expect(200);
+    expect(await observation()).toBeUndefined();
+    inactive.add(replacement);
+    clock.mockReturnValue(now + 3000);
+    await run();
+    expect((await readReport()).body.issues[0]).toMatchObject({
+      ownerUnavailableObservedSince: iso(3000),
+      unavailableDetails: [
+        { role: 'owner', ref: replacement, reason: 'inactive' },
+      ],
+    });
+  });
+
   it('summarizes only the current owner’s active scorecard issues', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';
