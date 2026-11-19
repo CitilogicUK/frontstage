@@ -1125,7 +1125,8 @@ describe('governance record access', () => {
       'Second private message.',
     ).expect(201);
 
-    const entry = { id: app.id, name: app.name, ...listing };
+    const unavailableEntry = { id: app.id, name: app.name };
+    const entry = { ...unavailableEntry, ...listing };
     await feed(requester)
       .expect('Cache-Control', 'no-store')
       .expect(200, { apps: [{ ...entry, requestStatus: 'pending' }] });
@@ -1192,7 +1193,15 @@ describe('governance record access', () => {
     await decide(reviewer, created.id, 'approved').expect(503);
 
     inactive.add(owner);
-    await feed(requester).expect(200, { apps: [] });
+    await feed(requester)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, {
+        apps: [],
+        unavailableRequests: [
+          { ...unavailableEntry, requestStatus: 'pending' },
+        ],
+      });
+    await feed(reviewer).expect(200, { apps: [] });
     await api
       .get(queue)
       .set('Authorization', auth(reviewer))
@@ -1262,7 +1271,15 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ expectedUpdatedAt: published.updatedAt })
       .expect(200);
-    await feed(requester).expect(200, { apps: [] });
+    await feed(requester).expect(200, {
+      apps: [],
+      unavailableRequests: [{ ...unavailableEntry, requestStatus: 'approved' }],
+    });
+    await feed(otherRequester).expect(200, {
+      apps: [],
+      unavailableRequests: [{ ...unavailableEntry, requestStatus: 'pending' }],
+    });
+    await feed(reviewer).expect(200, { apps: [] });
     await decide(reviewer, pending.id, 'approved').expect(409);
     const { body: declined } = await decide(
       reviewer,
@@ -1270,6 +1287,10 @@ describe('governance record access', () => {
       'declined',
     ).expect(200);
     expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
+    await feed(otherRequester).expect(200, {
+      apps: [],
+      unavailableRequests: [{ ...unavailableEntry, requestStatus: 'declined' }],
+    });
     const { body: decidedInventory } = await api
       .get(collection)
       .set('Authorization', auth(owner))

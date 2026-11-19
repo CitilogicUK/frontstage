@@ -4673,6 +4673,33 @@ test('a directory access request receives a recorded owner decision', async ({
   ).toBeVisible();
   await expect(directory.getByText(message, { exact: true })).toHaveCount(0);
   await assertWorkspace(page, 'App directory', 'Directory');
+
+  await page.route('**/api/governance/directory', route =>
+    route.fulfill({
+      json: {
+        apps: [],
+        unavailableRequests: [
+          {
+            id: 'archived-labels',
+            name: 'Archived shipping labels',
+            requestStatus: 'declined',
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?view=directory');
+  await expect(allApps.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await myRequests.click();
+  const unavailableRequest = directory.getByRole('row', {
+    name: /Archived shipping labels/,
+  });
+  await expect(unavailableRequest).toContainText('Access request declined');
+  await expect(unavailableRequest).toContainText('Listing unavailable');
+  await expect(unavailableRequest.getByRole('link')).toHaveCount(0);
+  await allApps.click();
+  await expect(unavailableRequest).toHaveCount(0);
 });
 
 test('pending sign-offs CSV follows assigned tracks, review independence, and filters', async ({

@@ -1304,12 +1304,13 @@ export const governancePlugin = createBackendPlugin({
           const ownStatuses = new Map(
             ownRequests.map(row => [row.app_id, row.status]),
           );
-          const candidates = rows
-            .map(row => JSON.parse(row.payload) as GovernanceRecord)
-            .flatMap(record => {
-              const listing = eligibleDirectoryListing(record, now);
-              return listing ? [{ record, listing }] : [];
-            });
+          const records = rows.map(
+            row => JSON.parse(row.payload) as GovernanceRecord,
+          );
+          const candidates = records.flatMap(record => {
+            const listing = eligibleDirectoryListing(record, now);
+            return listing ? [{ record, listing }] : [];
+          });
           const unavailable = await unavailableOwners([
             ...new Set(
               candidates.flatMap(({ record }) => ownershipRefs(record)),
@@ -1334,7 +1335,22 @@ export const governancePlugin = createBackendPlugin({
               (a, b) =>
                 a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
             );
-          res.set('Cache-Control', 'no-store').json({ apps });
+          const visibleIds = new Set(apps.map(app => app.id));
+          const unavailableRequests = records
+            .flatMap(({ id, name }) => {
+              const requestStatus = ownStatuses.get(id);
+              return requestStatus && !visibleIds.has(id)
+                ? [{ id, name, requestStatus }]
+                : [];
+            })
+            .sort(
+              (a, b) =>
+                a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+            );
+          res.set('Cache-Control', 'no-store').json({
+            apps,
+            ...(unavailableRequests.length > 0 && { unavailableRequests }),
+          });
         });
 
         function assertCurrentDirectoryRecord(
