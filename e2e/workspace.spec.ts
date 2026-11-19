@@ -3103,6 +3103,10 @@ test('Builder guide shows connector approval limits and registry states', async 
   });
 
   await page.goto('/?view=guide');
+  const registry = page.getByRole('region', { name: 'Approved connectors' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(registry.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
   const guidance = page.getByRole('region', { name: 'Guidance for builders' });
   await expect(
     guidance.getByRole('link', { name: 'registration', exact: true }),
@@ -3110,10 +3114,6 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(
     guidance.getByRole('link', { name: 'Check my apps for reassessment' }),
   ).toHaveAttribute('href', '/?owner=me&review=reassess');
-  const registry = page.getByRole('region', { name: 'Approved connectors' });
-  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
-  await expect(registry.or(guest)).toBeVisible();
-  if (await guest.isVisible()) await guest.click();
   try {
     await expect(registry.getByRole('status')).toHaveText(
       'Loading approved connectors…',
