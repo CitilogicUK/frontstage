@@ -9,6 +9,10 @@ on:
         description: Use the repository's frontstage-local runner
         type: boolean
         default: false
+      verification_ref:
+        description: Trusted branch or commit to verify on the local runner (defaults to the dispatch commit)
+        type: string
+        required: false
   push:
     branches: [main]
 
@@ -22,6 +26,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.use_local_runner && inputs.verification_ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24.15.0
