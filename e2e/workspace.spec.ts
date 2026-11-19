@@ -161,7 +161,12 @@ test('workspace screens share navigation and fit the viewport', async ({
             .length,
           ...(recordCoverageUnavailable
             ? { unavailable: true }
-            : { complete: 0 }),
+            : {
+                complete: 0,
+                incompleteRepositoryIds: discoveryStatuses.filter(
+                  status => status === 'registered',
+                ),
+              }),
         },
         repositories: discoveryStatuses.map(status => ({
           id: status,
@@ -239,6 +244,17 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(coverage).toContainText('Partial scan results');
   await expect(coverage).toContainText('0 of 2');
   await coverage
+    .getByRole('link', { name: 'Review incomplete records' })
+    .click();
+  await expect(page).toHaveURL(/discoveryStatus=incomplete$/);
+  await expect(
+    page.getByText('registered repository', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('unowned repository', { exact: true }),
+  ).toHaveCount(0);
+  await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
+  await coverage
     .getByRole('link', { name: 'Review 1 unowned repository' })
     .click();
   await expect(
@@ -253,6 +269,9 @@ test('workspace screens share navigation and fit the viewport', async ({
   recordCoverageUnavailable = true;
   await page.goto('/?view=reports');
   await expect(coverage).toContainText('Complete record coverage unavailable');
+  await expect(
+    coverage.getByRole('link', { name: 'Review incomplete records' }),
+  ).toHaveCount(0);
   await expect(coverage).toContainText('100%');
   await coverage
     .getByRole('link', { name: 'View registered repositories' })

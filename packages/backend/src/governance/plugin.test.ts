@@ -4142,7 +4142,11 @@ describe('governance record access', () => {
     expect(builder.body.repositories).toHaveLength(5);
     expect(catalog).not.toHaveBeenCalled();
     const complete = await read();
-    expect(complete.body.recordCoverage).toEqual({ complete: 2, eligible: 5 });
+    expect(complete.body.recordCoverage).toEqual({
+      complete: 2,
+      eligible: 5,
+      incompleteRepositoryIds: ['102', '103'],
+    });
     expect(complete.body.lastScan.partial).toBe(true);
     expect(complete.body.repositories).toHaveLength(6);
     expect(catalog).toHaveBeenCalledTimes(1);
@@ -4166,6 +4170,7 @@ describe('governance record access', () => {
     expect((await read()).body.recordCoverage).toEqual({
       complete: 0,
       eligible: 5,
+      incompleteRepositoryIds: ['102', '101', '100', '103'],
     });
 
     await db('governance_apps')
@@ -4179,6 +4184,7 @@ describe('governance record access', () => {
     expect((await read()).body.recordCoverage).toEqual({
       complete: 1,
       eligible: 5,
+      incompleteRepositoryIds: ['102', '100', '103'],
     });
     catalog.mockRejectedValueOnce(new Error('Catalog unavailable'));
     const degraded = await read();
