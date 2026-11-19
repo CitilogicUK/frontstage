@@ -2550,6 +2550,9 @@ test('the focused review ticket form saves and removes the link without reopenin
     details.getByRole('textbox', { name: 'Review ticket URL', exact: true }),
   ).toHaveValue(ticket);
 
+  await expect(save).toBeDisabled();
+  await details.getByText('Edit app details', { exact: true }).click();
+  await expect(save).toBeEnabled();
   await url.fill(replacement);
   await save.click();
   await expect(open).toHaveAttribute('href', replacement);

@@ -352,7 +352,16 @@ export function GovernancePage() {
     view === 'Discovery' &&
     Boolean(detailId && !selected && discoveryApp?.id !== detailId);
   const [message, setMessage] = useState('');
+  const [appEditorToggle, setAppEditorToggle] = useState<{
+    key: string;
+    open: boolean;
+  }>();
 
+  const appEditorKey = `${selected?.id}-edit-${selected?.updatedAt}`;
+  const appEditorOpen =
+    appEditorToggle?.key === appEditorKey
+      ? appEditorToggle.open
+      : params.get('edit') === '1';
   const reviewDate = selected && scheduledReviewDate(selected);
   const canNominateCoOwner =
     selected &&
@@ -407,6 +416,7 @@ export function GovernancePage() {
   }
 
   function closeApp() {
+    setAppEditorToggle(undefined);
     setSelected(undefined);
     setError('');
     setMessage('');
@@ -1620,7 +1630,11 @@ export function GovernancePage() {
                   <p>Clear the URL and save to remove the ticket link.</p>
                   <form
                     key={selected.updatedAt}
-                    onSubmit={event =>
+                    onSubmit={event => {
+                      if (appEditorOpen) {
+                        event.preventDefault();
+                        return;
+                      }
                       submit(event, async data => {
                         const url =
                           String(data.get('ticket-url') ?? '').trim() || null;
@@ -1636,8 +1650,8 @@ export function GovernancePage() {
                             ? 'Review ticket saved.'
                             : 'Review ticket removed.',
                         );
-                      })
-                    }
+                      });
+                    }}
                   >
                     <label>
                       Ticket URL
@@ -1647,7 +1661,15 @@ export function GovernancePage() {
                         defaultValue={selected.reviewTicketUrl}
                       />
                     </label>
-                    <button disabled={busy}>Save review ticket</button>
+                    {appEditorOpen && (
+                      <p>
+                        Save any changes to the app details and close that
+                        editor to use this shortcut.
+                      </p>
+                    )}
+                    <button disabled={busy || appEditorOpen}>
+                      Save review ticket
+                    </button>
                   </form>
                 </details>
               )}
@@ -1655,8 +1677,14 @@ export function GovernancePage() {
             {(actor === selected.owner || canReview) && (
               <details
                 className="gov-app-editor"
-                key={`${selected.id}-edit-${selected.updatedAt}`}
-                open={params.get('edit') === '1' || undefined}
+                key={appEditorKey}
+                onToggle={event =>
+                  setAppEditorToggle({
+                    key: appEditorKey,
+                    open: event.currentTarget.open,
+                  })
+                }
+                open={appEditorOpen}
               >
                 <summary>Edit app details</summary>
                 {selected.tier === 3 && (
