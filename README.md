@@ -355,7 +355,7 @@ docker run --rm -p 127.0.0.1:7007:7007 \
   --config app-config.github-signin.yaml --config app-config.identity.local.yaml
 ```
 
-The image uses the PostgreSQL and GitHub pilot profiles by default. Check readiness at `/.backstage/health/v1/readiness`.
+The image uses the PostgreSQL and GitHub pilot profiles by default. Docker health checks use Backstage readiness at `/.backstage/health/v1/readiness` on the container’s backend port. The check uses `APP_CONFIG_backend_listen_port` when set, and 7007 otherwise.
 
 ## Verify changes in a worktree
 

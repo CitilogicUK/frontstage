@@ -37,5 +37,7 @@ RUN tar --no-overwrite-dir --no-same-owner -xzf bundle.tar.gz && rm bundle.tar.g
 
 USER node
 EXPOSE 7007
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "const port = process.env.APP_CONFIG_backend_listen_port ?? '7007'; fetch('http://127.0.0.1:' + port + '/.backstage/health/v1/readiness', { signal: AbortSignal.timeout(2000) }).then(response => process.exit(response.ok ? 0 : 1), () => process.exit(1));"]
 ENTRYPOINT ["node", "packages/backend"]
 CMD ["--config", "app-config.yaml", "--config", "app-config.postgres.yaml", "--config", "app-config.github-signin.yaml"]
