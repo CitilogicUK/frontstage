@@ -88,6 +88,41 @@ export function gatewaySpendShareCsv(
   );
 }
 
+export type OutsideGatewayUsagePreview = {
+  from: string;
+  to: string;
+  rows: Array<{
+    sourceUrl: string;
+    model: string;
+    calls: number;
+    appId?: string;
+    appName?: string;
+  }>;
+};
+
+export function outsideGatewayUsageCsv(preview: OutsideGatewayUsagePreview) {
+  return encodeCsv(
+    [
+      'window_start_utc',
+      'window_end_utc',
+      'source_url',
+      'model',
+      'calls',
+      'app_id',
+      'app_name',
+    ],
+    preview.rows.map(row => [
+      preview.from,
+      preview.to,
+      row.sourceUrl,
+      row.model,
+      row.calls,
+      row.appId ?? '',
+      row.appName ?? '',
+    ]),
+  );
+}
+
 export function ownershipIssuesCsv(
   issues: Array<{
     appId: string;

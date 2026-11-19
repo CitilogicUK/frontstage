@@ -219,7 +219,7 @@ Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080
 
 ### Review usage outside the gateway
 
-In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and leaves unmatched sources visible for investigation. It does not save the export or contact the provider.
+In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and counts unmatched rows. Download its CSV to share the reporting window, call totals, and matched app IDs for follow-up. It does not save the export or contact the provider.
 
 ```json
 {
