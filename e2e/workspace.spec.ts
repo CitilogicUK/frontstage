@@ -186,10 +186,15 @@ test('workspace screens share navigation and fit the viewport', async ({
     const path = await download.path();
     if (!path) throw new Error('Starter download has no local path');
     const files = unzipSync(await readFile(path));
+    const ignore = strFromU8(files[`${id}/.gitignore`]).trim().split('\n');
+    expect(ignore.slice(1)).toEqual(['.env', '.env.*', '!.env.example']);
     expect(strFromU8(files[`${id}/CLAUDE.md`]).trim()).toBe('@AGENTS.md');
     expect(strFromU8(files[`${id}/AGENTS.md`])).toContain('Proof of concept');
     const brief = strFromU8(files[`${id}/PROJECT_BRIEF.md`]);
     expect(brief).toContain('Delivery stage: Proof of concept');
+    expect(brief).toContain(
+      'Record whether the evidence supports the hypothesis.',
+    );
     expect(brief).toContain(
       usesAi
         ? 'calls models through the gateway'
@@ -237,6 +242,22 @@ test('workspace screens share navigation and fit the viewport', async ({
     .getByRole('link', { name: 'Templates', exact: true })
     .click();
 
+  for (const [stage, exitCriterion] of [
+    ['trial', 'decide whether to stop or propose a proof of concept'],
+    ['pilot', 'thresholds for expanding, pausing, or rolling back the pilot'],
+    ['production', 'which checks must pass before rollout'],
+  ]) {
+    await page.getByLabel('Delivery stage').selectOption(stage);
+    const pending = page.waitForEvent('download');
+    await page
+      .getByRole('button', { name: 'Download AI-assisted software starter' })
+      .click();
+    const download = await pending;
+    const files = unzipSync(await readFile(await download.path()));
+    const brief = strFromU8(files['ai-assisted-software/PROJECT_BRIEF.md']);
+    expect(brief).toContain('## Exit criteria');
+    expect(brief).toContain(exitCriterion);
+  }
   await page.getByLabel('Delivery stage').selectOption('pilot');
   await page
     .getByRole('combobox', { name: 'Approved model' })
