@@ -4168,6 +4168,7 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   await expect(page).toHaveURL(
     /view=register&repository=claimable.*discoveryQuery=workbook$/,
   );
+  const claimUrl = page.url();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page).toHaveURL(workspaceUrl + queuePath);
   await expect(
@@ -4196,6 +4197,25 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   await expect(feedback).toHaveCount(0);
   await record.getByRole('button', { name: 'Close app details' }).click();
   await expect(page).toHaveURL(/view=discovery&discoveryStatus=registered$/);
+  await expect(
+    page.getByRole('link', { name: 'Open app record' }),
+  ).toBeVisible();
+
+  await page.route(
+    '**/api/governance/discovery/github',
+    route => route.fulfill({ status: 503, json: {} }),
+    { times: 1 },
+  );
+  await page.goto(claimUrl);
+  if (await guest.isVisible()) await guest.click();
+  await page.getByRole('button', { name: 'Retry loading repository' }).click();
+  await expect(
+    page.getByText(
+      'This repository is already registered or no longer available.',
+    ),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Discovery' }).click();
+  await expect(page).toHaveURL(workspaceUrl + queuePath);
   await expect(
     page.getByRole('link', { name: 'Open app record' }),
   ).toBeVisible();
