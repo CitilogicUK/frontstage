@@ -200,7 +200,7 @@ export async function sendReviewReminders(options: {
     for (const reminder of batch) {
       if (
         reminder.ownerReminderKey &&
-        byKey.get(reminder.ownerReminderKey)?.sent_at == null
+        (byKey.get(reminder.ownerReminderKey)?.sent_at ?? null) === null
       )
         continue;
       const delivery = byKey.get(reminder.key);
@@ -268,10 +268,13 @@ export async function sendReviewReminders(options: {
           'initial-hosted-confirmation': 'Confirm your hosted workspace',
           'hosted-reconfirmation': 'Reconfirm your hosted workspace',
         };
-        const description =
+        let description =
           kind === 'hosted-reconfirmation'
             ? `Confirm the current workspace and sharing settings for ${record.name}.`
             : `Confirm the approved workspace and sharing settings for ${record.name}.`;
+        if (due)
+          description = `${record.name} is due on ${due.slice(0, 10)} UTC.`;
+        if (managerReminder) description = 'An app renewal needs attention.';
         const retryAfter = new Date(now + retryDelayMs);
         const claimed = await db(remindersTable)
           .insert({ reminder_key: key, retry_after: retryAfter })
@@ -286,11 +289,7 @@ export async function sendReviewReminders(options: {
           recipients: { type: 'entity', entityRef: recipient },
           payload: {
             title: titles[kind],
-            description: managerReminder
-              ? 'An app renewal needs attention.'
-              : due
-              ? `${record.name} is due on ${due.slice(0, 10)} UTC.`
-              : description,
+            description,
             link: link.toString(),
             topic: 'AI App Governance',
             scope: `governance-review-reminder-${key}`,
