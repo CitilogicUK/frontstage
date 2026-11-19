@@ -1434,7 +1434,14 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     );
     const { apps: previewedApps } = await hostedPreview.json();
     expect(previewedApps).toMatchObject([
-      { name: 'Hosted project briefs demo', appId: expect.any(String) },
+      {
+        name: 'Hosted project briefs demo',
+        appId: expect.any(String),
+        sharing: 'public link',
+        dataAccess: 'none',
+        settingDifferences: [{ field: 'sharing', registered: 'private' }],
+        observedWorkspaceApproval: 'settings-mismatch',
+      },
       {
         name: 'Hosted workspace demo',
         appId: expect.any(String),

@@ -2,11 +2,30 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { appRecordPath } from './appRecordPath';
 
+const settingLabels = {
+  sharing: 'Sharing',
+  dataAccess: 'Data access',
+  dataClassification: 'Data classification',
+};
+const observedApprovalLabels = {
+  approved: 'Observed settings meet workspace policy',
+  'settings-mismatch': 'Observed settings outside workspace policy',
+  unconfigured: 'Workspace policy is not configured',
+  unlisted: 'Observed workspace is not listed in policy',
+};
+type Setting = keyof typeof settingLabels;
+const settings = Object.keys(settingLabels) as Setting[];
+
 export type HostedSnapshotApp = {
   name: string;
   provider: string;
   workspace: string;
   sourceUrl: string;
+  sharing?: string;
+  dataAccess?: string;
+  dataClassification?: string;
+  settingDifferences?: { field: Setting; registered: string | null }[];
+  observedWorkspaceApproval?: keyof typeof observedApprovalLabels;
   appId?: string;
   mismatch?: 'app-type' | 'workspace';
   registeredWorkspace?: { provider: string; workspace: string };
@@ -92,7 +111,9 @@ export function HostedSnapshotPreview({
         <p>
           Upload or paste a JSON object with an <code>apps</code> array. Each
           app needs a name, provider, workspace, and source URL (
-          <code>sourceUrl</code>).
+          <code>sourceUrl</code>). Include observed <code>sharing</code>,{' '}
+          <code>dataAccess</code>, or <code>dataClassification</code> to compare
+          settings.
         </p>
       </div>
       <a
@@ -141,12 +162,25 @@ export function HostedSnapshotPreview({
           disabled={pending}
           onClick={() =>
             runPreview(() => ({
-              apps: apps.map(({ name, provider, workspace, sourceUrl }) => ({
-                name,
-                provider,
-                workspace,
-                sourceUrl,
-              })),
+              apps: apps.map(
+                ({
+                  name,
+                  provider,
+                  workspace,
+                  sourceUrl,
+                  sharing,
+                  dataAccess,
+                  dataClassification,
+                }) => ({
+                  name,
+                  provider,
+                  workspace,
+                  sourceUrl,
+                  sharing,
+                  dataAccess,
+                  dataClassification,
+                }),
+              ),
             }))
           }
         >
@@ -160,6 +194,7 @@ export function HostedSnapshotPreview({
               <tr>
                 <th scope="col">App</th>
                 <th scope="col">Workspace</th>
+                <th scope="col">Observed settings</th>
                 <th scope="col">Status</th>
                 <th scope="col">Action</th>
               </tr>
@@ -183,17 +218,64 @@ export function HostedSnapshotPreview({
                       `${app.provider} · ${app.workspace}`
                     )}
                   </td>
+                  <td data-label="Observed settings">
+                    {settings.every(field => app[field] === undefined) &&
+                      'No settings supplied'}
+                    {settings.map(field => {
+                      const observed = app[field];
+                      if (observed === undefined) return null;
+                      const difference = app.settingDifferences?.find(
+                        item => item.field === field,
+                      );
+                      const label = settingLabels[field];
+                      return (
+                        <div key={field}>
+                          <div>
+                            {label}: {observed}
+                          </div>
+                          {difference && (
+                            <div>
+                              Registered {label.toLowerCase()}:{' '}
+                              {difference.registered ?? 'Unrecorded'}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {app.observedWorkspaceApproval && (
+                      <div>
+                        {observedApprovalLabels[app.observedWorkspaceApproval]}
+                      </div>
+                    )}
+                    {!app.observedWorkspaceApproval &&
+                      settings.some(field => app[field] !== undefined) && (
+                        <div>
+                          Supply sharing and data access to check workspace
+                          policy.
+                        </div>
+                      )}
+                  </td>
                   <td data-label="Status">
                     <span
                       className="gov-status"
                       data-status={
-                        app.appId && !app.mismatch ? 'approved' : 'pending'
+                        app.appId &&
+                        !app.mismatch &&
+                        !app.settingDifferences?.length &&
+                        app.observedWorkspaceApproval !== 'settings-mismatch' &&
+                        app.observedWorkspaceApproval !== 'unlisted'
+                          ? 'approved'
+                          : 'pending'
                       }
                     >
                       {app.mismatch === 'app-type' && 'App type mismatch'}
                       {app.mismatch === 'workspace' &&
                         'Provider or workspace mismatch'}
                       {!app.mismatch &&
+                        !!app.settingDifferences?.length &&
+                        'Settings differ from record'}
+                      {!app.mismatch &&
+                        !app.settingDifferences?.length &&
                         (app.appId ? 'Registered' : 'Unregistered')}
                     </span>
                   </td>

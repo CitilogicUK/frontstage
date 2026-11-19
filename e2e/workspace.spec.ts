@@ -3169,6 +3169,8 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   const known = {
     ...candidate,
     name: 'Hosted review',
+    sharing: 'public link',
+    dataAccess: 'none',
     sourceUrl: 'https://example.com/apps/review',
   };
   const snapshot = { apps: [known, candidate] };
@@ -3228,6 +3230,10 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
             ? {
                 ...knownMatch,
                 mismatch: 'workspace',
+                settingDifferences: [
+                  { field: 'sharing', registered: 'private' },
+                ],
+                observedWorkspaceApproval: 'settings-mismatch',
                 registeredWorkspace: {
                   provider: 'Example AI',
                   workspace: 'Previous workspace',
@@ -3282,12 +3288,21 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(
     knownRow.getByText('Provider or workspace mismatch'),
   ).toBeVisible();
+  await expect(knownRow.getByText('Sharing: public link')).toBeVisible();
+  await expect(knownRow.getByText('Registered sharing: private')).toBeVisible();
+  await expect(
+    knownRow.getByText('Observed settings outside workspace policy'),
+  ).toBeVisible();
   await expect(
     knownRow.getByRole('button', { name: 'Register app' }),
   ).toHaveCount(0);
   await page.getByRole('button', { name: 'Recheck snapshot' }).click();
   await expect(knownRow.getByText('Registered', { exact: true })).toBeVisible();
   await expect(knownRow.getByText('Previous workspace')).toHaveCount(0);
+  await expect(knownRow.getByText('Sharing: public link')).toBeVisible();
+  await expect(knownRow.getByText('Registered sharing: private')).toHaveCount(
+    0,
+  );
   expect(previewCount).toBe(2);
   await page.getByRole('button', { name: 'Register app', exact: true }).click();
 
