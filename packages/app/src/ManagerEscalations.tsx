@@ -5,12 +5,14 @@ import {
   useApi,
 } from '@backstage/core-plugin-api';
 import { Link, type To } from 'react-router-dom';
+import { renewalExceptionUtc } from './AppRenewalException';
 
 type Escalation = {
   appId: string;
   name: string;
   owner: string;
   due: string;
+  sentAt?: string;
 };
 
 type EscalationReport = {
@@ -96,6 +98,14 @@ export function ManagerEscalations({
                 {' · '}
                 {app.owner}
               </p>
+              {app.sentAt && Number.isFinite(Date.parse(app.sentAt)) && (
+                <p>
+                  Notification sent{' '}
+                  <time dateTime={app.sentAt}>
+                    {renewalExceptionUtc(app.sentAt)}
+                  </time>
+                </p>
+              )}
             </li>
           ))}
         </ul>

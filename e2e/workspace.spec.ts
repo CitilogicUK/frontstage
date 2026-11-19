@@ -2111,6 +2111,9 @@ test('audit history shows production review and ownership handoff', async ({
   let currentHandoff = handoff;
   let currentRenewal = renewal;
   let escalationDue = renewal.nextReview;
+  const escalationSentAt = new Date(
+    Date.parse(renewal.nextReview) + 14 * 86_400_000,
+  ).toISOString();
   let escalationDays: number | null = 14;
   await page.route('**/api/governance/reports/manager-escalations', route =>
     route.fulfill({
@@ -2125,6 +2128,7 @@ test('audit history shows production review and ownership handoff', async ({
                   name: renewal.name,
                   owner: renewal.owner,
                   due: escalationDue,
+                  sentAt: escalationSentAt,
                 },
               ],
       },
@@ -2368,6 +2372,13 @@ test('audit history shows production review and ownership handoff', async ({
     escalations.getByRole('heading', { name: 'Manager escalations' }),
   ).toBeVisible();
   await expect(escalations).toContainText(renewal.nextReview.slice(0, 10));
+  await expect(escalations.getByText('Notification sent')).toBeVisible();
+  const notificationTime = escalations.locator(
+    `time[datetime="${escalationSentAt}"]`,
+  );
+  await expect(notificationTime).toHaveText(
+    `${escalationSentAt.slice(0, 19).replace('T', ' ')} UTC`,
+  );
   await expect(
     escalations.getByText(
       'Renewals become eligible for manager notification after 14 days overdue.',
