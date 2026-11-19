@@ -39,12 +39,22 @@ type AppSummary = {
   nextReview: string | null;
 };
 
+const ownershipRoles = {
+  owner: 'Accountable owner',
+  backup: 'Backup owner',
+  team: 'Team',
+};
+
 export type OwnershipReport = {
   issues: Array<{
     appId: string;
     name: string;
     unavailable: string[];
-    unavailableDetails?: Array<{ ref: string; reason: 'missing' | 'inactive' }>;
+    unavailableDetails?: Array<{
+      ref: string;
+      role?: keyof typeof ownershipRoles;
+      reason: 'missing' | 'inactive';
+    }>;
     availableBackupOwner?: string;
   }>;
 };
@@ -230,7 +240,12 @@ export function PortfolioReport({
   }
 
   function setReportFilter(
-    key: 'days' | 'usageTeam' | 'usageGroup' | 'inventoryGroup',
+    key:
+      | 'days'
+      | 'usageTeam'
+      | 'usageGroup'
+      | 'inventoryGroup'
+      | 'ownershipRole',
     value: string,
   ) {
     setParams(previous => {
@@ -240,20 +255,33 @@ export function PortfolioReport({
       return next;
     });
   }
+  const requestedOwnershipRole = params.get('ownershipRole');
+  const ownershipRole = Object.keys(ownershipRoles).find(
+    role => role === requestedOwnershipRole,
+  ) as keyof typeof ownershipRoles | undefined;
   const ownershipIssues =
-    ownership?.issues.map(issue => {
+    ownership?.issues.flatMap(issue => {
       const app = byId.get(issue.appId);
-      const unavailable = issue.unavailable.map(ref => {
-        let role = '';
-        if (ref === app?.owner) role = 'Accountable owner';
-        else if (ref === app?.backupOwner) role = 'Backup owner';
-        else if (ref === app?.team) role = 'Team';
-        const reason = issue.unavailableDetails?.find(
-          item => item.ref === ref,
-        )?.reason;
-        return { role, ref, reason };
-      });
-      return { ...issue, unavailable };
+      const details =
+        issue.unavailableDetails ??
+        issue.unavailable.map(ref => ({
+          ref,
+          role: undefined,
+          reason: undefined,
+        }));
+      const unavailable = details.flatMap(
+        ({ ref, role: reportedRole, reason }) => {
+          let role = reportedRole;
+          if (!role) {
+            if (ref === app?.owner) role = 'owner';
+            else if (ref === app?.backupOwner) role = 'backup';
+            else if (ref === app?.team) role = 'team';
+          }
+          if (ownershipRole && role !== ownershipRole) return [];
+          return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
+        },
+      );
+      return unavailable.length ? [{ ...issue, unavailable }] : [];
     }) ?? [];
   const inventory = apps.filter(app => app.lifecycle !== 'retired');
   const stages = new Map(
@@ -683,8 +711,30 @@ export function PortfolioReport({
             {!ownership && !ownershipError && (
               <p role="status">Checking catalog ownership…</p>
             )}
-            {ownership?.issues.length === 0 && (
-              <p>No ownership issues found.</p>
+            {!!ownership?.issues.length && (
+              <label>
+                Affected ownership role
+                <select
+                  value={ownershipRole ?? ''}
+                  onChange={event =>
+                    setReportFilter('ownershipRole', event.target.value)
+                  }
+                >
+                  <option value="">All ownership roles</option>
+                  {Object.entries(ownershipRoles).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {ownership && ownershipIssues.length === 0 && (
+              <p>
+                {ownership.issues.length
+                  ? 'No ownership issues match this role.'
+                  : 'No ownership issues found.'}
+              </p>
             )}
             {ownershipIssues.length > 0 && (
               <>

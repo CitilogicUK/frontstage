@@ -459,12 +459,18 @@ export const governancePlugin = createBackendPlugin({
         const router = Router();
         router.use(express.json({ limit: '1mb' }));
 
-        function ownershipRefs(app: AppInput) {
+        function ownershipAssignments(app: AppInput) {
           return [
-            app.owner,
-            app.team,
-            ...(app.backupOwner ? [app.backupOwner] : []),
+            { role: 'owner', ref: app.owner },
+            { role: 'team', ref: app.team },
+            ...(app.backupOwner
+              ? [{ role: 'backup', ref: app.backupOwner }]
+              : []),
           ];
+        }
+
+        function ownershipRefs(app: AppInput) {
+          return ownershipAssignments(app).map(({ ref }) => ref);
         }
 
         function isActiveCatalogEntity(entity: Entity) {
@@ -824,10 +830,12 @@ export const governancePlugin = createBackendPlugin({
               unavailable.set(ref, 'inactive');
           }
           const issues = apps.flatMap(app => {
-            const unavailableDetails = ownershipRefs(app).flatMap(ref => {
-              const reason = unavailable.get(ref);
-              return reason ? [{ ref, reason }] : [];
-            });
+            const unavailableDetails = ownershipAssignments(app).flatMap(
+              assignment => {
+                const reason = unavailable.get(assignment.ref);
+                return reason ? [{ ...assignment, reason }] : [];
+              },
+            );
             if (unavailableDetails.length === 0) return [];
             const availableBackupOwner =
               unavailable.has(app.owner) &&

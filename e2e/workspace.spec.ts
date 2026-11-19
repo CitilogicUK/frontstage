@@ -1131,6 +1131,7 @@ test('audit history shows production review and ownership handoff', async ({
       },
     }),
   );
+  const reportedTeam = 'group:default/reassigned-team';
   await page.route('**/api/governance/reports/ownership', route =>
     route.fulfill({
       json: {
@@ -1140,10 +1141,10 @@ test('audit history shows production review and ownership handoff', async ({
                 {
                   appId: handoff.id,
                   name: handoff.name,
-                  unavailable: [handoff.owner, handoff.team],
+                  unavailable: [handoff.owner, reportedTeam],
                   unavailableDetails: [
-                    { ref: handoff.owner, reason: 'inactive' },
-                    { ref: handoff.team, reason: 'missing' },
+                    { role: 'owner', ref: handoff.owner, reason: 'inactive' },
+                    { role: 'team', ref: reportedTeam, reason: 'missing' },
                   ],
                   availableBackupOwner: pilot.owner,
                 },
@@ -1420,7 +1421,7 @@ test('audit history shows production review and ownership handoff', async ({
   const ownership = page.getByRole('region', { name: 'Ownership issues' });
   await expect(
     ownership.getByText(
-      `Accountable owner: ${handoff.owner} (inactive) · Team: ${handoff.team} (missing)`,
+      `Accountable owner: ${handoff.owner} (inactive) · Team: ${reportedTeam} (missing)`,
     ),
   ).toBeVisible();
   await expect(
@@ -1439,8 +1440,38 @@ test('audit history shows production review and ownership handoff', async ({
     `"Accountable owner","${handoff.owner}","${pilot.owner}","inactive"`,
   );
   expect(ownershipCsv).toContain(
-    `"Team","${handoff.team}","${pilot.owner}","missing"`,
+    `"Team","${reportedTeam}","${pilot.owner}","missing"`,
   );
+  const ownershipRole = ownership.getByRole('combobox', {
+    name: 'Affected ownership role',
+  });
+  await ownershipRole.selectOption('backup');
+  await expect(
+    ownership.getByText('No ownership issues match this role.'),
+  ).toBeVisible();
+  await expect(
+    ownership.getByRole('button', { name: 'Download ownership issues CSV' }),
+  ).toHaveCount(0);
+  await ownershipRole.selectOption('owner');
+  await expect(page).toHaveURL(/ownershipRole=owner/);
+  await page.reload();
+  await expect(ownershipRole).toHaveValue('owner');
+  await expect(
+    ownership.getByText(`Accountable owner: ${handoff.owner} (inactive)`),
+  ).toBeVisible();
+  await expect(
+    ownership.getByText(`Team: ${reportedTeam} (missing)`),
+  ).toHaveCount(0);
+  const filteredDownload = page.waitForEvent('download');
+  await ownership
+    .getByRole('button', { name: 'Download ownership issues CSV' })
+    .click();
+  const filteredCsv = await readFile(
+    await (await filteredDownload).path(),
+    'utf8',
+  );
+  expect(filteredCsv).toContain(`"Accountable owner","${handoff.owner}"`);
+  expect(filteredCsv).not.toContain(`"Team","${reportedTeam}"`);
   await ownership.getByRole('link', { name: handoff.name }).click();
   await expect(dialog).toBeVisible();
   await dialog
@@ -1455,7 +1486,7 @@ test('audit history shows production review and ownership handoff', async ({
   await dialog.getByRole('button', { name: 'Save app details' }).click();
   await expect(dialog.getByText('App updated.', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close app details' }).click();
-  await expect(page).toHaveURL(/view=reports$/);
+  await expect(page).toHaveURL(/view=reports&ownershipRole=owner$/);
   await expect(ownership.getByText('No ownership issues found.')).toBeVisible();
   await retirementReview.getByRole('link', { name: renewal.name }).click();
   const retirementDialog = page.getByRole('dialog', { name: renewal.name });
@@ -1472,7 +1503,7 @@ test('audit history shows production review and ownership handoff', async ({
   await retirementDialog
     .getByRole('button', { name: 'Close app details' })
     .click();
-  await expect(page).toHaveURL(/view=reports$/);
+  await expect(page).toHaveURL(/view=reports&ownershipRole=owner$/);
   await expect(
     retirementReview.getByText(
       'No apps match this gateway activity threshold.',
