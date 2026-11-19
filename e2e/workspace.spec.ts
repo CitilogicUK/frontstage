@@ -5707,6 +5707,7 @@ test('the focused review ticket form saves and removes the link without reopenin
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await details.getByText('Edit review ticket', { exact: true }).click();
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const copyContext = details.getByRole('button', {
     name: 'Copy review ticket context',
@@ -5735,7 +5736,6 @@ test('the focused review ticket form saves and removes the link without reopenin
     details.getByRole('textbox', { name: 'Review ticket context' }),
   ).toHaveValue(context);
 
-  await details.getByText('Edit review ticket', { exact: true }).click();
   const url = details.getByRole('textbox', { name: 'Ticket URL', exact: true });
   const save = details.getByRole('button', { name: 'Save review ticket' });
   const open = details.getByRole('link', { name: 'Open review ticket' });
