@@ -55,6 +55,7 @@
     "typescript": "~5.9.0"
   },
   "resolutions": {
+    "@backstage/backend-openapi-utils/mockttp": "4.6.5",
     "@yarnpkg/core": "4.9.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
