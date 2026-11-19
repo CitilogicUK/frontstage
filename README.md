@@ -409,7 +409,7 @@ yarn build:all
 docker build -f packages/backend/Dockerfile -t frontstage:pilot .
 ```
 
-Supply `FRONTSTAGE_POSTGRES_URL`, `FRONTSTAGE_GITHUB_CLIENT_ID`, and `FRONTSTAGE_GITHUB_CLIENT_SECRET` through the runtime environment. Mount an operator-managed Catalog configuration with the mapped User and Group sources and `governance.reviewers`. Use the public HTTPS URL of the reverse proxy for both frontend and backend so the container serves the UI and APIs from one origin.
+Supply `FRONTSTAGE_POSTGRES_URL`, `FRONTSTAGE_GITHUB_CLIENT_ID`, and `FRONTSTAGE_GITHUB_CLIENT_SECRET` through the runtime environment. Copy the [pilot identity overlay](examples/pilot-identity-config.yaml) and [synthetic Catalog roster](examples/pilot-identities.yaml) to `app-config.identity.local.yaml` and `pilot-identities.local.yaml`. Replace the sample identities, GitHub node IDs, teams, and reviewer list with the managed pilot values. Mount both files read-only. Use the public HTTPS URL of the reverse proxy for both frontend and backend so the container serves the UI and APIs from one origin.
 
 ```sh
 docker run --rm -p 127.0.0.1:7007:7007 \
@@ -418,6 +418,7 @@ docker run --rm -p 127.0.0.1:7007:7007 \
   -e APP_CONFIG_backend_baseUrl=https://frontstage.example.com \
   -e APP_CONFIG_backend_cors_origin=https://frontstage.example.com \
   -v "$PWD/app-config.identity.local.yaml:/app/app-config.identity.local.yaml:ro" \
+  -v "$PWD/pilot-identities.local.yaml:/app/pilot-identities.yaml:ro" \
   frontstage:pilot \
   --config app-config.yaml --config app-config.postgres.yaml \
   --config app-config.github-signin.yaml --config app-config.identity.local.yaml
@@ -425,7 +426,7 @@ docker run --rm -p 127.0.0.1:7007:7007 \
 
 The image uses the PostgreSQL and GitHub pilot profiles by default. Docker health checks use Backstage readiness at `/.backstage/health/v1/readiness` on the container’s backend port. The check uses `APP_CONFIG_backend_listen_port` when set, and 7007 otherwise.
 
-Run `yarn test:pilot-image` after building `frontstage:pilot`. Pass an image tag as an argument to check another local build. The check uses a disposable PostgreSQL 17 container and placeholder OAuth credentials, and verifies readiness, the packaged UI, PostgreSQL tables for governance and registration metrics, anonymous API denial, and the GitHub redirect without contacting GitHub. It also restarts the app, waits for readiness, and checks that a synthetic registration timing row survives in PostgreSQL. It then restores a logical backup to a fresh database in the disposable PostgreSQL instance and verifies that a new Frontstage container becomes ready and the row is present.
+Run `yarn test:pilot-image` after building `frontstage:pilot`. Pass an image tag as an argument to check another local build. The check uses a disposable PostgreSQL 17 container and placeholder OAuth credentials, and verifies readiness, the packaged UI, Catalog import of the synthetic identity mappings, PostgreSQL tables for governance and registration metrics, anonymous API denial, and the GitHub redirect without contacting GitHub. It also restarts the app, waits for readiness, and checks that a synthetic registration timing row survives in PostgreSQL. It then restores a logical backup to a fresh database in the disposable PostgreSQL instance and verifies that a new Frontstage container becomes ready and the row is present.
 
 ## Verify changes in a worktree
 
