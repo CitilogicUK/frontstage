@@ -301,6 +301,11 @@
   font-size: 12px;
   font-weight: 700;
 }
+.gov-current-tier {
+  display: block;
+  margin-top: 4px;
+  color: var(--gov-muted);
+}
 .gov-badge[data-tier='2'] {
   background: color-mix(in srgb, var(--gov-warning) 12%, var(--gov-surface));
   color: var(--gov-warning);
