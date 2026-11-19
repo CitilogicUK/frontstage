@@ -621,28 +621,28 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   page,
 }) => {
   const app = {
-    id: 'meetings',
-    name: 'Meeting summary',
+    id: 'hosted-workspace',
+    name: 'Hosted workspace demo',
     purpose: 'Summarizes synthetic notes.',
     owner: 'user:default/owner',
     team: 'group:default/platform',
     platform: 'GitHub',
-    sourceUrl: 'https://github.com/example/meetings',
+    sourceUrl: 'https://example.com/frontstage-demo/hosted-workspace',
     lifecycle: 'active',
     classification: 'internal',
     tier: 1,
     reviewStatus: 'not required',
-    models: ['fixture-model'],
+    models: ['gpt-4.1-mini'],
     updatedAt: '2026-06-01T00:00:00.000Z',
   };
   const snapshot = {
     from: '2026-06-01T00:00:00Z',
     to: '2026-06-08T00:00:00Z',
     rows: [
-      { sourceUrl: app.sourceUrl, model: 'fixture-model', calls: 12 },
+      { sourceUrl: app.sourceUrl, model: 'gpt-4.1-mini', calls: 12 },
       {
-        sourceUrl: 'https://github.com/example/unknown',
-        model: 'fixture-model',
+        sourceUrl: 'https://example.com/frontstage-demo/unregistered-assistant',
+        model: 'gpt-4.1-mini',
         calls: 3,
       },
     ],
@@ -687,17 +687,21 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(match).toBeVisible();
   await expect(report.getByText('No app matched')).toBeVisible();
   await expect(
-    report.getByRole('row', { name: /Meeting summary/ }),
+    report.getByRole('row', { name: /Hosted workspace demo/ }),
   ).toContainText('12');
   await expect(
     report.getByText('15 reported calls · 2 rows · 1 unmatched'),
   ).toBeVisible();
+  const pendingSample = page.waitForEvent('download');
+  await report
+    .getByRole('link', { name: 'Download sample usage JSON' })
+    .click();
+  const sample = await pendingSample;
+  expect(sample.suggestedFilename()).toBe('outside-gateway-usage.json');
   await usageJson.clear();
-  await report.getByLabel('Upload usage JSON').setInputFiles({
-    name: 'outside-gateway-usage.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify(snapshot)),
-  });
+  await report
+    .getByLabel('Upload usage JSON')
+    .setInputFiles(await sample.path());
   await expect(match).toBeHidden();
   const uploadedPreview = page.waitForResponse(
     response =>
@@ -718,8 +722,8 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   const csv = await readFile(await download.path(), 'utf8');
   expect(csv.trimEnd().split(/\r?\n/)).toEqual([
     '\uFEFFwindow_start_utc,window_end_utc,source_url,model,calls,app_id,app_name',
-    `"${snapshot.from}","${snapshot.to}","${app.sourceUrl}","fixture-model",12,"${app.id}","${app.name}"`,
-    `"${snapshot.from}","${snapshot.to}","${snapshot.rows[1].sourceUrl}","fixture-model",3,"",""`,
+    `"${snapshot.from}","${snapshot.to}","${app.sourceUrl}","gpt-4.1-mini",12,"${app.id}","${app.name}"`,
+    `"${snapshot.from}","${snapshot.to}","${snapshot.rows[1].sourceUrl}","gpt-4.1-mini",3,"",""`,
   ]);
   await match.click();
   await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();

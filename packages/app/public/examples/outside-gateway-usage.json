@@ -1,0 +1,16 @@
+{
+  "from": "2026-06-01T00:00:00Z",
+  "to": "2026-06-08T00:00:00Z",
+  "rows": [
+    {
+      "sourceUrl": "https://example.com/frontstage-demo/hosted-workspace",
+      "model": "gpt-4.1-mini",
+      "calls": 12
+    },
+    {
+      "sourceUrl": "https://example.com/frontstage-demo/unregistered-assistant",
+      "model": "gpt-4.1-mini",
+      "calls": 3
+    }
+  ]
+}

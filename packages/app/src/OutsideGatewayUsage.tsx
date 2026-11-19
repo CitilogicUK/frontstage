@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import {
+  configApiRef,
   discoveryApiRef,
   fetchApiRef,
   useApi,
@@ -18,6 +19,7 @@ export function OutsideGatewayUsage({
 }: {
   appLink: (appId: string) => To;
 }) {
+  const config = useApi(configApiRef);
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [preview, setPreview] = useState<OutsideGatewayUsagePreview>();
@@ -25,6 +27,9 @@ export function OutsideGatewayUsage({
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const sampleUrl = `${config
+    .getString('app.baseUrl')
+    .replace(/\/$/, '')}/examples/outside-gateway-usage.json`;
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
 
   function selectFile(nextFile: File | undefined) {
@@ -99,6 +104,9 @@ export function OutsideGatewayUsage({
         <code>sourceUrl</code>, <code>model</code>, and <code>calls</code> for
         each entry.
       </p>
+      <a href={sampleUrl} download>
+        Download sample usage JSON
+      </a>
       <form onSubmit={loadPreview}>
         <label>
           Upload usage JSON
