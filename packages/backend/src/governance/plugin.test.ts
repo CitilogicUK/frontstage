@@ -1,4 +1,7 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 import type { SchedulerService } from '@backstage/backend-plugin-api';
 import {
   createServiceMock,
@@ -25,6 +28,57 @@ import { governancePlugin } from './plugin';
 describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3', 'POSTGRES_17'] });
   afterEach(() => jest.restoreAllMocks());
+
+  it('runs the pilot role probe against the Governance API', async () => {
+    const builder = 'user:default/builder';
+    const reviewer = 'user:default/reviewer';
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.rootConfig.factory({
+          data: { governance: { reviewers: [reviewer] } },
+        }),
+      ],
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test backend to listen on a TCP port');
+    }
+    const { stdout, stderr } = await promisify(execFile)(
+      process.execPath,
+      [resolve(__dirname, '../../../../scripts/probe-pilot-roles.mjs')],
+      {
+        env: {
+          ...process.env,
+          FRONTSTAGE_PILOT_URL: `http://127.0.0.1:${address.port}`,
+          FRONTSTAGE_PILOT_BUILDER_REF: builder,
+          FRONTSTAGE_PILOT_BUILDER_TOKEN: mockCredentials.user
+            .header(builder)
+            .replace(/^Bearer /, ''),
+          FRONTSTAGE_PILOT_REVIEWER_REF: reviewer,
+          FRONTSTAGE_PILOT_REVIEWER_TOKEN: mockCredentials.user
+            .header(reviewer)
+            .replace(/^Bearer /, ''),
+        },
+        timeout: 5000,
+      },
+    );
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual({
+      checks: [
+        {
+          role: 'builder',
+          inventoryStatus: 200,
+          registrationReportStatus: 403,
+        },
+        {
+          role: 'reviewer',
+          inventoryStatus: 200,
+          registrationReportStatus: 200,
+        },
+      ],
+    });
+  });
 
   it('collects anonymous Tier 1 registration timings only on successful interactive saves', async () => {
     const owner = 'user:default/owner';
