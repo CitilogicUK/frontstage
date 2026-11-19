@@ -5418,6 +5418,7 @@ describe('governance record access', () => {
   it('blocks new live requests once recorded spend reaches an enforced threshold', async () => {
     const owner = 'user:default/owner';
     const sourceUrl = 'https://github.com/exampleai/budgeted-app';
+    const alertOnlySource = 'https://github.com/exampleai/alert-only-app';
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockResolvedValue({
@@ -5443,9 +5444,11 @@ describe('governance record access', () => {
         }),
       );
     const warn = jest.fn();
+    const db = await databases.init('SQLITE_3');
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        mockServices.database.factory({ knex: db }),
         mockServices.logger.mock({ warn }).factory,
         mockServices.rootConfig.factory({
           data: {
@@ -5463,6 +5466,7 @@ describe('governance record access', () => {
                 },
                 appSpendThresholds: [
                   { sourceUrl, monthlyUsd: 2, stopAtThreshold: true },
+                  { sourceUrl: alertOnlySource, monthlyUsd: 2 },
                 ],
               },
             },
@@ -5659,8 +5663,8 @@ describe('governance record access', () => {
     await issue(
       `/api/governance/apps/${draft.body.id}/gateway-key?environment=production`,
     ).expect(403);
-    const scorecard = () =>
-      api.get(`${path}/scorecard`).set('Authorization', auth).expect(200);
+    const scorecard = (appPath = path) =>
+      api.get(`${appPath}/scorecard`).set('Authorization', auth).expect(200);
     const ownerScorecard = () =>
       api
         .get('/api/governance/owner-scorecard')
@@ -5740,6 +5744,14 @@ describe('governance record access', () => {
       model: 'test-model',
       simulated: false,
     });
+    expect((await scorecard()).body.checks).toContainEqual(
+      expect.objectContaining({
+        name: 'Monthly gateway spend',
+        status: 'pass',
+        detail: 'Estimated live spend is below the monthly threshold.',
+      }),
+    );
+    expect((await ownerScorecard()).body.issues).toEqual([]);
     provider.mockResolvedValueOnce(
       Response.json({
         choices: [
@@ -5760,6 +5772,18 @@ describe('governance record access', () => {
       refused: true,
     });
     await call().expect(403);
+    expect((await scorecard()).body.checks).toContainEqual(
+      expect.objectContaining({
+        name: 'Monthly gateway spend',
+        status: 'attention',
+        detail:
+          'Production calls are blocked at the monthly estimated spend threshold.',
+      }),
+    );
+    expect((await ownerScorecard()).body.issues).toContainEqual({
+      appId: app.body.id,
+      checks: ['Monthly gateway spend'],
+    });
     const rotated = await issue(sandboxPath).expect(201);
     await call(sandbox.body.key).expect(401);
     await call(rotated.body.key)
@@ -5795,6 +5819,38 @@ describe('governance record access', () => {
         { reason: 'key-environment', calls: 2 },
       ]),
     });
+
+    const { body: alertOnlyApp } = await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth)
+      .send({
+        ...registration,
+        name: 'Alert-only budgeted app',
+        sourceUrl: alertOnlySource,
+      })
+      .expect(201);
+    await db('governance_gateway_usage').insert({
+      id: 'synthetic-alert-only-usage',
+      app_id: alertOnlyApp.id,
+      model: 'test-model',
+      execution_mode: 'openai',
+      created_at: new Date(),
+      estimated_cost_nanos_usd: 2_000_000_000,
+    });
+    expect(
+      (await scorecard(`/api/governance/apps/${alertOnlyApp.id}`)).body.checks,
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'Monthly gateway spend',
+        status: 'attention',
+        detail: 'Estimated live spend reached the monthly threshold.',
+      }),
+    );
+    expect((await ownerScorecard()).body.issues).toContainEqual({
+      appId: alertOnlyApp.id,
+      checks: expect.arrayContaining(['Monthly gateway spend']),
+    });
+    expect(provider).toHaveBeenCalledTimes(3);
 
     await issue(productionPath).expect(201);
     await api

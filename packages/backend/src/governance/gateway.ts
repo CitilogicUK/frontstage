@@ -647,16 +647,31 @@ export function registerGatewayRoutes(options: {
       'Configure only one gateway spend threshold per app source URL.',
     );
 
+  async function monthlyLiveCosts(
+    database: Database,
+    appIds: string[],
+    monthStart: Date,
+  ) {
+    const rows = await database(usageTable)
+      .where({ execution_mode: 'openai' })
+      .whereIn('app_id', appIds)
+      .where('created_at', '>=', monthStart)
+      .groupBy('app_id')
+      .sum({ cost: 'estimated_cost_nanos_usd' })
+      .select<Array<{ app_id: string; cost: string | number }>>('app_id');
+    return new Map(
+      rows.map(row => [row.app_id, Number(row.cost) / nanosPerDollar]),
+    );
+  }
+
   async function monthlyLiveCost(
     database: Database,
     appId: string,
     monthStart: Date,
   ) {
-    const [month] = await database(usageTable)
-      .where({ app_id: appId, execution_mode: 'openai' })
-      .where('created_at', '>=', monthStart)
-      .sum({ cost: 'estimated_cost_nanos_usd' });
-    return Number(month.cost ?? 0) / nanosPerDollar;
+    return (
+      (await monthlyLiveCosts(database, [appId], monthStart)).get(appId) ?? 0
+    );
   }
 
   function limitFor(app: GovernanceRecord) {
@@ -794,15 +809,24 @@ export function registerGatewayRoutes(options: {
     );
   }
 
+  function scorecardSpendThreshold(record: GovernanceRecord) {
+    return config.mode === 'openai' &&
+      record.lifecycle === 'active' &&
+      isScorecardGatewayApp(record)
+      ? appSpendThresholds.get(appSourceKey(record.sourceUrl))
+      : undefined;
+  }
+
   function scorecardChecks(
     record: GovernanceRecord,
     evidence: {
       ownership?: boolean;
       issuedKey: boolean;
       recentModes?: { execution_mode: string | null }[];
+      monthlyLiveSpend?: number;
     },
   ) {
-    const { ownership, issuedKey, recentModes } = evidence;
+    const { ownership, issuedKey, recentModes, monthlyLiveSpend } = evidence;
     const tier = evaluateTier(record);
     const tierChanged = tier !== record.tier;
     const reviewed =
@@ -901,6 +925,21 @@ export function registerGatewayRoutes(options: {
             : `Ask the app owner or a reviewer to issue a ${readinessEnvironment} gateway key.`,
         });
       }
+      const spendThreshold = scorecardSpendThreshold(record);
+      if (spendThreshold && monthlyLiveSpend !== undefined) {
+        const belowThreshold = monthlyLiveSpend < spendThreshold.monthlyUsd;
+        let detail = 'Estimated live spend is below the monthly threshold.';
+        if (!belowThreshold) {
+          detail = spendThreshold.stopAtThreshold
+            ? 'Production calls are blocked at the monthly estimated spend threshold.'
+            : 'Estimated live spend reached the monthly threshold.';
+        }
+        checks.push({
+          name: 'Monthly gateway spend',
+          status: belowThreshold,
+          detail,
+        });
+      }
     } else if (record.type === 'provider-hosted app') {
       const approved = options.hostedWorkspaceApproved(record);
       let detail = 'No approved workspace list is configured.';
@@ -986,6 +1025,9 @@ export function registerGatewayRoutes(options: {
       ownership,
       issuedKey,
       recentModes,
+      monthlyLiveSpend: scorecardSpendThreshold(record)
+        ? await monthlyLiveCost(db, record.id, currentUtcMonthStart())
+        : undefined,
     });
     if (accessPaused) {
       checks.push({
@@ -1019,10 +1061,24 @@ export function registerGatewayRoutes(options: {
         .select<{ app_id: string }[]>('app_id');
       keys.forEach(key => issuedKeys.add(key.app_id));
     }
+    const spendIds = apps.filter(scorecardSpendThreshold).map(app => app.id);
+    const monthlySpend = new Map<string, number>();
+    if (spendIds.length) {
+      const monthStart = currentUtcMonthStart();
+      for (let offset = 0; offset < spendIds.length; offset += 100) {
+        const costs = await monthlyLiveCosts(
+          db,
+          spendIds.slice(offset, offset + 100),
+          monthStart,
+        );
+        costs.forEach((cost, appId) => monthlySpend.set(appId, cost));
+      }
+    }
     const issues = apps.flatMap(app => {
       const checks = scorecardChecks(app, {
         ownership: ownership?.get(app.id),
         issuedKey: issuedKeys.has(app.id),
+        monthlyLiveSpend: monthlySpend.get(app.id) ?? 0,
       })
         .filter(check => check.status === 'attention')
         .map(check => check.name);
