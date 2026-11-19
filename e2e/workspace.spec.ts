@@ -1210,7 +1210,7 @@ test('audit history shows production review and ownership handoff', async ({
           {
             appId: 'missing-app',
             mode: 'simulation',
-            reason: 'review',
+            reason: 'ownership',
             calls: 1,
           },
         ],
@@ -1351,7 +1351,28 @@ test('audit history shows production review and ownership handoff', async ({
     .filter({ hasText: 'missing-app' });
   await expect(missingAppRow).toContainText('Record unavailable');
   await expect(missingAppRow.getByRole('link')).toHaveCount(0);
+  const blockReason = blockReport.getByRole('combobox', {
+    name: 'Block reason',
+  });
+  await blockReason.selectOption('review');
+  await expect(page).toHaveURL(/blockReason=review/);
+  await page.reload();
+  await expect(blockReason).toHaveValue('review');
+  await expect(missingAppRow).toHaveCount(0);
+  await expect(
+    blockReport.getByRole('link', { name: renewal.name }),
+  ).toBeVisible();
+  await blockReason.selectOption('ownership');
+  await expect(missingAppRow).toBeVisible();
+  await expect(
+    blockReport.getByRole('link', { name: renewal.name }),
+  ).toHaveCount(0);
   await procurement.getByRole('button').click();
+  await expect(
+    blockReport.getByText('No policy blocks match this reason'),
+  ).toBeVisible();
+  await expect(blockReason).toHaveValue('ownership');
+  await blockReason.selectOption('');
   await expect(page).toHaveURL(/usageTeam=group%3Adefault%2Fprocurement$/);
   await expect(page.getByRole('combobox', { name: 'Usage team' })).toHaveValue(
     'group:default/procurement',
