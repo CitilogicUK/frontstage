@@ -1095,6 +1095,17 @@ export function GovernancePage() {
     ? 'provider-hosted app'
     : starter?.type;
   const hosted = (draft.type ?? registerType) === 'provider-hosted app';
+  const registrationSharing =
+    draft.sharing || hostedRegistration?.sharing || sharing[0];
+  const registrationDataAccess =
+    draft.dataAccess ||
+    hostedRegistration?.dataAccess ||
+    hostedAccessOptions[0];
+  const registrationHostedClass =
+    draft.hostedClass ??
+    descriptor?.hosted?.dataClassification ??
+    hostedRegistration?.dataClassification ??
+    '';
   const usesAiAtRuntime =
     hosted || (draft.usesAiAtRuntime ?? runtimeDefault) === 'yes';
   const initialModels = starter?.runtime
@@ -1139,8 +1150,11 @@ export function GovernancePage() {
     critical: !!draft.critical,
     hosted: hosted
       ? {
-          sharing: draft.sharing || sharing[0],
-          dataClassification: draft.hostedClass || undefined,
+          sharing: registrationSharing,
+          dataClassification:
+            registrationDataAccess === 'none'
+              ? undefined
+              : registrationHostedClass || undefined,
         }
       : undefined,
   });
@@ -3559,6 +3573,15 @@ export function GovernancePage() {
                 applied={!!descriptor}
               />
             )}
+            {hostedRegistration &&
+              (hostedRegistration.sharing ||
+                hostedRegistration.dataAccess ||
+                hostedRegistration.dataClassification) && (
+                <p className="gov-notice">
+                  Confirm the settings from the provider snapshot before
+                  registering this app.
+                </p>
+              )}
             <fieldset className="gov-fieldset" key={`app-${!!descriptor}`}>
               <legend>App details</legend>
               <label>
@@ -3843,29 +3866,23 @@ export function GovernancePage() {
                     </Link>
                     <label>
                       Sharing scope
-                      <select
-                        name="sharing"
-                        value={draft.sharing || sharing[0]}
-                      >
+                      <select name="sharing" value={registrationSharing}>
                         {options(sharing)}
                       </select>
                     </label>
                     <label>
                       Data access
-                      <select
-                        name="dataAccess"
-                        value={draft.dataAccess || hostedAccessOptions[0]}
-                      >
+                      <select name="dataAccess" value={registrationDataAccess}>
                         {options(hostedAccessOptions)}
                       </select>
                     </label>
-                    {draft.dataAccess && draft.dataAccess !== 'none' && (
+                    {registrationDataAccess !== 'none' && (
                       <label>
                         Highest hosted data classification
                         <select
                           required
                           name="hostedClass"
-                          defaultValue={descriptor?.hosted?.dataClassification}
+                          value={registrationHostedClass}
                         >
                           <option value="">Select classification</option>
                           {options(classes)}
