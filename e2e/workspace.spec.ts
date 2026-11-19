@@ -4498,7 +4498,7 @@ test('a directory access request receives a recorded owner decision', async ({
     route.fulfill({
       json: {
         actor,
-        canReview: false,
+        canReview: actor === owner,
         apps: [app],
         appsWithPendingAccessRequests:
           actor === owner && status === 'pending' ? [app.id] : undefined,
@@ -4572,6 +4572,24 @@ test('a directory access request receives a recorded owner decision', async ({
         json: { ...seed, status, decidedBy: owner, decidedAt: app.updatedAt },
       });
     },
+  );
+
+  const declinedAt = '2025-05-03T10:00:00.000Z';
+  const approvedAt = '2025-05-04T10:00:00.000Z';
+  await page.route('**/api/governance/apps/access-app/history', route =>
+    route.fulfill({
+      json: {
+        events: [
+          { action: 'registered' },
+          { action: 'directory-access-declined', at: declinedAt },
+          { action: 'directory-access-approved', at: approvedAt },
+        ].map((event, index) => ({
+          event: JSON.stringify({ actor: owner, record: app, ...event }),
+          digest: String(index).repeat(64),
+        })),
+        keyEvents: [],
+      },
+    }),
   );
 
   const directory = page.getByRole('region', { name: 'Directory apps' });
@@ -4654,6 +4672,29 @@ test('a directory access request receives a recorded owner decision', async ({
   await expect(
     details.getByRole('button', { name: 'Record access decision' }),
   ).toHaveCount(0);
+
+  await details.getByText('Audit history', { exact: true }).click();
+  const auditHistory = details.getByRole('listitem').filter({
+    hasText:
+      /^(Directory access approved|Directory access declined|App registered)/,
+  });
+  await expect(auditHistory.locator('strong')).toHaveText([
+    'Directory access approved',
+    'Directory access declined',
+    'App registered',
+  ]);
+  await expect(auditHistory.nth(0).locator('time')).toHaveAttribute(
+    'datetime',
+    approvedAt,
+  );
+  await expect(auditHistory.nth(1).locator('time')).toHaveAttribute(
+    'datetime',
+    declinedAt,
+  );
+  await expect(auditHistory.nth(2).locator('time')).toHaveAttribute(
+    'datetime',
+    app.updatedAt,
+  );
 
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(workQueue).toHaveCount(0);

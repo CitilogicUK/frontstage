@@ -194,6 +194,8 @@ type RecordAction =
   | 'graduation-ended'
   | 'directory-published'
   | 'directory-unpublished'
+  | 'directory-access-approved'
+  | 'directory-access-declined'
   | 'review-ticket-updated'
   | 'ownership-handover';
 
@@ -808,10 +810,19 @@ export const governancePlugin = createBackendPlugin({
           revision: number,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
           action: RecordAction,
-          lifecycleReason?: string,
-          renewalException?: RenewalException,
-          graduationNominee?: string,
-          graduationReason?: string,
+          {
+            lifecycleReason,
+            renewalException,
+            graduationNominee,
+            graduationReason,
+            at,
+          }: {
+            lifecycleReason?: string;
+            renewalException?: RenewalException;
+            graduationNominee?: string;
+            graduationReason?: string;
+            at?: string;
+          } = {},
         ) {
           const previous = await transaction(history)
             .where({ app_id: record.id, revision: revision - 1 })
@@ -825,6 +836,7 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             graduationNominee,
             graduationReason,
+            at,
             record,
           });
           await transaction(history).insert({
@@ -952,10 +964,12 @@ export const governancePlugin = createBackendPlugin({
               revision + 1,
               principal,
               action,
-              lifecycleReason,
-              renewalException,
-              graduationNominee,
-              graduationReason,
+              {
+                lifecycleReason,
+                renewalException,
+                graduationNominee,
+                graduationReason,
+              },
             );
           });
         }
@@ -1612,11 +1626,12 @@ export const governancePlugin = createBackendPlugin({
                 throw new ConflictError(
                   'This app no longer has an eligible directory listing.',
                 );
+              const decidedAt = new Date(now).toISOString();
               const [updated] = await request
                 .where({ status: 'pending' })
                 .update({
                   status: input.data,
-                  decided_at: new Date(now).toISOString(),
+                  decided_at: decidedAt,
                   decided_by: principal.userEntityRef,
                 })
                 .returning('*');
@@ -1624,6 +1639,20 @@ export const governancePlugin = createBackendPlugin({
                 throw new ConflictError(
                   'This access request has already been decided.',
                 );
+              // Keep the app's edit timestamp unchanged for a queue decision.
+              await transaction(table)
+                .where({ id: record.id })
+                .update({ revision: revision + 1 });
+              await logChange(
+                transaction,
+                record,
+                revision + 1,
+                principal,
+                input.data === 'approved'
+                  ? 'directory-access-approved'
+                  : 'directory-access-declined',
+                { at: decidedAt },
+              );
               return updated;
             });
             await notifyDirectoryAccess({
