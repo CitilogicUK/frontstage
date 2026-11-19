@@ -24,6 +24,7 @@ import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import {
   approvedCodingToolsInput,
   approvedConnectorsInput,
+  connectorPolicyCheck,
 } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import {
@@ -3686,6 +3687,8 @@ export const governancePlugin = createBackendPlugin({
           appsTable: table,
           configuration: config.getOptional('governance.gateway'),
           hostedWorkspaceApproved,
+          connectorCheck: record =>
+            connectorPolicyCheck(record, approvedConnectors),
           listenHost: config.getOptionalString('backend.listen.host'),
           load,
           assertCanEdit,

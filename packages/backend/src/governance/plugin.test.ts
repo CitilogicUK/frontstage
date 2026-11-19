@@ -1319,6 +1319,16 @@ describe('governance record access', () => {
             backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
+              approvedConnectors: [
+                {
+                  id: 'catalog-lookup',
+                  name: 'Catalog lookup',
+                  kind: 'data',
+                  description: 'Read synthetic catalog data.',
+                  access: 'read',
+                  maxClassification: 'internal',
+                },
+              ],
               gateway: {
                 enabled: true,
                 mode: 'simulation',
@@ -1339,6 +1349,7 @@ describe('governance record access', () => {
       name: string,
       appOwner: string,
       lifecycle: 'active' | 'experimental',
+      connectionName: string,
     ) => {
       const { body } = await api
         .post(appsPath)
@@ -1356,14 +1367,25 @@ describe('governance record access', () => {
           classification: 'internal',
           lifecycle,
           models: ['test-model'],
+          connections: [{ name: connectionName, access: 'read' }],
         })
         .expect(201);
       return body.id as string;
     };
-    const monitored = await register('monitored', owner, 'active');
-    const healthy = await register('healthy', owner, 'active');
-    await register('experimental', owner, 'experimental');
-    await register('other-owner', reviewer, 'active');
+    const monitored = await register(
+      'monitored',
+      owner,
+      'active',
+      'Unlisted catalog',
+    );
+    const healthy = await register(
+      'healthy',
+      owner,
+      'active',
+      'CATALOG lookup',
+    );
+    await register('experimental', owner, 'experimental', 'Unlisted catalog');
+    await register('other-owner', reviewer, 'active', 'Unlisted catalog');
     await api
       .post(`${appsPath}/${healthy}/gateway-key`)
       .set('Authorization', auth(owner))
@@ -1375,13 +1397,29 @@ describe('governance record access', () => {
     await summary()
       .expect('Cache-Control', 'no-store')
       .expect(200, {
-        issues: [{ appId: monitored, checks: ['Gateway key'] }],
+        issues: [
+          { appId: monitored, checks: ['Declared connections', 'Gateway key'] },
+        ],
         catalogUnavailable: false,
       });
     expect(catalog).toHaveBeenCalledTimes(1);
     expect(catalog.mock.calls[0][0].entityRefs.sort()).toEqual(
       [owner, backup, team].sort(),
     );
+    await api
+      .get(`${appsPath}/${monitored}/scorecard`)
+      .set('Authorization', auth('user:default/other'))
+      .expect(403);
+    const { body: healthyCard } = await api
+      .get(`${appsPath}/${healthy}/scorecard`)
+      .set('Authorization', auth(backup))
+      .expect(200);
+    expect(healthyCard.checks).toContainEqual({
+      name: 'Declared connections',
+      status: 'pass',
+      detail:
+        'All declared connections match the approved connector registry limits.',
+    });
     await api.get(summaryPath).set('Authorization', auth(backup)).expect(200, {
       issues: [],
       catalogUnavailable: false,
@@ -1396,6 +1434,12 @@ describe('governance record access', () => {
       .get(`${appsPath}/${monitored}/scorecard`)
       .set('Authorization', auth(owner))
       .expect(200);
+    expect(detail.checks).toContainEqual({
+      name: 'Declared connections',
+      status: 'attention',
+      detail:
+        'Unlisted connections: 1. Connections outside registry limits: 0. Review Declared connections in app details.',
+    });
     const { body: degradedOwnership } = await summary().expect(200);
     expect(degradedOwnership.issues).toEqual(
       expect.arrayContaining([
@@ -1410,7 +1454,9 @@ describe('governance record access', () => {
     );
     catalog.mockResolvedValueOnce({ items: [] });
     await summary().expect(200, {
-      issues: [{ appId: monitored, checks: ['Gateway key'] }],
+      issues: [
+        { appId: monitored, checks: ['Declared connections', 'Gateway key'] },
+      ],
       catalogUnavailable: true,
     });
   });

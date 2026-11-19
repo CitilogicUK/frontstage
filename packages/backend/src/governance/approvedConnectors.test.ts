@@ -1,6 +1,7 @@
 import {
   approvedCodingToolsInput,
   approvedConnectorsInput,
+  connectorPolicyCheck,
 } from './approvedConnectors';
 
 const connector = {
@@ -77,5 +78,56 @@ describe('approved coding tool configuration', () => {
     expect(
       approvedCodingToolsInput.safeParse([{ ...tool, ...fields }]).success,
     ).toBe(false);
+  });
+});
+
+describe('declared connections scorecard', () => {
+  const app = {
+    classification: 'internal',
+    connections: [{ name: ' APPROVED provider ', access: 'write' }],
+    lifecycle: 'active',
+  } as const;
+  const declaredApp = { ...app, connections: [...app.connections] };
+  const allLimits = approvedConnectorsInput.parse([
+    { ...connector, maxClassification: 'internal' },
+    { ...connector, id: 'different-access', access: 'read' },
+  ]);
+
+  it('requires one same-name entry with both access and effective classification', () => {
+    expect(connectorPolicyCheck(declaredApp, allLimits)?.status).toBe(true);
+    expect(
+      connectorPolicyCheck(
+        {
+          ...declaredApp,
+          hosted: {
+            provider: 'Synthetic provider',
+            workspace: 'Enterprise',
+            sharing: 'private',
+            dataAccess: 'reads connected data',
+            dataClassification: 'confidential',
+          },
+        },
+        allLimits,
+      ),
+    ).toMatchObject({
+      status: false,
+      detail: expect.stringContaining(
+        'Connections outside registry limits: 1.',
+      ),
+    });
+  });
+
+  it('distinguishes an empty registry from an unconfigured one', () => {
+    expect(connectorPolicyCheck(declaredApp, undefined)).toBeUndefined();
+    expect(
+      connectorPolicyCheck({ ...declaredApp, connections: [] }, []),
+    ).toBeUndefined();
+    expect(
+      connectorPolicyCheck({ ...declaredApp, lifecycle: 'retired' }, []),
+    ).toBeUndefined();
+    expect(connectorPolicyCheck(declaredApp, [])).toMatchObject({
+      status: false,
+      detail: expect.stringContaining('Unlisted connections: 1.'),
+    });
   });
 });

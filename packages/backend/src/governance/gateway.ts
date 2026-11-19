@@ -645,6 +645,9 @@ export function registerGatewayRoutes(options: {
     transaction: Database,
   ) => Promise<Set<string>>;
   evaluateTier: (app: GovernanceRecord) => number;
+  connectorCheck: (
+    app: GovernanceRecord,
+  ) => { name: string; status: boolean; detail: string } | undefined;
   ownersAreActive: (app: GovernanceRecord) => Promise<boolean>;
   batchCatalogOwnership: (
     apps: GovernanceRecord[],
@@ -665,6 +668,7 @@ export function registerGatewayRoutes(options: {
     pausedAttestations,
     isReviewer,
     evaluateTier,
+    connectorCheck,
     ownersAreActive,
   } = options;
   const config = gatewayConfig.parse(options.configuration ?? {});
@@ -923,6 +927,8 @@ export function registerGatewayRoutes(options: {
         detail: reviewDetail,
       },
     ];
+    const connectionPolicy = connectorCheck(record);
+    if (connectionPolicy) checks.push(connectionPolicy);
     if (gatewayApp) {
       const hasLiveActivity = recentModes?.some(
         row => row.execution_mode === 'openai',
