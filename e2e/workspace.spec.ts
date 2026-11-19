@@ -5525,6 +5525,17 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
   ).toHaveValue('retired');
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(page.getByText('Retirement decision requested')).toHaveCount(0);
+
+  actor = reviewer;
+  await page.goto('/?view=reports');
+  const report = page.getByRole('region', { name: 'Retirement review' });
+  await report.getByText('Latest recorded decisions', { exact: true }).click();
+  await expect(report.getByRole('link', { name: app.name })).toBeVisible();
+  await expect(report).toContainText('Retired 2025-05-03');
+  await expect(report).not.toContainText(reason);
+  await expect(
+    page.getByRole('region', { name: 'Awaiting owner decisions' }),
+  ).toHaveCount(0);
 });
 
 test('the assigned owner can act on a scheduled retirement request', async ({
