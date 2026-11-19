@@ -420,6 +420,40 @@ export function pendingSignoffsCsv(
   );
 }
 
+export function retirementReviewsCsv(
+  rows: Array<{
+    app: { id: string; name: string };
+    review: {
+      status: 'pending' | 'kept' | 'retired';
+      owner: string;
+      requestedAt: string;
+      decidedAt?: string;
+    };
+  }>,
+  baseUrl: string,
+) {
+  return encodeCsv(
+    [
+      'app_id',
+      'app_name',
+      'owner',
+      'status',
+      'requested_utc',
+      'decided_utc',
+      'app_url',
+    ],
+    rows.map(({ app, review }) => [
+      app.id,
+      app.name,
+      review.owner,
+      review.status,
+      review.requestedAt,
+      review.decidedAt ?? '',
+      appRecordUrl(baseUrl, app.id).href,
+    ]),
+  );
+}
+
 export function downloadCsv(csv: string, filename: string) {
   const url = URL.createObjectURL(
     new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }),
