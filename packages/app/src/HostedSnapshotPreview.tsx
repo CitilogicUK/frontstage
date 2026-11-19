@@ -43,6 +43,8 @@ export function HostedSnapshotPreview({
   onRegister: (app: HostedSnapshotApp) => void;
 }) {
   const [params] = useSearchParams();
+  const editParams = new URLSearchParams(params);
+  editParams.set('edit', '1');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const request = useRef<AbortController>();
@@ -200,105 +202,120 @@ export function HostedSnapshotPreview({
               </tr>
             </thead>
             <tbody>
-              {apps.map(app => (
-                <tr key={app.sourceUrl}>
-                  <th scope="row">{app.name}</th>
-                  <td data-label="Workspace">
-                    {app.registeredWorkspace ? (
-                      <>
-                        <div>
-                          Snapshot: {app.provider} · {app.workspace}
-                        </div>
-                        <div>
-                          Registered: {app.registeredWorkspace.provider} ·{' '}
-                          {app.registeredWorkspace.workspace}
-                        </div>
-                      </>
-                    ) : (
-                      `${app.provider} · ${app.workspace}`
-                    )}
-                  </td>
-                  <td data-label="Observed settings">
-                    {settings.every(field => app[field] === undefined) &&
-                      'No settings supplied'}
-                    {settings.map(field => {
-                      const observed = app[field];
-                      if (observed === undefined) return null;
-                      const difference = app.settingDifferences?.find(
-                        item => item.field === field,
-                      );
-                      const label = settingLabels[field];
-                      return (
-                        <div key={field}>
+              {apps.map(app => {
+                const reviewSettings =
+                  app.mismatch === 'workspace' ||
+                  Boolean(app.settingDifferences?.length);
+                return (
+                  <tr key={app.sourceUrl}>
+                    <th scope="row">{app.name}</th>
+                    <td data-label="Workspace">
+                      {app.registeredWorkspace ? (
+                        <>
                           <div>
-                            {label}: {observed}
+                            Snapshot: {app.provider} · {app.workspace}
                           </div>
-                          {difference && (
+                          <div>
+                            Registered: {app.registeredWorkspace.provider} ·{' '}
+                            {app.registeredWorkspace.workspace}
+                          </div>
+                        </>
+                      ) : (
+                        `${app.provider} · ${app.workspace}`
+                      )}
+                    </td>
+                    <td data-label="Observed settings">
+                      {settings.every(field => app[field] === undefined) &&
+                        'No settings supplied'}
+                      {settings.map(field => {
+                        const observed = app[field];
+                        if (observed === undefined) return null;
+                        const difference = app.settingDifferences?.find(
+                          item => item.field === field,
+                        );
+                        const label = settingLabels[field];
+                        return (
+                          <div key={field}>
                             <div>
-                              Registered {label.toLowerCase()}:{' '}
-                              {difference.registered ?? 'Unrecorded'}
+                              {label}: {observed}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {app.observedWorkspaceApproval && (
-                      <div>
-                        {observedApprovalLabels[app.observedWorkspaceApproval]}
-                      </div>
-                    )}
-                    {!app.observedWorkspaceApproval &&
-                      settings.some(field => app[field] !== undefined) && (
+                            {difference && (
+                              <div>
+                                Registered {label.toLowerCase()}:{' '}
+                                {difference.registered ?? 'Unrecorded'}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {app.observedWorkspaceApproval && (
                         <div>
-                          Supply sharing and data access to check workspace
-                          policy.
+                          {
+                            observedApprovalLabels[
+                              app.observedWorkspaceApproval
+                            ]
+                          }
                         </div>
                       )}
-                  </td>
-                  <td data-label="Status">
-                    <span
-                      className="gov-status"
-                      data-status={
-                        app.appId &&
-                        !app.mismatch &&
-                        !app.settingDifferences?.length &&
-                        app.observedWorkspaceApproval !== 'settings-mismatch' &&
-                        app.observedWorkspaceApproval !== 'unlisted'
-                          ? 'approved'
-                          : 'pending'
-                      }
-                    >
-                      {app.mismatch === 'app-type' && 'App type mismatch'}
-                      {app.mismatch === 'workspace' &&
-                        'Provider or workspace mismatch'}
-                      {!app.mismatch &&
-                        !!app.settingDifferences?.length &&
-                        'Settings differ from record'}
-                      {!app.mismatch &&
-                        !app.settingDifferences?.length &&
-                        (app.appId ? 'Registered' : 'Unregistered')}
-                    </span>
-                  </td>
-                  <td data-label="Action">
-                    {app.appId ? (
-                      <Link
-                        className="gov-button"
-                        to={appRecordPath(app.appId, params)}
+                      {!app.observedWorkspaceApproval &&
+                        settings.some(field => app[field] !== undefined) && (
+                          <div>
+                            Supply sharing and data access to check workspace
+                            policy.
+                          </div>
+                        )}
+                    </td>
+                    <td data-label="Status">
+                      <span
+                        className="gov-status"
+                        data-status={
+                          app.appId &&
+                          !app.mismatch &&
+                          !app.settingDifferences?.length &&
+                          app.observedWorkspaceApproval !==
+                            'settings-mismatch' &&
+                          app.observedWorkspaceApproval !== 'unlisted'
+                            ? 'approved'
+                            : 'pending'
+                        }
                       >
-                        View app record
-                      </Link>
-                    ) : (
-                      <button
-                        className="gov-button"
-                        type="button"
-                        onClick={() => onRegister(app)}
-                      >
-                        Register app
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                        {app.mismatch === 'app-type' && 'App type mismatch'}
+                        {app.mismatch === 'workspace' &&
+                          'Provider or workspace mismatch'}
+                        {!app.mismatch &&
+                          !!app.settingDifferences?.length &&
+                          'Settings differ from record'}
+                        {!app.mismatch &&
+                          !app.settingDifferences?.length &&
+                          (app.appId ? 'Registered' : 'Unregistered')}
+                      </span>
+                    </td>
+                    <td data-label="Action">
+                      {app.appId ? (
+                        <Link
+                          className="gov-button"
+                          to={appRecordPath(
+                            app.appId,
+                            reviewSettings ? editParams : params,
+                          )}
+                        >
+                          {reviewSettings
+                            ? 'Review registered settings'
+                            : 'View app record'}
+                        </Link>
+                      ) : (
+                        <button
+                          className="gov-button"
+                          type="button"
+                          onClick={() => onRegister(app)}
+                        >
+                          Register app
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

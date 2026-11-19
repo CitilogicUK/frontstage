@@ -689,17 +689,16 @@ export function GovernancePage() {
   const dialog = useRef<HTMLDialogElement>(null);
   const editorSummary = useRef<HTMLElement>(null);
   const detailOpen = Boolean(selected);
-  const reassessmentEditorRequested =
-    params.get('review') === 'reassess' && params.get('edit') === '1';
+  const appEditorRequested = params.get('edit') === '1';
 
   useEffect(() => {
     if (detailOpen) {
       dialog.current?.showModal();
-      if (reassessmentEditorRequested) editorSummary.current?.focus();
+      if (appEditorRequested) editorSummary.current?.focus();
     } else {
       dialog.current?.close();
     }
-  }, [detailOpen, reassessmentEditorRequested]);
+  }, [detailOpen, appEditorRequested]);
 
   const api = useCallback(
     async (
