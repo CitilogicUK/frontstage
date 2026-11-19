@@ -19,13 +19,19 @@ describe('governance record access', () => {
     const backup = 'user:default/backup';
     const reviewer = 'user:default/reviewer';
     const teammate = 'user:default/teammate';
+    const inactive = new Set<string>();
     jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
         items: entityRefs.map(ref => ({
           apiVersion: 'backstage.io/v1alpha1',
           kind: ref.startsWith('group:') ? 'Group' : 'User',
-          metadata: { name: ref.split('/')[1] },
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
         })),
       }));
     jest.replaceProperty(process, 'env', {
@@ -229,6 +235,17 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
       .expect(200);
+    inactive.add(owner);
+    await list().expect(200, { apps: [] });
+    await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(reviewer))
+      .send({ ...listing, expectedUpdatedAt: publicPersonal.body.updatedAt })
+      .expect(400);
+    inactive.delete(owner);
+    await list().expect(200, {
+      apps: [{ id: personalApp.id, name: personalApp.name, ...listing }],
+    });
     const transferred = await api
       .put(personalPath)
       .set('Authorization', auth(owner))

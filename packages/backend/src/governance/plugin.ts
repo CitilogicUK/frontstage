@@ -965,12 +965,20 @@ export const governancePlugin = createBackendPlugin({
           await httpAuth.credentials(req, { allow: ['user'] });
           const now = Date.now();
           const rows = await db(table).select('payload');
-          const apps = rows
-            .flatMap(row => {
-              const record = JSON.parse(row.payload) as GovernanceRecord;
+          const candidates = rows
+            .map(row => JSON.parse(row.payload) as GovernanceRecord)
+            .filter(
+              record =>
+                canPublishInDirectory(record, now) && record.directoryListing,
+            );
+          const unavailable = await unavailableOwners([
+            ...new Set(candidates.flatMap(ownershipRefs)),
+          ]);
+          const apps = candidates
+            .flatMap(record => {
               if (
                 !record.directoryListing ||
-                !canPublishInDirectory(record, now)
+                ownershipRefs(record).some(ref => unavailable.has(ref))
               )
                 return [];
               const { summary, url } = record.directoryListing;
@@ -1016,6 +1024,7 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Resolve the current launch requirements before publishing an active app.',
             );
+          await validateOwners(record);
           const updated: GovernanceRecord = {
             ...record,
             directoryListing: { summary, url },
