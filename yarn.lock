@@ -9161,6 +9161,7 @@ __metadata:
     "@backstage/plugin-auth-backend": "npm:^0.31.0"
     "@backstage/plugin-auth-backend-module-github-provider": "npm:^0.5.9"
     "@backstage/plugin-auth-backend-module-guest-provider": "npm:^0.2.25"
+    "@backstage/plugin-auth-node": "npm:^0.7.8"
     "@backstage/plugin-catalog-backend": "npm:^4.0.3"
     "@backstage/plugin-catalog-node": "npm:^3"
     "@backstage/plugin-notifications-backend": "npm:^0.6.11"

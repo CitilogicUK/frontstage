@@ -8,8 +8,5 @@ auth:
       pilot:
         clientId: ${FRONTSTAGE_GITHUB_CLIENT_ID}
         clientSecret: ${FRONTSTAGE_GITHUB_CLIENT_SECRET}
-        signIn:
-          resolvers:
-            - resolver: userIdMatchingUserEntityAnnotation
 catalog:
   readonly: true
