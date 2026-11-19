@@ -5,6 +5,7 @@ export type RetirementReview = {
   requestedBy: string;
   owner: string;
   lastLiveCall: string | null;
+  liveActivityChangedAt?: string;
   status: 'pending' | 'kept' | 'retired';
   decidedAt?: string;
   reason?: string;
@@ -50,9 +51,13 @@ export function AppRetirementReview({
   const [retiring, setRetiring] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const hasCandidate = candidateLastLiveCall !== undefined;
-  const lastLiveCall = hasCandidate
-    ? candidateLastLiveCall
-    : review?.lastLiveCall;
+  const liveActivityChangedAt = review?.liveActivityChangedAt;
+  const lastLiveCall =
+    review?.status === 'pending'
+      ? review.lastLiveCall
+      : hasCandidate
+      ? candidateLastLiveCall
+      : review?.lastLiveCall;
   if (lastLiveCall === undefined) return null;
 
   return (
@@ -61,17 +66,27 @@ export function AppRetirementReview({
       aria-labelledby="app-retirement-review"
     >
       <h3 id="app-retirement-review">Retirement review</h3>
-      <p>
-        {lastLiveCall === null ? (
-          <NoLiveCallsSinceActivation activeSince={activeSince} />
-        ) : (
-          <>
-            Last live gateway call{' '}
-            <time dateTime={lastLiveCall}>{lastLiveCall.slice(0, 10)}</time>
-          </>
-        )}
-        .
-      </p>
+      {liveActivityChangedAt ? (
+        <p role="status">
+          Live gateway activity resumed on{' '}
+          <time dateTime={liveActivityChangedAt}>
+            {liveActivityChangedAt.slice(0, 10)}
+          </time>
+          . Keep the app active to close this review.
+        </p>
+      ) : (
+        <p>
+          {lastLiveCall === null ? (
+            <NoLiveCallsSinceActivation activeSince={activeSince} />
+          ) : (
+            <>
+              Last live gateway call{' '}
+              <time dateTime={lastLiveCall}>{lastLiveCall.slice(0, 10)}</time>
+            </>
+          )}
+          .
+        </p>
+      )}
       {review?.status === 'pending' && (
         <>
           <p>Awaiting a decision from {review.owner}.</p>
@@ -101,7 +116,9 @@ export function AppRetirementReview({
                 >
                   <option value="">Choose a decision</option>
                   <option value="keep">Keep active</option>
-                  <option value="retire">Retire app</option>
+                  {!liveActivityChangedAt && (
+                    <option value="retire">Retire app</option>
+                  )}
                 </select>
               </label>
               <label>

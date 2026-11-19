@@ -3253,6 +3253,8 @@ describe('governance record access', () => {
     const currentTime = Date.parse(app.body.activeSince) + 91 * day;
     const clock = jest.spyOn(Date, 'now').mockReturnValue(currentTime);
     const path = `/api/governance/apps/${app.body.id}`;
+    const detail = (actor = owner) =>
+      api.get(path).set('Authorization', auth(actor)).expect(200);
     const retirementPath = `${path}/retirement-review`;
     const gatewayKey = () =>
       api.post(`${path}/gateway-key`).set('Authorization', auth(owner));
@@ -3311,7 +3313,14 @@ describe('governance record access', () => {
     ]);
     const zeroTrafficReview = await open(start).expect(200);
     expect(zeroTrafficReview.body.retirementReview.lastLiveCall).toBeNull();
+    expect((await detail()).body.retirementReview).not.toHaveProperty(
+      'liveActivityChangedAt',
+    );
     await usage('just-too-recent', old + 1);
+    expect((await detail()).body.retirementReview).toMatchObject({
+      lastLiveCall: null,
+      liveActivityChangedAt: new Date(old + 1).toISOString(),
+    });
     await decide('retire', zeroTrafficReview.body.updatedAt).expect(409);
     const keptAfterFirstCall = await decide(
       'keep',
@@ -3367,6 +3376,27 @@ describe('governance record access', () => {
     ]);
     const reopened = await open(kept.body.updatedAt).expect(200);
     await usage('resumed-live', later);
+    await usage('resumed-simulation', later + 1, 'simulation');
+    const resumed = await detail(reviewer);
+    expect(resumed.body).toMatchObject({
+      updatedAt: reopened.body.updatedAt,
+      retirementReview: {
+        status: 'pending',
+        lastLiveCall: candidate.lastLiveCall,
+        liveActivityChangedAt: new Date(later).toISOString(),
+      },
+    });
+    expect((await detail(teammate)).body).not.toHaveProperty(
+      'retirementReview',
+    );
+    const list = await api
+      .get('/api/governance/apps')
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    expect(list.body.apps).toHaveLength(1);
+    expect(list.body.apps[0].retirementReview).toEqual(
+      reopened.body.retirementReview,
+    );
     await decide('retire', reopened.body.updatedAt).expect(409);
     await keyStatus().expect(200, { issued: true });
     const deprecated = await api

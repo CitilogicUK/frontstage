@@ -1613,9 +1613,24 @@ export const governancePlugin = createBackendPlugin({
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
           });
-          res
-            .set('Cache-Control', 'no-store')
-            .json(visibleRecord((await load(req.params.id)).record, principal));
+          const { record } = await load(req.params.id);
+          const visible = visibleRecord(record, principal);
+          const review = visible.retirementReview;
+          const latestLiveCall =
+            review?.status === 'pending'
+              ? await lastSuccessfulLiveCall(db, record.id)
+              : undefined;
+          res.set('Cache-Control', 'no-store').json(
+            review && latestLiveCall && latestLiveCall !== review.lastLiveCall
+              ? {
+                  ...visible,
+                  retirementReview: {
+                    ...review,
+                    liveActivityChangedAt: latestLiveCall,
+                  },
+                }
+              : visible,
+          );
         });
 
         router.get('/discovery/github', async (req, res) => {
