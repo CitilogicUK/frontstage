@@ -471,7 +471,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   expect(csv).toContain('delivery_stage,uses_ai_at_runtime');
   expect(csv).toContain('"Current app"');
   expect(csv).toContain('"poc","No"');
-  expect(csv.trimEnd()).toMatch(/,""$/);
+  expect(csv.trimEnd()).toContain(`,"","${workspaceUrl}/?app=current"`);
   expect(csv).not.toContain('Overdue app');
 
   await page.getByLabel('Delivery stage').selectOption('unset');
@@ -613,9 +613,9 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const overdueDownload = await overdueCsvPending;
   const overdueCsv = await readFile(await overdueDownload.path(), 'utf8');
   const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
-  expect(columns).toMatch(/next_review_utc,days_overdue$/);
-  expect(oldest).toMatch(/,5$/);
-  expect(newest).toMatch(/,1$/);
+  expect(columns).toMatch(/next_review_utc,days_overdue,app_url$/);
+  expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other"`)).toBe(true);
+  expect(newest.endsWith(`,1,"${workspaceUrl}/?app=overdue"`)).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();

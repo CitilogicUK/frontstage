@@ -1244,7 +1244,11 @@ export function GovernancePage() {
                     type="button"
                     onClick={() =>
                       downloadCsv(
-                        inventoryCsv(matching, now),
+                        inventoryCsv(
+                          matching,
+                          now,
+                          config.getString('app.baseUrl'),
+                        ),
                         'frontstage-inventory.csv',
                       )
                     }
