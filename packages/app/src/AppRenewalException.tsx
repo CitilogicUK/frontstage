@@ -10,8 +10,28 @@ export type RenewalException = {
 
 const maxExtensionMs = 30 * 24 * 60 * 60 * 1000;
 
-function renewalExceptionUtc(value: string) {
+export function renewalExceptionUtc(value: string) {
   return `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+}
+
+export function useRenewalClock(deadlines: number[]) {
+  const [now, setNow] = useState(Date.now);
+  const next = deadlines.reduce(
+    (earliest, deadline) =>
+      deadline > now ? Math.min(earliest, deadline) : earliest,
+    Number.POSITIVE_INFINITY,
+  );
+
+  useEffect(() => {
+    if (!Number.isFinite(next)) return undefined;
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(Math.max(0, next - Date.now()), 2_147_483_647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [next, now]);
+
+  return now;
 }
 
 export function AppRenewalException({
@@ -33,21 +53,11 @@ export function AppRenewalException({
   onGrant: (event: FormEvent<HTMLFormElement>) => void;
   onRevoke: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const [now, setNow] = useState(Date.now);
   const due = nextReview ? Date.parse(nextReview) : 0;
   const expiry = exception ? Date.parse(exception.expiresAt) : 0;
+  const now = useRenewalClock([due, expiry]);
   const grantAvailable =
     canManage && !separateSignoffs && reviewStatus === 'approved' && due > now;
-
-  useEffect(() => {
-    const upcoming = [due, expiry].filter(value => value > now);
-    if (!upcoming.length) return undefined;
-    const timer = window.setTimeout(
-      () => setNow(Date.now()),
-      Math.min(Math.min(...upcoming) - now, 2_147_483_647),
-    );
-    return () => window.clearTimeout(timer);
-  }, [due, expiry, now]);
 
   if (!exception && !grantAvailable) return null;
 
