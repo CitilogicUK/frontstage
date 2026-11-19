@@ -113,6 +113,10 @@ export function AppAuditHistory({ appId }: { appId: string }) {
       } = JSON.parse(event);
       const { record } = entry;
       const details = [];
+      let action =
+        entry.action === 'review-ticket-updated'
+          ? 'Review ticket updated'
+          : `App ${entry.action}`;
       if (previous && previous.owner !== record.owner) {
         details.push(`Owner changed from ${previous.owner} to ${record.owner}`);
         if (record.tier === 2 && record.nextReview === record.updatedAt) {
@@ -148,7 +152,8 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         if (!record.reviewTicketUrl) change = 'Review ticket link removed';
         else if (previous?.reviewTicketUrl)
           change = 'Review ticket link updated';
-        details.push(change);
+        if (entry.action === 'review-ticket-updated') action = change;
+        else details.push(change);
       }
       const stage = parseDeliveryStage(record.deliveryStage ?? null);
       if (!previous || previous.deliveryStage !== record.deliveryStage)
@@ -163,7 +168,6 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         record.reviewStatus === 'pending'
       )
         details.push('Approval reopened');
-      let action = `App ${entry.action}`;
       if (entry.action === 'reviewed') {
         action = `Review: ${record.reviewStatus}`;
         for (const track of Object.keys(reviewTrackLabels) as ReviewTrack[]) {
