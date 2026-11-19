@@ -380,6 +380,19 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const rows = page.locator('tbody tr');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText('Attestation overdue');
+  const reviewCell = rows.first().getByRole('cell', {
+    name: /^Attestation overdue\b/,
+  });
+  await expect(reviewCell).toBeVisible();
+  await expect(
+    page.getByRole('columnheader', { name: 'Review', exact: true }),
+  ).toHaveCount(1);
+  if (await page.evaluate(() => matchMedia('(max-width: 780px)').matches)) {
+    const cardLabel = await reviewCell.evaluate(
+      cell => getComputedStyle(cell, '::before').content,
+    );
+    expect(cardLabel).toContain('Review');
+  }
   await expect(rows.nth(1)).toContainText('Attestation due soon');
   await expect(rows.nth(2)).toContainText('Attestation current');
   const reviewStatus = page.getByRole('combobox', { name: 'Review status' });
