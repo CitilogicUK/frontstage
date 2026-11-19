@@ -383,21 +383,25 @@ describe('governance record access', () => {
     const requester = 'user:default/requester';
     const otherRequester = 'user:default/other-requester';
     const inactive = new Set<string>();
+    const db = await databases.init('SQLITE_3');
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
-      .mockImplementation(async ({ entityRefs }) => ({
-        items: entityRefs.map(ref => ({
-          apiVersion: 'backstage.io/v1alpha1',
-          kind: ref.startsWith('group:') ? 'Group' : 'User',
-          metadata: {
-            name: ref.split('/')[1],
-            annotations: inactive.has(ref)
-              ? { 'governance.backstage.io/active': 'false' }
-              : undefined,
-          },
-        })),
-      }));
-    const db = await databases.init('SQLITE_3');
+      .mockImplementation(async ({ entityRefs }) => {
+        // Cold service authentication can use the governance connection pool.
+        await db.raw('select 1');
+        return {
+          items: entityRefs.map(ref => ({
+            apiVersion: 'backstage.io/v1alpha1',
+            kind: ref.startsWith('group:') ? 'Group' : 'User',
+            metadata: {
+              name: ref.split('/')[1],
+              annotations: inactive.has(ref)
+                ? { 'governance.backstage.io/active': 'false' }
+                : undefined,
+            },
+          })),
+        };
+      });
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
@@ -460,7 +464,7 @@ describe('governance record access', () => {
         .send({ status });
 
     await createRequest(requester).expect(404);
-    const { body: published } = await publish(app.updatedAt);
+    let { body: published } = await publish(app.updatedAt);
     await api
       .post(queue)
       .set('Authorization', mockCredentials.none.header())
@@ -575,6 +579,16 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ status: 'declined' })
       .expect(404);
+    const readCatalog = catalog.getMockImplementation()!;
+    catalog.mockImplementationOnce(async (...args) => {
+      ({ body: published } = await publish(published.updatedAt));
+      return readCatalog(...args);
+    });
+    await decide(owner, created.id, 'approved').expect(409);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+
     const { body: approved } = await decide(
       owner,
       created.id,

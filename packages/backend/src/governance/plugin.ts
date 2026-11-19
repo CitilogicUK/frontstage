@@ -1240,10 +1240,20 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Provide an access request message of up to 500 characters.',
             );
+          // Catalog authentication can need a connection from the same pool.
+          const candidate = await load(req.params.id);
+          if (!(await hasEligibleDirectoryListing(candidate.record)))
+            throw new NotFoundError(
+              'This app has no current directory listing.',
+            );
           const created = await db.transaction(async transaction => {
-            const { record } = await load(req.params.id, transaction);
+            const { record, revision } = await load(req.params.id, transaction);
             const now = Date.now();
-            if (!(await hasEligibleDirectoryListing(record, now)))
+            if (revision !== candidate.revision)
+              throw new ConflictError(
+                'This app changed. Retry the access request.',
+              );
+            if (!eligibleDirectoryListing(record, now))
               throw new NotFoundError(
                 'This app has no current directory listing.',
               );
@@ -1274,27 +1284,33 @@ export const governancePlugin = createBackendPlugin({
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
           });
-          const queue = await db.transaction(async transaction => {
-            const { record } = await load(req.params.id, transaction);
-            assertCanEdit(record, principal);
-            const requests = await transaction<DirectoryRequestRow>(
-              directoryRequestsTable,
-            )
-              .where({ app_id: record.id })
-              .orderBy('requested_at', 'desc')
-              .orderBy('id');
-            const canApprove = await hasEligibleDirectoryListing(record).catch(
-              () => undefined,
+          const { record, revision, requests } = await db.transaction(
+            async transaction => {
+              const app = await load(req.params.id, transaction);
+              assertCanEdit(app.record, principal);
+              const rows = await transaction<DirectoryRequestRow>(
+                directoryRequestsTable,
+              )
+                .where({ app_id: app.record.id })
+                .orderBy('requested_at', 'desc')
+                .orderBy('id');
+              return { ...app, requests: rows.map(directoryRequestView) };
+            },
+          );
+          const canApprove = await hasEligibleDirectoryListing(record).catch(
+            () => undefined,
+          );
+          const current = await load(req.params.id);
+          assertCanEdit(current.record, principal);
+          if (current.revision !== revision)
+            throw new ConflictError(
+              'This app changed. Reopen the access requests.',
             );
-            return {
-              requests: requests.map(directoryRequestView),
-              canApprove: canApprove === true,
-              ...(canApprove === undefined && {
-                approvalCheckUnavailable: true,
-              }),
-            };
+          res.set('Cache-Control', 'no-store').json({
+            requests,
+            canApprove: canApprove === true,
+            ...(canApprove === undefined && { approvalCheckUnavailable: true }),
           });
-          res.set('Cache-Control', 'no-store').json(queue);
         });
 
         router.patch(
@@ -1310,8 +1326,17 @@ export const governancePlugin = createBackendPlugin({
               throw new InputError(
                 'Choose whether to approve or decline the request.',
               );
+            const candidate =
+              input.data === 'approved' ? await load(req.params.id) : undefined;
+            if (candidate) assertCanEdit(candidate.record, principal);
+            const approvalEligible = candidate
+              ? await hasEligibleDirectoryListing(candidate.record)
+              : false;
             const saved = await db.transaction(async transaction => {
-              const { record } = await load(req.params.id, transaction);
+              const { record, revision } = await load(
+                req.params.id,
+                transaction,
+              );
               assertCanEdit(record, principal);
               const request = transaction<DirectoryRequestRow>(
                 directoryRequestsTable,
@@ -1326,9 +1351,13 @@ export const governancePlugin = createBackendPlugin({
                   'This access request has already been decided.',
                 );
               const now = Date.now();
+              if (candidate && candidate.revision !== revision)
+                throw new ConflictError(
+                  'This app changed. Retry the access decision.',
+                );
               if (
-                input.data === 'approved' &&
-                !(await hasEligibleDirectoryListing(record, now))
+                candidate &&
+                (!approvalEligible || !eligibleDirectoryListing(record, now))
               )
                 throw new ConflictError(
                   'This app no longer has an eligible directory listing.',
