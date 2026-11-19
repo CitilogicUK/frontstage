@@ -12,6 +12,11 @@
           },
           "description": "Backstage user entity references authorized to review critical apps and import inventories."
         },
+        "requireHumanApprovalEvidence": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require reviewer verification and an HTTPS evidence link when approving a Tier 3 app that takes actions."
+        },
         "firstDecisionTargetWeekdays": {
           "type": "integer",
           "minimum": 1,

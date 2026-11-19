@@ -364,6 +364,10 @@ export const governancePlugin = createBackendPlugin({
           ...(trackConfig?.security ?? []),
           ...(trackConfig?.dataProtection ?? []),
         ];
+        const requireHumanApprovalEvidence =
+          config.getOptionalBoolean(
+            'governance.requireHumanApprovalEvidence',
+          ) ?? false;
         const approvedHostedWorkspaces = z
           .array(
             z.object({
@@ -815,12 +819,14 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             graduationNominee,
             graduationReason,
+            humanApprovalEvidenceUrl,
             at,
           }: {
             lifecycleReason?: string;
             renewalException?: RenewalException;
             graduationNominee?: string;
             graduationReason?: string;
+            humanApprovalEvidenceUrl?: string;
             at?: string;
           } = {},
         ) {
@@ -836,6 +842,7 @@ export const governancePlugin = createBackendPlugin({
             renewalException,
             graduationNominee,
             graduationReason,
+            humanApprovalEvidenceUrl,
             at,
             record,
           });
@@ -911,6 +918,7 @@ export const governancePlugin = createBackendPlugin({
             expectedRetirementActivity,
             graduationNominee,
             graduationReason,
+            humanApprovalEvidenceUrl,
           }: {
             ownerChanged?: boolean;
             lifecycleReason?: string;
@@ -918,6 +926,7 @@ export const governancePlugin = createBackendPlugin({
             expectedRetirementActivity?: string | null;
             graduationNominee?: string;
             graduationReason?: string;
+            humanApprovalEvidenceUrl?: string;
           } = {},
         ) {
           await db.transaction(async transaction => {
@@ -969,6 +978,7 @@ export const governancePlugin = createBackendPlugin({
                 renewalException,
                 graduationNominee,
                 graduationReason,
+                humanApprovalEvidenceUrl,
               },
             );
           });
@@ -1114,15 +1124,32 @@ export const governancePlugin = createBackendPlugin({
           );
         }
 
+        function humanApprovalEvidenceRequired(record: GovernanceRecord) {
+          return (
+            requireHumanApprovalEvidence &&
+            record.tier === 3 &&
+            record.takesActions &&
+            record.lifecycle !== 'retired'
+          );
+        }
+
+        function appReviewDetails(record: GovernanceRecord) {
+          return {
+            riskAssessment: evaluateTierPolicy(record, tierPolicy),
+            ...(humanApprovalEvidenceRequired(record) && {
+              humanApprovalEvidenceRequired: true,
+            }),
+          };
+        }
+
         function withRiskAssessment<T extends GovernanceRecord>(
           record: T,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
         ) {
           return {
             ...record,
-            ...(canViewReviewDetails(record, principal) && {
-              riskAssessment: evaluateTierPolicy(record, tierPolicy),
-            }),
+            ...(canViewReviewDetails(record, principal) &&
+              appReviewDetails(record)),
           };
         }
 
@@ -1155,7 +1182,7 @@ export const governancePlugin = createBackendPlugin({
           if (canViewReviewDetails(record, principal)) {
             return {
               ...result,
-              riskAssessment: evaluateTierPolicy(record, tierPolicy),
+              ...appReviewDetails(record),
             };
           }
           return {
@@ -3095,6 +3122,27 @@ export const governancePlugin = createBackendPlugin({
           }
           if (!trackConfig && track)
             throw new InputError('Separate review tracks are disabled.');
+          let humanApprovalEvidenceUrl: string | undefined;
+          if (
+            decision.data.status === 'approved' &&
+            humanApprovalEvidenceRequired(record)
+          ) {
+            const evidence = z
+              .object({
+                humanApprovalVerified: z.literal(true),
+                humanApprovalEvidenceUrl: z
+                  .string()
+                  .trim()
+                  .max(2048)
+                  .refine(isHttpsUrlWithoutCredentials),
+              })
+              .safeParse(req.body);
+            if (!evidence.success)
+              throw new InputError(
+                'Confirm that consequential actions require human approval and provide a valid HTTPS evidence URL without credentials.',
+              );
+            humanApprovalEvidenceUrl = evidence.data.humanApprovalEvidenceUrl;
+          }
           const at = nextRecordTimestamp(record.updatedAt);
           const signoffs = track && {
             ...record.signoffs,
@@ -3132,7 +3180,9 @@ export const governancePlugin = createBackendPlugin({
           updated.retirementReview = retirementReviewAfterEdit(record, updated);
           updated.graduation = graduationAfterEdit(record, updated, principal);
           updated.directoryListing = directoryListingAfterEdit(record, updated);
-          await save(updated, revision, principal, 'reviewed');
+          await save(updated, revision, principal, 'reviewed', {
+            humanApprovalEvidenceUrl,
+          });
           res.json(visibleRecord(updated, principal));
         });
 

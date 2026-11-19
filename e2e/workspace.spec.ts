@@ -1509,6 +1509,99 @@ test('reviewers can download the spreadsheet import sample', async ({
   ).toBeVisible();
 });
 
+test('consequential action reviews ask for human approval evidence', async ({
+  page,
+}) => {
+  const app = {
+    id: 'manual-control',
+    name: 'Sandbox order submission',
+    purpose: 'Creates test orders in a sandbox.',
+    owner: 'user:default/owner',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/orders',
+    lifecycle: 'experimental',
+    classification: 'internal',
+    tier: 3,
+    reviewStatus: 'pending',
+    usesAiAtRuntime: false,
+    takesActions: true,
+    humanApprovalEvidenceRequired: true,
+    models: [],
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  };
+  const evidence = 'https://example.com/evidence/order-approval';
+  let submission: unknown;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { apps: [app], actor: 'user:default/reviewer', canReview: true },
+    }),
+  );
+  await page.route('**/api/governance/apps/manual-control/reviews', route => {
+    submission = route.request().postDataJSON();
+    return route.fulfill({
+      json: {
+        ...app,
+        updatedAt: '2026-06-01T00:01:00.000Z',
+        reviewStatus: 'approved',
+      },
+    });
+  });
+  await page.route('**/api/governance/apps/manual-control/history', route =>
+    route.fulfill({
+      json: {
+        events: [
+          {
+            digest: 'approval',
+            event: JSON.stringify({
+              action: 'reviewed',
+              actor: 'user:default/reviewer',
+              record: app,
+              humanApprovalEvidenceUrl: evidence,
+            }),
+          },
+        ],
+        keyEvents: [],
+      },
+    }),
+  );
+  await page.goto('/?app=manual-control');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  const decision = details.getByRole('combobox', { name: 'Decision' });
+  const verification = details.getByRole('checkbox', {
+    name: 'I verified human approval for consequential actions',
+  });
+  const link = details.getByRole('textbox', {
+    name: 'Human approval evidence URL',
+  });
+  await decision.selectOption('changes needed');
+  await expect(verification).toHaveCount(0);
+  await decision.selectOption('approved');
+  await expect(verification).toBeVisible();
+  await verification.check();
+  await link.fill(evidence);
+  await details
+    .getByRole('textbox', { name: 'Review notes' })
+    .fill('Verified.');
+  await details.getByRole('button', { name: 'Record decision' }).click();
+  await expect(details.getByText('Review recorded.')).toBeVisible();
+  await expect(verification).not.toBeChecked();
+  await expect(link).toHaveValue('');
+  expect(submission).toMatchObject({
+    status: 'approved',
+    humanApprovalVerified: true,
+    humanApprovalEvidenceUrl: evidence,
+  });
+  await details.getByText('Audit history', { exact: true }).click();
+  await expect(
+    details.getByText(`Human approval verified · ${evidence}`),
+  ).toBeVisible();
+});
+
 test('reviewers can find required reviews without a linked ticket', async ({
   page,
 }) => {
