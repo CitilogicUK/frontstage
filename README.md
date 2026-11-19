@@ -175,7 +175,7 @@ Open the app from Inventory and accept or decline the nomination. The reviewer p
 
 ## Review evidence
 
-An owner or reviewer can open **Edit review ticket** in a non-retired Tier 3 app’s details to link or remove an existing work item without editing the rest of the app. Owners, backup owners, and reviewers can open the linked ticket. Changing the link preserves the current approval. The ticket system continues to manage ticket access and status.
+An owner or reviewer can open **Edit review ticket** in a non-retired Tier 3 app’s details to link or remove an existing work item without editing the rest of the app. Owners, backup owners, and reviewers can open the linked ticket. Changing the link preserves the current approval. Select **Copy review ticket context** to prepare a plain-text draft for the ticket, with the app record link, owner, team, review status, and scheduled renewal when available. Review notes and evidence stay in Frontstage. The ticket system manages ticket creation, access, and status.
 
 Use **Edit app details** in the app details to save links to test evidence, a data-flow diagram, or an incident plan. The owner, backup owner, and reviewers can read the links. New or changed ticket and evidence URLs must be at most 2,048 characters and contain no URL credentials. Changing evidence reopens a critical app’s review.
 
