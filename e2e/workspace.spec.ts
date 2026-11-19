@@ -2571,7 +2571,9 @@ test('an owner can publish a searchable directory listing and remove it', async 
   await details.getByRole('button', { name: 'Close app details' }).click();
 
   await nav.getByRole('link', { name: 'Directory', exact: true }).click();
-  const launch = directory.getByRole('link', { name: `Open ${app.name}` });
+  const launch = directory
+    .locator('td[data-label="Launch"]')
+    .getByRole('link', { name: `Open ${app.name}` });
   await expect(launch).toHaveAttribute('href', listing.url);
   await expect(launch).toHaveAttribute('rel', 'noreferrer');
   await expect(directory.getByText(app.purpose)).toHaveCount(0);

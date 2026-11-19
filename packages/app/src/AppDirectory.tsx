@@ -79,7 +79,7 @@ export function AppDirectory() {
                     <strong>{app.name}</strong>
                     <p>{app.summary}</p>
                   </td>
-                  <td>
+                  <td data-label="Launch">
                     <a
                       className="gov-button"
                       href={app.url}
