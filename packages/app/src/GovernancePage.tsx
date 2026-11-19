@@ -363,6 +363,7 @@ export function GovernancePage() {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [apps, setApps] = useState<App[]>([]);
+  const [appSaveVersion, setAppSaveVersion] = useState(0);
   const [appsWithPendingAccessRequests, setAppsWithPendingAccessRequests] =
     useState<Set<string>>(new Set());
   const updatePendingAccessRequests = useCallback(
@@ -797,6 +798,7 @@ export function GovernancePage() {
       ...records,
       ...previous.filter(app => !ids.has(app.id)),
     ]);
+    setAppSaveVersion(version => version + 1);
   }
 
   function applySavedApp(record: App) {
@@ -3271,6 +3273,7 @@ export function GovernancePage() {
       {view === 'Reports' && (
         <PortfolioReport
           apps={apps}
+          appSaveVersion={appSaveVersion}
           discoveries={discoveries}
           discoveryUnavailable={Boolean(discoveryError)}
           onRetryDiscovery={() =>
