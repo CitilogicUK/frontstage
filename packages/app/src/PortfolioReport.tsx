@@ -262,18 +262,25 @@ export function PortfolioReport({
   const ownershipIssues =
     ownership?.issues.flatMap(issue => {
       const app = byId.get(issue.appId);
-      const unavailable = issue.unavailable.flatMap(ref => {
-        const detail = issue.unavailableDetails?.find(item => item.ref === ref);
-        let role = detail?.role;
-        if (!role) {
-          if (ref === app?.owner) role = 'owner';
-          else if (ref === app?.backupOwner) role = 'backup';
-          else if (ref === app?.team) role = 'team';
-        }
-        if (ownershipRole && role !== ownershipRole) return [];
-        const reason = detail?.reason;
-        return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
-      });
+      const details =
+        issue.unavailableDetails ??
+        issue.unavailable.map(ref => ({
+          ref,
+          role: undefined,
+          reason: undefined,
+        }));
+      const unavailable = details.flatMap(
+        ({ ref, role: reportedRole, reason }) => {
+          let role = reportedRole;
+          if (!role) {
+            if (ref === app?.owner) role = 'owner';
+            else if (ref === app?.backupOwner) role = 'backup';
+            else if (ref === app?.team) role = 'team';
+          }
+          if (ownershipRole && role !== ownershipRole) return [];
+          return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
+        },
+      );
       return unavailable.length ? [{ ...issue, unavailable }] : [];
     }) ?? [];
   const inventory = apps.filter(app => app.lifecycle !== 'retired');

@@ -1486,7 +1486,7 @@ test('audit history shows production review and ownership handoff', async ({
   await dialog.getByRole('button', { name: 'Save app details' }).click();
   await expect(dialog.getByText('App updated.', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close app details' }).click();
-  await expect(page).toHaveURL(/view=reports$/);
+  await expect(page).toHaveURL(/view=reports&ownershipRole=owner$/);
   await expect(ownership.getByText('No ownership issues found.')).toBeVisible();
   await retirementReview.getByRole('link', { name: renewal.name }).click();
   const retirementDialog = page.getByRole('dialog', { name: renewal.name });
@@ -1503,7 +1503,7 @@ test('audit history shows production review and ownership handoff', async ({
   await retirementDialog
     .getByRole('button', { name: 'Close app details' })
     .click();
-  await expect(page).toHaveURL(/view=reports$/);
+  await expect(page).toHaveURL(/view=reports&ownershipRole=owner$/);
   await expect(
     retirementReview.getByText(
       'No apps match this gateway activity threshold.',
