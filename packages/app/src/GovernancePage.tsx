@@ -662,7 +662,7 @@ export function GovernancePage() {
       })
       .catch(reason => {
         if (current) {
-          setDiscoveries(undefined);
+          if (view === 'Reports') setDiscoveries(undefined);
           setDiscoveryError(
             reason instanceof Error ? reason.message : String(reason),
           );
