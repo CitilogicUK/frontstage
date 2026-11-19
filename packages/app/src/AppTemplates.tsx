@@ -189,6 +189,12 @@ export function AppTemplates() {
           ),
         ),
       ]);
+      files.push([
+        `${starter.id}/.gitignore`,
+        encoder.encode(
+          '# Local environment files\n.env\n.env.*\n!.env.example\n',
+        ),
+      ]);
       const { zipSync } = await import('fflate');
       const archive = zipSync(Object.fromEntries(files));
       const url = URL.createObjectURL(
