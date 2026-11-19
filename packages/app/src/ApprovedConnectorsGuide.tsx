@@ -141,18 +141,36 @@ export function DeclaredConnections({
       connector => connector.name.trim().toLowerCase() === name,
     );
     if (!entries.length) return 'No matching registry entry';
-    return entries.some(connector =>
-      connectorSupports(connector, connection.access, classification),
+    if (
+      entries.some(connector =>
+        connectorSupports(connector, connection.access, classification),
+      )
     )
-      ? 'Matches registry limits'
-      : 'Access or classification differs from registry';
+      return 'Matches registry limits';
+    const limits = [
+      ...new Set(
+        entries.map(
+          connector =>
+            `${connector.access === 'read' ? 'Read' : 'Write'} · ${
+              connector.maxClassification
+            }`,
+        ),
+      ),
+    ];
+    return (
+      <>
+        Access or classification differs from registry
+        <br />
+        Registry limits · {limits.join(' / ')}
+      </>
+    );
   }
 
   return (
     <section aria-labelledby="declared-connections-title">
       <h3 id="declared-connections-title">Declared connections</h3>
       {registry?.configured && (
-        <p>Registry comparisons use the declared connection name.</p>
+        <p>Compared by declared connection name for {classification} data.</p>
       )}
       {failed && <p role="status">The connector registry could not load.</p>}
       {!failed && !registry && (
