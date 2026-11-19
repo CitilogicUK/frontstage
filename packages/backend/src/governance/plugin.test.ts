@@ -420,6 +420,9 @@ describe('governance record access', () => {
             app: { baseUrl: 'https://portal.example.com/internal/' },
             governance: {
               reviewReminderIntervalMinutes: 15,
+              approvedHostedWorkspaces: [
+                { provider: 'Example AI', workspace: 'Company' },
+              ],
               reviewers: [reviewer],
             },
           },
@@ -449,24 +452,31 @@ describe('governance record access', () => {
       classification: 'internal',
       models: ['test-model'],
     };
+    const hostedInput = {
+      type: 'provider-hosted app',
+      audience: 'personal',
+      hosted: {
+        provider: 'Example AI',
+        workspace: 'Company',
+        sharing: 'private',
+        dataAccess: 'none',
+      },
+    };
     const fixtures = [
       { name: 'Critical renewal', critical: true },
-      {
-        name: 'Hosted confirmation',
-        type: 'provider-hosted app',
-        audience: 'personal',
-        hosted: {
-          provider: 'Example AI',
-          workspace: 'Company',
-          sharing: 'private',
-          dataAccess: 'none',
-        },
-      },
+      { ...hostedInput, name: 'Hosted confirmation' },
       { name: 'Due in a week' },
       { name: 'Due later' },
       { name: 'Inactive owner', owner: inactiveOwner },
       { name: 'Retired' },
       { name: 'Tier drift' },
+      { ...hostedInput, name: 'New hosted app' },
+      { ...hostedInput, name: 'Legacy hosted app' },
+      {
+        ...hostedInput,
+        name: 'Unapproved hosted app',
+        hosted: { ...hostedInput.hosted, workspace: 'Unapproved' },
+      },
     ];
     const { body: apps } = await api
       .post('/api/governance/imports')
@@ -479,8 +489,18 @@ describe('governance record access', () => {
         })),
       })
       .expect(201);
-    const [critical, hosted, renewal, later, inactiveApp, retired, drift] =
-      apps;
+    const [
+      critical,
+      hosted,
+      renewal,
+      later,
+      inactiveApp,
+      retired,
+      drift,
+      initialHosted,
+      legacyHosted,
+      unapprovedHosted,
+    ] = apps;
     const savePayload = async (record: { id: string }, changes: object) => {
       const row = db('governance_apps').where({ id: record.id });
       const { payload } = await row.clone().first('payload');
@@ -566,6 +586,67 @@ describe('governance record access', () => {
       entityRef: nextOwner,
     });
     expect(messages()[5].payload.scope).not.toBe(messages()[1].payload.scope);
+
+    const initialMessages = () =>
+      messages().filter(
+        message => message.payload.title === 'Confirm your hosted workspace',
+      );
+    expect(initialMessages()).toEqual([]);
+    const setHostedLifecycle = (lifecycle: 'active' | 'deprecated') =>
+      api
+        .patch(`/api/governance/apps/${initialHosted.id}/lifecycle`)
+        .set('Authorization', mockCredentials.user.header(owner))
+        .send({ lifecycle })
+        .expect(200);
+    await setHostedLifecycle('active');
+    await savePayload(legacyHosted, { lifecycle: 'active' });
+    await savePayload(unapprovedHosted, { lifecycle: 'active' });
+    await savePayload(hosted, { lifecycle: 'active' });
+    await run();
+    expect(initialMessages()).toHaveLength(2);
+    const initialNotice = initialMessages().find(message =>
+      message.payload.link?.endsWith(`?app=${initialHosted.id}`),
+    );
+    expect(initialNotice).toMatchObject({
+      recipients: { type: 'entity', entityRef: owner },
+      payload: {
+        description:
+          'Confirm the approved workspace and sharing settings for New hosted app.',
+      },
+    });
+    await savePayload(legacyHosted, {
+      name: 'Renamed legacy app',
+      updatedAt: dueAt(1),
+    });
+    await run();
+    expect(initialMessages()).toHaveLength(2);
+
+    await setHostedLifecycle('deprecated');
+    clock.mockReturnValue(now + hour + 1000);
+    await setHostedLifecycle('active');
+    await run();
+    expect(initialMessages()).toHaveLength(3);
+    expect(initialMessages()[2].payload.scope).not.toBe(
+      initialNotice?.payload.scope,
+    );
+
+    await savePayload(legacyHosted, { owner: nextOwner });
+    await run();
+    expect(initialMessages()).toHaveLength(4);
+    expect(initialMessages()[3].recipients).toEqual({
+      type: 'entity',
+      entityRef: nextOwner,
+    });
+    expect(initialMessages()[3].payload.link).toContain(
+      `?app=${legacyHosted.id}`,
+    );
+
+    await savePayload(legacyHosted, {
+      owner: reviewer,
+      hostedAttestation: { at: dueAt(0), nextDue: dueAt(90) },
+    });
+    await run();
+    expect(initialMessages()).toHaveLength(4);
   });
 
   it('summarizes only the current owner’s active scorecard issues', async () => {

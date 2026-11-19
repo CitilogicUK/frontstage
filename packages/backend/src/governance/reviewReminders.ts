@@ -24,13 +24,16 @@ export function reviewRemindersMigration() {
   };
 }
 
-type ReminderKind = 'risk-renewal' | 'hosted-confirmation';
+type ReminderKind =
+  | 'risk-renewal'
+  | 'hosted-confirmation'
+  | 'initial-hosted-confirmation';
 type Reminder = {
   appId: string;
   owner: string;
   tier: number;
   kind: ReminderKind;
-  due: string;
+  due: string | null;
   key: string;
 };
 
@@ -47,6 +50,10 @@ function candidatesFor(
 ): Reminder[] {
   if (record.lifecycle === 'retired') return [];
   const tier = policy.evaluateTier(record);
+  const workspaceApproved =
+    record.type === 'provider-hosted app'
+      ? policy.hostedWorkspaceApproved(record)
+      : false;
   const deadlines: Array<[ReminderKind, string | null | undefined]> = [
     [
       'risk-renewal',
@@ -54,21 +61,43 @@ function candidatesFor(
     ],
     [
       'hosted-confirmation',
-      record.type === 'provider-hosted app' &&
-      policy.hostedWorkspaceApproved(record) !== false
-        ? record.hostedAttestation?.nextDue
-        : null,
+      workspaceApproved !== false ? record.hostedAttestation?.nextDue : null,
     ],
   ];
-  return deadlines.flatMap(([kind, deadline]) => {
+  const createReminder = (
+    kind: ReminderKind,
+    due: string | null,
+    identity: string | null,
+  ): Reminder => ({
+    appId: record.id,
+    owner: record.owner,
+    tier,
+    kind,
+    due,
+    key: createHash('sha256')
+      .update(JSON.stringify([record.id, kind, identity, record.owner]))
+      .digest('hex'),
+  });
+  const reminders = deadlines.flatMap(([kind, deadline]) => {
     const dueTime = Date.parse(deadline ?? '');
     if (!Number.isFinite(dueTime) || dueTime > now + leadTimeMs) return [];
     const due = new Date(dueTime).toISOString();
-    const key = createHash('sha256')
-      .update(JSON.stringify([record.id, kind, due, record.owner]))
-      .digest('hex');
-    return [{ appId: record.id, owner: record.owner, tier, kind, due, key }];
+    return [createReminder(kind, due, due)];
   });
+  if (
+    record.lifecycle === 'active' &&
+    workspaceApproved === true &&
+    !record.hostedAttestation
+  ) {
+    reminders.push(
+      createReminder(
+        'initial-hosted-confirmation',
+        null,
+        record.activeSince ?? null,
+      ),
+    );
+  }
+  return reminders;
 }
 
 export async function sendReviewReminders(options: {
@@ -104,7 +133,8 @@ export async function sendReviewReminders(options: {
     .sort(
       (a, b) =>
         b.tier - a.tier ||
-        a.due.localeCompare(b.due) ||
+        Number(!a.due) - Number(!b.due) ||
+        (a.due ?? '').localeCompare(b.due ?? '') ||
         a.key.localeCompare(b.key),
     );
   const scanTime = new Date(now);
@@ -157,10 +187,11 @@ export async function sendReviewReminders(options: {
         link.search = new URLSearchParams({ app: appId }).toString();
         const riskTitle =
           reminder.tier === 3 ? 'AI app review due' : 'AI app attestation due';
-        const title =
-          kind === 'risk-renewal'
-            ? riskTitle
-            : 'Hosted workspace confirmation due';
+        const titles = {
+          'risk-renewal': riskTitle,
+          'hosted-confirmation': 'Hosted workspace confirmation due',
+          'initial-hosted-confirmation': 'Confirm your hosted workspace',
+        };
         const retryAfter = new Date(now + retryDelayMs);
         const claimed = await db(remindersTable)
           .insert({ reminder_key: key, retry_after: retryAfter })
@@ -174,8 +205,10 @@ export async function sendReviewReminders(options: {
         await notifications.send({
           recipients: { type: 'entity', entityRef: owner },
           payload: {
-            title,
-            description: `${record.name} is due on ${due.slice(0, 10)} UTC.`,
+            title: titles[kind],
+            description: due
+              ? `${record.name} is due on ${due.slice(0, 10)} UTC.`
+              : `Confirm the approved workspace and sharing settings for ${record.name}.`,
             link: link.toString(),
             topic: 'AI App Governance',
             scope: `governance-review-reminder-${key}`,
