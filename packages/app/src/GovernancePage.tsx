@@ -445,6 +445,13 @@ export function GovernancePage() {
   const [hostedSnapshot, setHostedSnapshot] = useState<HostedSnapshotApp[]>();
   const [hostedSnapshotSelection, setHostedSnapshotSelection] =
     useState<HostedSnapshotApp>();
+  const [usageSourceSelection, setUsageSourceSelection] = useState<string>();
+  const usageRegistrationSource =
+    view === 'Register' &&
+    canReview &&
+    params.get('source') === 'outside-gateway'
+      ? usageSourceSelection
+      : undefined;
   const hostedRegistration =
     view === 'Register' &&
     canReview &&
@@ -452,6 +459,7 @@ export function GovernancePage() {
       ? hostedSnapshotSelection
       : undefined;
   useEffect(() => {
+    if (view !== 'Register' || !canReview) setUsageSourceSelection(undefined);
     if (view !== 'Register' || !canReview)
       setHostedSnapshotSelection(undefined);
     if ((view !== 'Discovery' && view !== 'Register') || !canReview)
@@ -461,6 +469,7 @@ export function GovernancePage() {
     view === 'Register' && (!repositoryId || candidate)
       ? repositoryId ??
         (hostedRegistration ? 'hosted-snapshot' : undefined) ??
+        (usageRegistrationSource ? 'outside-gateway' : undefined) ??
         (starter ? `${starter.id}:${params.get('stage')}` : 'register')
       : undefined;
   const registrationStartedAt = useRef<number>();
@@ -3244,6 +3253,11 @@ export function GovernancePage() {
           loading={loading}
           usageError={usageReportError}
           onRetryUsage={() => setUsageLoadAttempt(attempt => attempt + 1)}
+          onRegisterUsageSource={sourceUrl => {
+            resetView();
+            setUsageSourceSelection(sourceUrl);
+            setParams({ view: 'register', source: 'outside-gateway' });
+          }}
         />
       )}
       {view === 'Directory' && <AppDirectory />}
@@ -3556,7 +3570,9 @@ export function GovernancePage() {
                     name="sourceUrl"
                     type="url"
                     defaultValue={
-                      candidate?.sourceUrl ?? hostedRegistration?.sourceUrl
+                      candidate?.sourceUrl ??
+                      hostedRegistration?.sourceUrl ??
+                      usageRegistrationSource
                     }
                     readOnly={!!candidate || !!hostedRegistration}
                   />
