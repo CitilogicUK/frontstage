@@ -4459,6 +4459,17 @@ test('Builder guide shows connector approval limits and registry states', async 
     });
     await expect(connection).toContainText(status);
   }
+  await expect(
+    connections.getByText(
+      'Compared by declared connection name for internal data.',
+    ),
+  ).toBeVisible();
+  const mismatchedConnection = connections.getByRole('listitem').filter({
+    has: page.getByText('Sandbox orders', { exact: true }),
+  });
+  await expect(mismatchedConnection).toContainText(
+    'Registry limits · Write · confidential',
+  );
   await details.getByText('Edit app details', { exact: true }).click();
   const systems = details.getByRole('group', { name: 'Connected systems' });
   await expect(
