@@ -172,6 +172,7 @@ const gatewayConfig = z
   .object({
     enabled: z.boolean().default(false),
     requestsPerMinute: requestLimit.optional(),
+    upstreamTimeoutMs: z.number().int().min(1_000).max(60_000).default(20_000),
     appRateLimits: z
       .array(
         z
@@ -501,9 +502,15 @@ async function callOpenai(
   model: string,
   prompt: string,
   maxCompletionTokens: number,
-  logFailure: (metadata: { kind: string; upstreamStatus?: number }) => void,
+  timeoutMs: number,
+  logFailure: (metadata: {
+    kind: string;
+    upstreamStatus?: number;
+    elapsedMs: number;
+  }) => void,
 ) {
-  const signal = AbortSignal.timeout(20_000);
+  const startedAt = performance.now();
+  const signal = AbortSignal.timeout(timeoutMs);
   let kind = 'transport';
   let upstreamStatus: number | undefined;
   try {
@@ -540,7 +547,11 @@ async function callOpenai(
       outputTokens: result.usage.completion_tokens,
     };
   } catch {
-    logFailure({ kind: signal.aborted ? 'timeout' : kind, upstreamStatus });
+    logFailure({
+      kind: signal.aborted ? 'timeout' : kind,
+      upstreamStatus,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
     throw new ServiceUnavailableError(
       'The configured model provider is temporarily unavailable.',
     );
@@ -1396,6 +1407,7 @@ export function registerGatewayRoutes(options: {
               model,
               prompt,
               policy.maxCompletionTokens,
+              config.upstreamTimeoutMs,
               failure =>
                 logger.warn('Model provider request failed', {
                   appId: record.id,

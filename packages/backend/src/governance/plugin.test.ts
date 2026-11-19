@@ -6255,6 +6255,7 @@ describe('governance record access', () => {
                 enabled: true,
                 mode: 'openai',
                 openaiApiKey: 'test-provider-key',
+                upstreamTimeoutMs: 12_000,
                 models: {
                   'test-model': {
                     allowedClassifications: ['internal'],
@@ -6522,7 +6523,10 @@ describe('governance record access', () => {
         headers: { Location: 'https://example.com/unexpected-provider-target' },
       }),
     );
+    const providerDeadline = jest.spyOn(AbortSignal, 'timeout');
     const unavailable = await call().expect(503);
+    expect(providerDeadline).toHaveBeenCalledWith(12_000);
+    providerDeadline.mockRestore();
     expect(unavailable.body.error.message).toBe(
       'The configured model provider is temporarily unavailable.',
     );
@@ -6531,12 +6535,32 @@ describe('governance record access', () => {
       model: 'test-model',
       kind: 'upstream-http',
       upstreamStatus: 307,
+      elapsedMs: expect.any(Number),
     });
     expect(provider).toHaveBeenNthCalledWith(
       1,
       'https://api.openai.com/v1/chat/completions',
       expect.objectContaining({ redirect: 'error' }),
     );
+    const deadline = AbortSignal.timeout.bind(AbortSignal);
+    const expiredDeadline = jest
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(ms =>
+        ms === 12_000 ? AbortSignal.abort() : deadline(ms),
+      );
+    provider.mockImplementationOnce(async (_url, init) => {
+      init?.signal?.throwIfAborted();
+      throw new Error('Expected a provider deadline signal');
+    });
+    await call().expect(503);
+    expiredDeadline.mockRestore();
+    expect(warn).toHaveBeenLastCalledWith('Model provider request failed', {
+      appId: app.body.id,
+      model: 'test-model',
+      kind: 'timeout',
+      upstreamStatus: undefined,
+      elapsedMs: expect.any(Number),
+    });
     await call().expect(200, {
       output: 'Synthetic completion',
       model: 'test-model',
@@ -6593,9 +6617,9 @@ describe('governance record access', () => {
     await keyStatus(sandboxPath).expect(200, { issued: true });
     await keyStatus(productionPath).expect(200, { issued: false });
     await call().expect(401);
-    expect(provider).toHaveBeenCalledTimes(3);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(provider.mock.calls[1][1]?.body))).toMatchObject({
+    expect(provider).toHaveBeenCalledTimes(4);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(provider.mock.calls[2][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
 
@@ -6648,7 +6672,7 @@ describe('governance record access', () => {
       appId: alertOnlyApp.id,
       checks: expect.arrayContaining(['Monthly gateway spend']),
     });
-    expect(provider).toHaveBeenCalledTimes(3);
+    expect(provider).toHaveBeenCalledTimes(4);
 
     await issue(productionPath).expect(201);
     await api

@@ -303,6 +303,12 @@
                 }
               }
             },
+            "upstreamTimeoutMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 60000,
+              "description": "Maximum time in milliseconds for a live model provider request, including the response body. Defaults to 20000."
+            },
             "requestsPerMinute": {
               "type": "integer",
               "minimum": 1,
