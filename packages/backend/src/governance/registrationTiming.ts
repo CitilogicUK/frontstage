@@ -56,11 +56,11 @@ export async function registrationTimingReport(db: Knex, enabled: boolean) {
       sampleCount: number | string | null;
       medianSeconds: number | string | null;
     }>();
+  const medianSeconds = stats?.medianSeconds ?? null;
   return {
     enabled,
     days,
     sampleCount: Number(stats?.sampleCount ?? 0),
-    medianSeconds:
-      stats?.medianSeconds == null ? null : Number(stats.medianSeconds),
+    medianSeconds: medianSeconds === null ? null : Number(medianSeconds),
   };
 }
