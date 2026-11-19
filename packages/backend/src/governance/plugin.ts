@@ -816,14 +816,18 @@ export const governancePlugin = createBackendPlugin({
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
         ) {
           const now = Date.now();
+          const canManageDirectory =
+            principal.type === 'user' &&
+            (principal.userEntityRef === record.owner ||
+              reviewers.includes(principal.userEntityRef));
           const result = {
             ...record,
-            directoryListing:
-              principal.type === 'user' &&
-              (principal.userEntityRef === record.owner ||
-                reviewers.includes(principal.userEntityRef))
-                ? record.directoryListing
-                : undefined,
+            directoryListing: canManageDirectory
+              ? record.directoryListing
+              : undefined,
+            directoryLaunchEligible: canManageDirectory
+              ? canPublishInDirectory(record, now)
+              : undefined,
             effectiveClassification: effectiveClassification(record),
             ...(trackConfig &&
               record.tier === 3 && {

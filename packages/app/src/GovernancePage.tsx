@@ -108,6 +108,7 @@ type App = {
   retirementReview?: RetirementReview;
   graduation?: Graduation;
   directoryListing?: DirectoryListing;
+  directoryLaunchEligible?: boolean;
   reviewTicketUrl?: string;
   signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
   evidence?: Partial<Record<'tests' | 'dataFlow' | 'incidentPlan', string>>;
@@ -1857,6 +1858,7 @@ export function GovernancePage() {
                 <AppDirectoryPublisher
                   key={`directory-publisher-${selected.id}`}
                   listing={selected.directoryListing}
+                  launchEligible={selected.directoryLaunchEligible !== false}
                   updatedAt={selected.updatedAt}
                   busy={busy}
                   onPublish={event =>

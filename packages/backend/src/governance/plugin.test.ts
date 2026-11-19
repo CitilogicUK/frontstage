@@ -152,6 +152,7 @@ describe('governance record access', () => {
       summary: `  ${summary}  `,
     }).expect(200);
     expect(published.body.directoryListing).toEqual(listing);
+    expect(published.body.directoryLaunchEligible).toBe(true);
     await list().expect(200, {
       apps: [{ id: app.id, name: app.name, ...listing }],
     });
@@ -165,6 +166,7 @@ describe('governance record access', () => {
         .set('Authorization', principal)
         .expect(200);
       expect(body).not.toHaveProperty('directoryListing');
+      expect(body).not.toHaveProperty('directoryLaunchEligible');
     }
     const { body: reviewerView } = await api
       .get(path)
@@ -286,6 +288,14 @@ describe('governance record access', () => {
         }),
       });
     await list().expect(200, { apps: [] });
+    await api
+      .get(`${collection}/${hosted.id}`)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.directoryLaunchEligible).toBe(false);
+        expect(body.directoryListing).toEqual(listing);
+      });
     await api
       .put(`${collection}/${hosted.id}/directory`)
       .set('Authorization', auth(owner))

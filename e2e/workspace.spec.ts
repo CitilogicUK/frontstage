@@ -2479,6 +2479,7 @@ test('an owner can publish a searchable directory listing and remove it', async 
     lifecycle: 'active',
     tier: 1,
     usesAiAtRuntime: false,
+    directoryLaunchEligible: true,
     models: [],
     reviewStatus: 'not required',
     updatedAt: '2025-05-01T00:00:00.000Z',
@@ -2506,9 +2507,10 @@ test('an owner can publish a searchable directory listing and remove it', async 
     if (directoryReads === 1) return route.fulfill({ status: 503 });
     return route.fulfill({
       json: {
-        apps: current.directoryListing
-          ? [{ id: app.id, name: app.name, ...current.directoryListing }]
-          : [],
+        apps:
+          current.directoryLaunchEligible && current.directoryListing
+            ? [{ id: app.id, name: app.name, ...current.directoryListing }]
+            : [],
       },
     });
   });
@@ -2595,7 +2597,18 @@ test('an owner can publish a searchable directory listing and remove it', async 
   await expect(launch).toBeVisible();
   await assertWorkspace(page, 'App directory', 'Directory');
 
+  current = { ...current, directoryLaunchEligible: false };
+  await page.reload();
+  await expect(empty).toBeVisible();
   await openPublisher();
+  await expect(
+    details.getByText(
+      'This listing is hidden until the app meets current launch requirements.',
+    ),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Update directory listing' }),
+  ).toBeDisabled();
   await details
     .getByRole('button', { name: 'Unpublish from Directory' })
     .click();
@@ -2603,5 +2616,5 @@ test('an owner can publish a searchable directory listing and remove it', async 
   await details.getByRole('button', { name: 'Close app details' }).click();
   await nav.getByRole('link', { name: 'Directory', exact: true }).click();
   await expect(empty).toBeVisible();
-  expect(inventoryReads).toBe(2);
+  expect(inventoryReads).toBe(3);
 });
