@@ -29,6 +29,7 @@ import {
 } from './gatewayBlockReasons';
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
+import { NoLiveCallsSinceActivation } from './AppRetirementReview';
 
 type AppSummary = {
   id: string;
@@ -99,7 +100,11 @@ export type UsageReport = {
   from: string;
   retirementReview?: {
     days: number;
-    apps: Array<{ appId: string; lastLiveCall: string }>;
+    apps: Array<{
+      appId: string;
+      lastLiveCall: string | null;
+      activeSince?: string;
+    }>;
   };
   monthlySpendAlerts?: {
     monthStart: string;
@@ -1141,9 +1146,9 @@ export function PortfolioReport({
           <div className="gov-report-heading">
             <h2 id="portfolio-retirement-review">Retirement review</h2>
             <p>
-              Active apps whose last recorded live gateway call was at least{' '}
-              {report.retirementReview.days} days ago. When the latest
-              activation date is known, it must also be at least{' '}
+              Active apps with no live gateway calls in the past{' '}
+              {report.retirementReview.days} days. When the latest activation
+              date is known, it must also be at least{' '}
               {report.retirementReview.days} days ago. Open a record to request
               the owner's decision to keep or retire the app.
             </p>
@@ -1156,10 +1161,19 @@ export function PortfolioReport({
                     <Link to={reportAppLink(app.appId)}>
                       {byId.get(app.appId)?.name ?? app.appId}
                     </Link>
-                    {' · Last live call '}
-                    <time dateTime={app.lastLiveCall}>
-                      {app.lastLiveCall.slice(0, 10)}
-                    </time>
+                    {' · '}
+                    {app.lastLiveCall === null ? (
+                      <NoLiveCallsSinceActivation
+                        activeSince={app.activeSince}
+                      />
+                    ) : (
+                      <>
+                        Last live call{' '}
+                        <time dateTime={app.lastLiveCall}>
+                          {app.lastLiveCall.slice(0, 10)}
+                        </time>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>

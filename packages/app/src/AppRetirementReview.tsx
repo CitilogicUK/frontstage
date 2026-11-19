@@ -4,15 +4,34 @@ export type RetirementReview = {
   requestedAt: string;
   requestedBy: string;
   owner: string;
-  lastLiveCall: string;
+  lastLiveCall: string | null;
   status: 'pending' | 'kept' | 'retired';
   decidedAt?: string;
   reason?: string;
 };
 
+export function NoLiveCallsSinceActivation({
+  activeSince,
+}: {
+  activeSince?: string;
+}) {
+  return (
+    <>
+      No live calls since activation
+      {activeSince && (
+        <>
+          {' '}
+          on <time dateTime={activeSince}>{activeSince.slice(0, 10)}</time>
+        </>
+      )}
+    </>
+  );
+}
+
 export function AppRetirementReview({
   owner,
   candidateLastLiveCall,
+  activeSince,
   review,
   canDecide,
   busy,
@@ -20,7 +39,8 @@ export function AppRetirementReview({
   onDecide,
 }: {
   owner: string;
-  candidateLastLiveCall?: string;
+  candidateLastLiveCall?: string | null;
+  activeSince?: string;
   review?: RetirementReview;
   canDecide: boolean;
   busy: boolean;
@@ -29,8 +49,11 @@ export function AppRetirementReview({
 }) {
   const [retiring, setRetiring] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const lastLiveCall = candidateLastLiveCall ?? review?.lastLiveCall;
-  if (!lastLiveCall) return null;
+  const hasCandidate = candidateLastLiveCall !== undefined;
+  const lastLiveCall = hasCandidate
+    ? candidateLastLiveCall
+    : review?.lastLiveCall;
+  if (lastLiveCall === undefined) return null;
 
   return (
     <section
@@ -39,8 +62,15 @@ export function AppRetirementReview({
     >
       <h3 id="app-retirement-review">Retirement review</h3>
       <p>
-        Last live gateway call{' '}
-        <time dateTime={lastLiveCall}>{lastLiveCall.slice(0, 10)}</time>.
+        {lastLiveCall === null ? (
+          <NoLiveCallsSinceActivation activeSince={activeSince} />
+        ) : (
+          <>
+            Last live gateway call{' '}
+            <time dateTime={lastLiveCall}>{lastLiveCall.slice(0, 10)}</time>
+          </>
+        )}
+        .
       </p>
       {review?.status === 'pending' && (
         <>
@@ -113,7 +143,7 @@ export function AppRetirementReview({
           {review.reason && <p>{review.reason}</p>}
         </>
       )}
-      {candidateLastLiveCall && review?.status !== 'pending' && (
+      {hasCandidate && review?.status !== 'pending' && (
         <form onSubmit={onRequest}>
           <p>Request a decision from {owner} to keep or retire this app.</p>
           <button disabled={busy}>Request retirement review</button>

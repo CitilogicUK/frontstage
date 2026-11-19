@@ -64,6 +64,7 @@ import {
   gatewayBlocksMigration,
   registerGatewayRoutes,
   readGatewayKeyEvents,
+  hasProductionGatewayKey,
   isOldEnoughForRetirement,
   isRetirementCandidate,
   lastSuccessfulLiveCall,
@@ -136,7 +137,7 @@ type RetirementReview = {
   requestedAt: string;
   requestedBy: string;
   owner: string;
-  lastLiveCall: string;
+  lastLiveCall: string | null;
 } & (
   | { status: 'pending' }
   | { status: 'kept' | 'retired'; decidedAt: string; reason: string }
@@ -876,7 +877,7 @@ export const governancePlugin = createBackendPlugin({
             ownerChanged?: boolean;
             lifecycleReason?: string;
             renewalException?: RenewalException;
-            expectedRetirementActivity?: string;
+            expectedRetirementActivity?: string | null;
             graduationNominee?: string;
             graduationReason?: string;
           } = {},
@@ -892,15 +893,17 @@ export const governancePlugin = createBackendPlugin({
               throw new ConflictError(
                 'The app changed. Refresh and try again.',
               );
-            if (expectedRetirementActivity) {
+            if (expectedRetirementActivity !== undefined) {
               const lastLiveCall = await lastSuccessfulLiveCall(
                 transaction,
                 record.id,
               );
               if (
-                !lastLiveCall ||
-                lastLiveCall !== expectedRetirementActivity ||
-                !isOldEnoughForRetirement(lastLiveCall)
+                (lastLiveCall ?? null) !== expectedRetirementActivity ||
+                (lastLiveCall !== undefined &&
+                  !isOldEnoughForRetirement(lastLiveCall)) ||
+                (lastLiveCall === undefined &&
+                  !(await hasProductionGatewayKey(transaction, record.id)))
               )
                 throw new ConflictError(
                   'Live gateway activity changed. Refresh the retirement review.',
@@ -2014,13 +2017,17 @@ export const governancePlugin = createBackendPlugin({
           record: GovernanceRecord,
           revision: number,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
-          lastLiveCall: string | undefined,
+          lastLiveCall: string | null,
         ) {
           if (record.retirementReview?.status === 'pending')
             throw new ConflictError(
               'This app already has a pending retirement review.',
             );
-          if (!lastLiveCall || !isRetirementCandidate(record, lastLiveCall))
+          if (
+            !isRetirementCandidate(record, lastLiveCall) ||
+            (lastLiveCall === null &&
+              !(await hasProductionGatewayKey(db, record.id)))
+          )
             throw new InputError(
               'This app is not a current retirement candidate.',
             );
@@ -2067,7 +2074,7 @@ export const governancePlugin = createBackendPlugin({
             record,
             revision,
             principal,
-            await lastSuccessfulLiveCall(db, record.id),
+            (await lastSuccessfulLiveCall(db, record.id)) ?? null,
           );
           res.json(visibleRecord(updated, principal));
         });
