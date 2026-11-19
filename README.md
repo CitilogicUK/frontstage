@@ -60,7 +60,7 @@ export APP_CONFIG_backend_database_connection_directory="$(mktemp -d)"
 yarn start --config ../../app-config.reviewer.yaml
 ```
 
-In a second terminal at the repository root, run `yarn demo:seed` after the backend starts. Open [Frontstage](http://localhost:3000) in a private window and sign in as **Guest**. In this profile, Guest signs in as the reviewer. The seed creates six records owned by `user:default/guest`, a separate demo identity, and prints a direct link to each record.
+In a second terminal at the repository root, run `yarn demo:seed` after the backend starts. Open [Frontstage](http://localhost:3000) in a private window and sign in as **Guest**. In this profile, Guest signs in as the reviewer. The seed creates seven records owned by `user:default/guest`, a separate demo identity, and prints a direct link to each record.
 
 1. **Show both ways to build.** In **Templates**, compare **AI-assisted software** with **Gateway assistant**. In **Inventory**, **Stock count proof of concept** and **Purchase order pilot** both run without models or gateway keys. The stock count is Tier 1. The purchase order pilot is Tier 3 because it submits orders to a sandbox. **Meeting summary demo** uses a model at runtime. Issue a key, select `gpt-4.1-mini`, and send `Summarize these synthetic notes: the team agreed to test the sandbox on Friday.` The result is marked as simulated. See [App templates](#app-templates).
 2. **Hand off a critical app for review.** Open **Restricted intake demo** from **Reviews**. Issue a key and attempt a synthetic call with `gpt-4.1-mini`. The pending review blocks it. Open **Edit review ticket**, enter `https://example.com/reviews/restricted-intake` as the **Ticket URL**, then save. Select **Copy app link** to share the app record with a signed-in reviewer. Record an approval with sandbox-only scope in **Review notes**, set **Lifecycle** to active, and select **Update lifecycle**. Retry with the same key and model. The playground lists `gpt-4.1-nano` as unavailable for restricted data. See [Review evidence](#review-evidence) and [Separate critical sign-offs](#separate-critical-sign-offs).
@@ -234,7 +234,7 @@ A reviewer can open **Discovery → Hosted inventory snapshot** and upload or pa
 }
 ```
 
-Preview matches the source URLs against Inventory. Open the record for a match or prefill registration for an unmatched entry. Complete ownership, model and risk details before submitting. Submitted apps appear under **Hosted snapshot** in Inventory and Reports. Preview does not save the snapshot or create records. This prototype uses an offline snapshot supplied by the reviewer.
+Preview matches the source URLs against Inventory. Open the record for a match or prefill registration for an unmatched entry. Complete ownership, model and risk details before submitting. Submitted apps appear under **Hosted snapshot** in Inventory and Reports. Preview does not save the snapshot or create records. This prototype uses an offline snapshot supplied by the reviewer. To demonstrate the three outcomes, seed a fresh reviewer-profile database, select **Download sample JSON**, then upload it before changing the workspace on **Hosted workspace demo**. The preview shows one match, one workspace mismatch and one unregistered app.
 
 ## App directory
 

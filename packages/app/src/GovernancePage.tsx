@@ -3059,6 +3059,9 @@ export function GovernancePage() {
       {view === 'Discovery' && canReview && (
         <HostedSnapshotPreview
           apps={hostedSnapshot}
+          sampleUrl={`${config
+            .getString('app.baseUrl')
+            .replace(/\/$/, '')}/examples/hosted-inventory.json`}
           onPreview={async (snapshot, signal) => {
             const result: { apps: HostedSnapshotApp[] } = await api(
               '/discovery/hosted/preview',

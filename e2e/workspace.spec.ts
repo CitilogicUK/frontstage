@@ -2696,6 +2696,12 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   const guest = page.getByRole('button', { name: 'Enter', exact: true });
   await expect(heading.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  const sampleDownload = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download sample JSON' }).click();
+  const sample = await sampleDownload;
+  expect(sample.suggestedFilename()).toBe('hosted-inventory.json');
+  const sampleJson = JSON.parse(await readFile(await sample.path(), 'utf8'));
+  expect(sampleJson.apps).toHaveLength(3);
   const file = page.getByLabel('Snapshot file');
   const preview = page.getByRole('button', { name: 'Preview hosted snapshot' });
   await file.setInputFiles({
