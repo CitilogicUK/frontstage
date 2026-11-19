@@ -209,7 +209,12 @@ export function ownershipIssuesCsv(
   issues: Array<{
     appId: string;
     name: string;
-    unavailable: Array<{ role: string; ref: string; reason?: string }>;
+    unavailable: Array<{
+      role: string;
+      ref: string;
+      reason?: string;
+      observedSince?: string;
+    }>;
     availableBackupOwner?: string;
   }>,
   baseUrl: string,
@@ -223,9 +228,10 @@ export function ownershipIssuesCsv(
       'active_backup_owner',
       'unavailable_reason',
       'app_url',
+      'unavailability_first_observed_utc',
     ],
     issues.flatMap(issue =>
-      issue.unavailable.map(({ role, ref, reason }) => [
+      issue.unavailable.map(({ role, ref, reason, observedSince }) => [
         issue.appId,
         issue.name,
         role,
@@ -233,6 +239,7 @@ export function ownershipIssuesCsv(
         issue.availableBackupOwner ?? '',
         reason ?? '',
         appRecordUrl(baseUrl, issue.appId).href,
+        observedSince ?? '',
       ]),
     ),
   );

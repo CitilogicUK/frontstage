@@ -2559,6 +2559,7 @@ test('audit history shows production review and ownership handoff', async ({
                 {
                   appId: uncovered.appId,
                   name: uncovered.name,
+                  ownerUnavailableObservedSince: '2025-02-01T12:00:00.000Z',
                   unavailable: [uncovered.owner],
                   unavailableDetails: [
                     { role: 'owner', ref: uncovered.owner, reason: 'missing' },
@@ -3052,6 +3053,9 @@ test('audit history shows production review and ownership handoff', async ({
   const ownershipItems = ownership.getByRole('listitem');
   await expect(ownershipItems.first()).toContainText(uncovered.name);
   await expect(ownershipItems.first()).toContainText('No active backup owner');
+  await expect(ownershipItems.first()).toContainText(
+    'Owner unavailability first observed on 2025-02-01 UTC',
+  );
   await expect(ownershipItems.last()).toContainText(handoff.name);
   const ownershipDownloadPending = page.waitForEvent('download');
   await ownership
@@ -3086,7 +3090,10 @@ test('audit history shows production review and ownership handoff', async ({
   const [ownershipHeaders, uncoveredRow] = uncoveredCsv
     .trimEnd()
     .split(/\r?\n/);
-  expect(ownershipHeaders).toMatch(/,app_url$/);
+  expect(ownershipHeaders).toMatch(
+    /,app_url,unavailability_first_observed_utc$/,
+  );
+  expect(uncoveredRow).toMatch(/,"2025-02-01T12:00:00.000Z"$/);
   expect(uncoveredRow).toContain(`"${workspaceUrl}/?app=${uncovered.appId}"`);
   expect(uncoveredCsv).toContain(uncovered.owner);
   expect(uncoveredCsv).not.toContain(handoff.owner);
