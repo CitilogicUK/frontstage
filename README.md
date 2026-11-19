@@ -150,6 +150,8 @@ Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080
 
 For provider-hosted apps where no admin API is available, the accountable owner can open the app details and confirm that the provider workspace, sharing, and data access match the declaration. Frontstage records who confirmed the settings and when in Audit history. The next confirmation is due in 90 days. Changing the owner or declared hosted settings clears the current confirmation. The scorecard highlights missing or overdue confirmations. Reviewers can open **Hosted workspace attestations** in Reports to find apps that need follow-up.
 
+After a workspace is confirmed, owners, backup owners, and reviewers can select **Download workspace reminder** in the app details. The calendar event links to the app and includes a seven-day alert.
+
 ## Discover and claim a GitHub repository
 
 The development profile scans public repositories in the Hugging Face organization tagged `llm`. HTTPS GitHub repository URLs match across case, trailing slashes, and the `.git` clone suffix. The topic is a discovery signal. Check that the repository represents an app your team actually operates before claiming it in a real workspace.
