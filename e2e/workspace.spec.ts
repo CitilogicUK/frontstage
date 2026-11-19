@@ -1193,6 +1193,10 @@ test('owners can filter Inventory to active requests for review changes', async 
   const base = {
     owner,
     purpose: 'Synthetic review fixture',
+    type: 'app',
+    models: [],
+    connections: [],
+    updatedAt: '2025-01-01T00:00:00.000Z',
     team: 'group:default/platform',
     platform: 'GitHub',
     classification: 'internal',
