@@ -16,6 +16,17 @@ function retryGuidance(response) {
     : '';
 }
 
+function supportReference(response) {
+  if (response.status !== 503) return '';
+  const reference = response.headers.get('X-Frontstage-Request-Id');
+  return reference &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+      reference,
+    )
+    ? ` Support reference ${reference}.`
+    : '';
+}
+
 export async function runModel(prompt) {
   const expectedEnvironment =
     process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT ?? 'sandbox';
@@ -84,7 +95,9 @@ export async function runModel(prompt) {
   if (!response.ok) {
     const message =
       result?.error?.message ?? `Gateway returned HTTP ${response.status}.`;
-    throw new Error(message + retryGuidance(response));
+    throw new Error(
+      message + retryGuidance(response) + supportReference(response),
+    );
   }
   if (typeof result?.output !== 'string')
     throw new Error('The gateway did not return a model response.');
