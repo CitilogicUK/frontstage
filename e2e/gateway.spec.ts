@@ -37,6 +37,7 @@ async function expectStatus(
 
 test('a Tier 3 app needs approval and activation before its model calls are metered', async ({
   request,
+  page,
 }, testInfo) => {
   test.skip(
     testInfo.project.name === 'phone',
@@ -481,7 +482,8 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       },
     });
     await expectStatus(handover, 200, 'Change the accountable owner');
-    expect(await handover.json()).toMatchObject({
+    const handedOver = await handover.json();
+    expect(handedOver).toMatchObject({
       owner: reviewed.backupOwner,
       reviewStatus: 'pending',
     });
@@ -510,10 +512,66 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     const exportPath = join(dataDirectory, 'audit-export.json');
     const verifier = resolve(backendRoot, '../../scripts/verify-audit.mjs');
     const head = audit.events.at(-1).digest;
-    await writeFile(exportPath, JSON.stringify({ appId: app.id, ...audit }));
+    await page.route('**/api/governance/apps', route =>
+      route.fulfill({
+        json: {
+          apps: [handedOver],
+          actor: 'user:default/reviewer',
+          canReview: true,
+        },
+      }),
+    );
+    let historyLoads = 0;
+    await page.route(`**/api/governance/apps/${app.id}/history`, route => {
+      historyLoads += 1;
+      return historyLoads === 1
+        ? route.fulfill({ status: 503 })
+        : route.fulfill({ json: audit });
+    });
+    await page.goto(`/?app=${encodeURIComponent(app.id)}`);
+    const details = page.getByRole('dialog', { name: handedOver.name });
+    const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+    await expect(details.or(guest)).toBeVisible();
+    if (await guest.isVisible()) await guest.click();
+    await details.getByText('Audit history', { exact: true }).click();
+    await expect(
+      details.getByText('Audit history could not load.'),
+    ).toBeVisible();
+    const downloadAudit = details.getByRole('button', {
+      name: 'Download audit JSON',
+    });
+    await expect(downloadAudit).toHaveCount(0);
+    await details
+      .getByRole('button', { name: 'Retry loading audit history' })
+      .click();
+    const downloadReady = page.waitForEvent('download');
+    await downloadAudit.click();
+    const download = await downloadReady;
+    expect(download.suggestedFilename()).toBe(
+      `frontstage-audit-${app.id}.json`,
+    );
+    await download.saveAs(exportPath);
+    expect(JSON.parse(await readFile(exportPath, 'utf8'))).toEqual({
+      appId: app.id,
+      ...audit,
+    });
+    const displayedRecordDigest = details.getByRole('textbox', {
+      name: 'Final record digest (SHA-256)',
+    });
+    const displayedKeyDigest = details.getByRole('textbox', {
+      name: 'Final key event digest (SHA-256)',
+    });
+    await expect(displayedRecordDigest).toHaveValue(head);
+    await expect(displayedKeyDigest).toHaveValue(audit.keyEvents.at(-1).digest);
     const verification = spawnSync(
       process.execPath,
-      [verifier, exportPath, head],
+      [
+        verifier,
+        exportPath,
+        await displayedRecordDigest.inputValue(),
+        '--key-head',
+        await displayedKeyDigest.inputValue(),
+      ],
       { encoding: 'utf8' },
     );
     expect(verification.status, verification.stderr).toBe(0);
