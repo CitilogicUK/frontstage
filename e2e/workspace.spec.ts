@@ -4240,6 +4240,32 @@ test('Builder guide shows connector approval limits and registry states', async 
       maxClassification: 'confidential',
     },
   ];
+  const app = {
+    id: 'connector-review',
+    name: 'Connector review app',
+    purpose: 'Review synthetic integration declarations.',
+    owner: 'user:default/owner',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/connector-review',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    tier: 2,
+    models: [],
+    usesAiAtRuntime: false,
+    reviewStatus: 'not required',
+    updatedAt: '2026-11-01T00:00:00.000Z',
+    connections: [
+      { name: 'Catalog search', access: 'read' },
+      { name: 'Sandbox orders', access: 'read' },
+      { name: 'Unlisted CRM', access: 'read' },
+    ],
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: { apps: [app], actor: 'user:default/reviewer', canReview: true },
+    }),
+  );
   let releaseRegistry: () => void = () => {};
   const releaseResponse = new Promise<void>(resolve => {
     releaseRegistry = resolve;
@@ -4364,6 +4390,26 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(
     appConnectors.getByText('Catalog search', { exact: true }),
   ).toHaveCount(0);
+
+  await navigation
+    .getByRole('link', { name: 'Inventory', exact: true })
+    .click();
+  await page.getByRole('button', { name: app.name }).click();
+  const details = page.getByRole('dialog', { name: app.name });
+  const connections = details.getByRole('region', {
+    name: 'Declared connections',
+  });
+  for (const [name, status] of [
+    ['Catalog search', 'Matches registry limits'],
+    ['Sandbox orders', 'Access or classification differs from registry'],
+    ['Unlisted CRM', 'No matching registry entry'],
+  ]) {
+    const connection = connections.getByRole('listitem').filter({
+      has: page.getByText(name, { exact: true }),
+    });
+    await expect(connection).toContainText(status);
+  }
+  await details.getByRole('button', { name: 'Close app details' }).click();
 
   state = 'unconfigured';
   await reopenGuide();

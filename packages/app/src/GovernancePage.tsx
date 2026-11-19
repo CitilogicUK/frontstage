@@ -69,6 +69,7 @@ import {
 } from './AppRenewalException';
 import {
   ApprovedConnectorsGuide,
+  DeclaredConnections,
   RegistrationConnectorGuidance,
 } from './ApprovedConnectorsGuide';
 import { HostedWorkspaceGuide } from './HostedWorkspaceGuide';
@@ -113,6 +114,7 @@ type App = {
   classification: string;
   effectiveClassification?: string;
   models: string[];
+  connections?: Array<{ name: string; access: string }>;
   usesAiAtRuntime?: boolean;
   hosted?: {
     provider: string;
@@ -2416,6 +2418,15 @@ export function GovernancePage() {
                 {findStarter(selected.starterId)?.name ?? selected.starterId}
               </p>
             )}
+            {!!selected.connections?.length &&
+              (actor === selected.owner || canReview) && (
+                <DeclaredConnections
+                  connections={selected.connections}
+                  classification={
+                    selected.effectiveClassification ?? selected.classification
+                  }
+                />
+              )}
             {selected.riskAssessment && (
               <details className="gov-app-editor" key={selected.id}>
                 <summary>Current risk assessment</summary>

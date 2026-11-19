@@ -20,6 +20,20 @@ type ApprovedConnectors = {
   }>;
 };
 
+function connectorSupports(
+  connector: ApprovedConnectors['connectors'][number],
+  access: string,
+  classification: string,
+) {
+  const classificationIndex = appClassifications.indexOf(classification);
+  return (
+    classificationIndex >= 0 &&
+    connector.access === access &&
+    appClassifications.indexOf(connector.maxClassification) >=
+      classificationIndex
+  );
+}
+
 function useApprovedConnectors() {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
@@ -60,13 +74,10 @@ export function RegistrationConnectorGuidance({
   onUseConnector: (name: string) => void;
 }) {
   const { registry, failed } = useApprovedConnectors();
-  const classificationIndex = appClassifications.indexOf(classification);
-  const matches = registry?.connectors.filter(
-    connector =>
-      classificationIndex >= 0 &&
-      accesses.includes(connector.access) &&
-      appClassifications.indexOf(connector.maxClassification) >=
-        classificationIndex,
+  const matches = registry?.connectors.filter(connector =>
+    accesses.some(access =>
+      connectorSupports(connector, access, classification),
+    ),
   );
   return (
     <section aria-labelledby="registration-connectors-title">
@@ -110,6 +121,62 @@ export function RegistrationConnectorGuidance({
       <Link to="/?view=guide" target="_blank" rel="noreferrer">
         View approved connector registry (new tab)
       </Link>
+    </section>
+  );
+}
+
+export function DeclaredConnections({
+  connections,
+  classification,
+}: {
+  connections: Array<{ name: string; access: string }>;
+  classification: string;
+}) {
+  const { registry, failed } = useApprovedConnectors();
+
+  function registryStatus(connection: { name: string; access: string }) {
+    if (!registry?.configured) return undefined;
+    const name = connection.name.trim().toLowerCase();
+    const entries = registry.connectors.filter(
+      connector => connector.name.trim().toLowerCase() === name,
+    );
+    if (!entries.length) return 'No matching registry entry';
+    return entries.some(connector =>
+      connectorSupports(connector, connection.access, classification),
+    )
+      ? 'Matches registry limits'
+      : 'Access or classification differs from registry';
+  }
+
+  return (
+    <section aria-labelledby="declared-connections-title">
+      <h3 id="declared-connections-title">Declared connections</h3>
+      {registry?.configured && (
+        <p>Registry comparisons use the declared connection name.</p>
+      )}
+      {failed && <p role="status">The connector registry could not load.</p>}
+      {!failed && !registry && (
+        <p role="status">Loading approved connectors…</p>
+      )}
+      {registry && !registry.configured && (
+        <p>No connector registry is configured.</p>
+      )}
+      <ul>
+        {connections.map((connection, index) => {
+          const status = registryStatus(connection);
+          return (
+            <li key={`${connection.name}-${index}`}>
+              <strong>{connection.name}</strong> · {connection.access}
+              {status && (
+                <small>
+                  {' · '}
+                  {status}
+                </small>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
