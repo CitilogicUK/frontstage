@@ -430,6 +430,21 @@
   background: color-mix(in srgb, var(--gov-danger) 10%, var(--gov-surface));
   color: var(--gov-danger) !important;
 }
+.gov-registration-feedback fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.gov-registration-feedback p {
+  margin: 0;
+}
+.gov-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 .gov-import-error {
   white-space: pre-line;
 }

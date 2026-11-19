@@ -10,7 +10,7 @@ import {
 import { MemoryRouter } from 'react-router-dom';
 import { GovernancePage } from './GovernancePage';
 
-it('reports elapsed registration time and saved tier only after a successful save', async () => {
+it('reports registration timing and optional feedback only after a successful save', async () => {
   const analytics = mockApis.analytics();
   const clock = jest.spyOn(performance, 'now').mockReturnValue(1_000);
   const save = jest
@@ -87,6 +87,7 @@ it('reports elapsed registration time and saved tier only after a successful sav
     clock.mockReturnValue(3_000);
     fireEvent.submit(form);
     await screen.findByText('Registration failed');
+    expect(screen.queryByRole('group', { name: /how satisfied/i })).toBeNull();
     expect(
       analytics.getEvents().filter(event => event.action === 'register-app'),
     ).toEqual([]);
@@ -109,6 +110,23 @@ it('reports elapsed registration time and saved tier only after a successful sav
         }),
       ]);
     });
+    const feedback = screen.getByRole('group', { name: /how satisfied/i });
+    fireEvent.click(
+      within(feedback).getByRole('button', { name: 'Satisfied' }),
+    );
+    expect(screen.getByText('Thanks for your feedback.')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /how satisfied/i })).toBeNull();
+    expect(
+      analytics
+        .getEvents()
+        .filter(event => event.action === 'rate-registration'),
+    ).toEqual([
+      expect.objectContaining({
+        subject: 'governance-app',
+        value: 3,
+        attributes: { source: 'intake', tier: 2 },
+      }),
+    ]);
   } finally {
     globalThis.FormData = originalFormData;
     frame.remove();

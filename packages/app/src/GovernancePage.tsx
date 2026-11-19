@@ -476,6 +476,12 @@ export function GovernancePage() {
     view === 'Discovery' &&
     Boolean(detailId && !selected && discoveryApp?.id !== detailId);
   const [message, setMessage] = useState('');
+  const [registrationFeedback, setRegistrationFeedback] = useState<{
+    source: 'intake' | 'discovery' | 'template';
+    tier: number;
+    detailId?: string;
+    answered?: boolean;
+  }>();
   const [appEditorToggle, setAppEditorToggle] = useState<{
     key: string;
     open: boolean;
@@ -543,6 +549,7 @@ export function GovernancePage() {
   }
 
   function closeApp() {
+    setRegistrationFeedback(undefined);
     setAppEditorToggle(undefined);
     setSelected(undefined);
     setError('');
@@ -808,6 +815,7 @@ export function GovernancePage() {
   }
 
   function resetView() {
+    setRegistrationFeedback(undefined);
     setImportPreview(undefined);
     setQuery('');
     setError('');
@@ -829,6 +837,7 @@ export function GovernancePage() {
     setSelected(undefined);
     setDraft({});
     setAppliedDescriptor(undefined);
+    if (view === 'Register') setRegistrationFeedback(undefined);
   }, [view, repositoryId, starter?.id]);
 
   async function submit(
@@ -1278,6 +1287,58 @@ export function GovernancePage() {
     emptyMessage = 'Try another search or clear the filters.';
   }
 
+  const showRegistrationFeedback =
+    registrationFeedback &&
+    (registrationFeedback.detailId
+      ? view === 'Discovery' && selected?.id === registrationFeedback.detailId
+      : view === 'Inventory' && !detailId);
+  const registrationFeedbackPrompt = showRegistrationFeedback && (
+    <div className="gov-notice gov-registration-feedback">
+      {registrationFeedback.answered ? (
+        <p role="status">Thanks for your feedback.</p>
+      ) : (
+        <fieldset>
+          <legend>How satisfied were you with registration?</legend>
+          <div className="gov-feedback-actions">
+            {(['Dissatisfied', 'Neutral', 'Satisfied'] as const).map(
+              (label, index) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    analytics.captureEvent(
+                      'rate-registration',
+                      'governance-app',
+                      {
+                        value: index + 1,
+                        attributes: {
+                          source: registrationFeedback.source,
+                          tier: registrationFeedback.tier,
+                        },
+                      },
+                    );
+                    setRegistrationFeedback({
+                      ...registrationFeedback,
+                      answered: true,
+                    });
+                  }}
+                >
+                  {label}
+                </button>
+              ),
+            )}
+            <button
+              type="button"
+              onClick={() => setRegistrationFeedback(undefined)}
+            >
+              Skip feedback
+            </button>
+          </div>
+        </fieldset>
+      )}
+    </div>
+  );
+
   return (
     <WorkspaceLayout view={view} onNavigate={resetView}>
       {loadingDiscoveryApp && !loading && (
@@ -1305,6 +1366,7 @@ export function GovernancePage() {
           {message}
         </p>
       )}
+      {!selected && registrationFeedbackPrompt}
       {(view === 'Inventory' || view === 'Reviews') && (
         <section
           aria-label={workspaceViews[view].title}
@@ -1958,6 +2020,7 @@ export function GovernancePage() {
                 {message}
               </p>
             )}
+            {registrationFeedbackPrompt}
             <p>
               {selected.lifecycle} ·{' '}
               {selected.usesAiAtRuntime === false
@@ -2950,7 +3013,7 @@ export function GovernancePage() {
                       }
                     : undefined,
                 });
-                let source = 'intake';
+                let source: 'intake' | 'discovery' | 'template' = 'intake';
                 if (candidate) source = 'discovery';
                 else if (starter) source = 'template';
                 analytics.captureEvent('register-app', 'governance-app', {
@@ -2976,6 +3039,11 @@ export function GovernancePage() {
                 } else {
                   navigate('Inventory');
                 }
+                setRegistrationFeedback({
+                  source,
+                  tier: registered.tier,
+                  detailId: candidate ? registered.id : undefined,
+                });
                 setMessage(
                   candidate
                     ? 'Repository claimed and app registered.'

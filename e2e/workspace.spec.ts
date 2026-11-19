@@ -2466,6 +2466,10 @@ test('claiming a repository opens its app in the registered Discovery queue', as
   await expect(
     record.getByText('Repository claimed and app registered.'),
   ).toBeVisible();
+  const feedback = record.getByRole('group', { name: /how satisfied/i });
+  await expect(feedback).toBeVisible();
+  await feedback.getByRole('button', { name: 'Skip feedback' }).click();
+  await expect(feedback).toHaveCount(0);
   await record.getByRole('button', { name: 'Close app details' }).click();
   await expect(page).toHaveURL(/view=discovery&discoveryStatus=registered$/);
   await expect(
