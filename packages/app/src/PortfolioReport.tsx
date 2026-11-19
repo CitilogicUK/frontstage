@@ -31,7 +31,10 @@ import {
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 import { formatDiscoveryCoverage } from './discoveryCoverage';
-import { NoLiveCallsSinceActivation } from './AppRetirementReview';
+import {
+  NoLiveCallsSinceActivation,
+  type RetirementReview,
+} from './AppRetirementReview';
 import { OutsideGatewayUsage } from './OutsideGatewayUsage';
 import { RegistrationFeedbackReport } from './RegistrationFeedbackReport';
 import { RegistrationTimingReport } from './RegistrationTimingReport';
@@ -63,6 +66,7 @@ type AppSummary = {
   reviewTicketUrl?: string;
   missingCriticalReviewEvidence?: Array<'tests' | 'dataFlow' | 'incidentPlan'>;
   renewalException?: RenewalException;
+  retirementReview?: RetirementReview;
   nextReview: string | null;
 };
 
@@ -392,6 +396,24 @@ export function PortfolioReport({
   }
 
   const byId = new Map(apps.map(app => [app.id, app]));
+  const pendingRetirementReviews = canReview
+    ? apps
+        .flatMap(app =>
+          app.lifecycle === 'active' &&
+          app.retirementReview?.status === 'pending'
+            ? [{ app, review: app.retirementReview }]
+            : [],
+        )
+        .sort((a, b) =>
+          a.review.requestedAt.localeCompare(b.review.requestedAt),
+        )
+    : [];
+  const pendingRetirementIds = new Set(
+    pendingRetirementReviews.map(({ app }) => app.id),
+  );
+  const retirementCandidates = report?.retirementReview?.apps.filter(
+    app => !pendingRetirementIds.has(app.appId),
+  );
 
   function renderGatewayApp(appId: string) {
     const app = byId.get(appId);
@@ -1359,25 +1381,28 @@ export function PortfolioReport({
           onPreview={onUsagePreview}
         />
       )}
-      {report?.retirementReview && (
+      {(report?.retirementReview || pendingRetirementReviews.length > 0) && (
         <section
           className="gov-panel gov-stage-report"
           aria-labelledby="portfolio-retirement-review"
         >
           <div className="gov-report-heading">
             <h2 id="portfolio-retirement-review">Retirement review</h2>
-            <p>
-              Active apps with no live gateway calls in the past{' '}
-              {report.retirementReview.days} days. When the latest activation
-              date is known, it must also be at least{' '}
-              {report.retirementReview.days} days ago. Open a record to request
-              the owner's decision to keep or retire the app.
-            </p>
-            {report.retirementReview.apps.length === 0 ? (
-              <p>No apps match this gateway activity threshold.</p>
-            ) : (
+            {report?.retirementReview && (
+              <p>
+                Active apps with no live gateway calls in the past{' '}
+                {report.retirementReview.days} days. When the latest activation
+                date is known, it must also be at least{' '}
+                {report.retirementReview.days} days ago. Open a candidate to
+                request the owner's decision to keep or retire the app.
+              </p>
+            )}
+            {retirementCandidates?.length === 0 && (
+              <p>No apps need a new retirement review request.</p>
+            )}
+            {!!retirementCandidates?.length && (
               <ul>
-                {report.retirementReview.apps.map(app => (
+                {retirementCandidates.map(app => (
                   <li key={app.appId}>
                     <Link to={reportAppLink(app.appId)}>
                       {byId.get(app.appId)?.name ?? app.appId}
@@ -1398,6 +1423,25 @@ export function PortfolioReport({
                   </li>
                 ))}
               </ul>
+            )}
+            {pendingRetirementReviews.length > 0 && (
+              <section aria-labelledby="pending-retirement-reviews">
+                <h3 id="pending-retirement-reviews">
+                  Awaiting owner decisions
+                </h3>
+                <ul>
+                  {pendingRetirementReviews.map(({ app, review }) => (
+                    <li key={app.id}>
+                      <Link to={reportAppLink(app.id)}>{app.name}</Link>
+                      {' · '}
+                      {review.owner} · Requested{' '}
+                      <time dateTime={review.requestedAt}>
+                        {review.requestedAt.slice(0, 10)}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
           </div>
         </section>

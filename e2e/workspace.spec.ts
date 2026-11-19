@@ -5473,6 +5473,15 @@ test('a retirement candidate goes from reviewer request to owner confirmation', 
     review.getByText(`Requested by ${reviewer} on 2025-05-02.`),
   ).toBeVisible();
 
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  const awaiting = page.getByRole('region', {
+    name: 'Awaiting owner decisions',
+  });
+  await expect(awaiting.getByRole('link', { name: app.name })).toBeVisible();
+  await expect(awaiting).toContainText(app.owner);
+  await expect(awaiting).toContainText('2025-05-02');
+  await expect(candidateLink).toHaveCount(1);
+
   actor = app.owner;
   await page.goto('/');
   await expect(
