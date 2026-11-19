@@ -1326,15 +1326,32 @@ export const governancePlugin = createBackendPlugin({
             allow: ['user', 'service'],
           });
           const rows = await db(table).select('payload');
-          res.json({
-            apps: rows
-              .map(row =>
-                visibleRecord(
-                  JSON.parse(row.payload) as GovernanceRecord,
-                  principal,
-                ),
-              )
+          const apps = rows.map(
+            row => JSON.parse(row.payload) as GovernanceRecord,
+          );
+          const ownedIds =
+            principal.type === 'user'
+              ? apps
+                  .filter(app => app.owner === principal.userEntityRef)
+                  .map(app => app.id)
+              : [];
+          const pendingRequests =
+            ownedIds.length > 0
+              ? await db<DirectoryRequestRow>(directoryRequestsTable)
+                  .where({ status: 'pending' })
+                  .distinct('app_id')
+              : [];
+          const pendingAppIds = new Set(pendingRequests.map(row => row.app_id));
+          const ownedPendingAppIds = ownedIds.filter(id =>
+            pendingAppIds.has(id),
+          );
+          res.set('Cache-Control', 'no-store').json({
+            apps: apps
+              .map(app => visibleRecord(app, principal))
               .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+            ...(ownedPendingAppIds.length > 0 && {
+              appsWithPendingAccessRequests: ownedPendingAppIds,
+            }),
             graduationEnabled,
             reviewTracks: trackConfig ? reviewTrack.options : [],
             reviewerTracks:

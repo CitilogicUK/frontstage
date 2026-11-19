@@ -298,6 +298,20 @@ export function GovernancePage() {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [apps, setApps] = useState<App[]>([]);
+  const [appsWithPendingAccessRequests, setAppsWithPendingAccessRequests] =
+    useState<Set<string>>(new Set());
+  const updatePendingAccessRequests = useCallback(
+    (id: string, hasPending: boolean) => {
+      setAppsWithPendingAccessRequests(previous => {
+        if (previous.has(id) === hasPending) return previous;
+        const next = new Set(previous);
+        if (hasPending) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [],
+  );
   const [actor, setActor] = useState('');
   const [canReview, setCanReview] = useState(false);
   const [graduationEnabled, setGraduationEnabled] = useState(false);
@@ -570,6 +584,9 @@ export function GovernancePage() {
     api('/apps')
       .then(result => {
         setApps(result.apps);
+        setAppsWithPendingAccessRequests(
+          new Set(result.appsWithPendingAccessRequests ?? []),
+        );
         setActor(result.actor ?? '');
         setCanReview(result.canReview);
         setGraduationEnabled(result.graduationEnabled === true);
@@ -890,6 +907,13 @@ export function GovernancePage() {
     view === 'Inventory' && actor
       ? apps.filter(app => ownerCanDecideRetirement(app, actor)).length
       : 0;
+  const myAccessRequestAppCount =
+    view === 'Inventory' && actor
+      ? apps.filter(
+          app =>
+            app.owner === actor && appsWithPendingAccessRequests.has(app.id),
+        ).length
+      : 0;
   const scopedApps =
     ownershipScope === 'all'
       ? apps
@@ -916,7 +940,8 @@ export function GovernancePage() {
     (inventoryReview === 'overdue' ||
       inventoryReview === 'attention' ||
       inventoryReview === 'upcoming' ||
-      inventoryReview === 'retirement')
+      inventoryReview === 'retirement' ||
+      inventoryReview === 'access')
       ? inventoryReview
       : '';
 
@@ -968,6 +993,8 @@ export function GovernancePage() {
         appReview(app, now).priority === 1) &&
       (inventoryReviewFilter !== 'retirement' ||
         ownerCanDecideRetirement(app, actor)) &&
+      (inventoryReviewFilter !== 'access' ||
+        (app.owner === actor && appsWithPendingAccessRequests.has(app.id))) &&
       (!lifecycleFilter || app.lifecycle === lifecycleFilter) &&
       (!classificationFilter ||
         (app.effectiveClassification ?? app.classification) ===
@@ -1169,6 +1196,15 @@ export function GovernancePage() {
               </Link>
             </p>
           )}
+          {!loading && !error && myAccessRequestAppCount > 0 && (
+            <p className="gov-notice">
+              <Link to="/?owner=me&review=access">
+                {myAccessRequestAppCount === 1
+                  ? '1 of your apps has pending access requests'
+                  : `${myAccessRequestAppCount} of your apps have pending access requests`}
+              </Link>
+            </p>
+          )}
           <div className="gov-panel">
             <WorkspaceSearch
               label="Search apps"
@@ -1307,6 +1343,7 @@ export function GovernancePage() {
                         Overdue reviews and attestations
                       </option>
                       <option value="upcoming">Due in the next 30 days</option>
+                      <option value="access">My pending access requests</option>
                       <option value="retirement">
                         My retirement decisions
                       </option>
@@ -2220,6 +2257,7 @@ export function GovernancePage() {
                 key={`directory-requests-${selected.id}`}
                 appId={selected.id}
                 appRevision={selected.updatedAt}
+                onPendingChange={updatePendingAccessRequests}
                 listingMeetsLaunchRequirements={
                   selected.lifecycle === 'active' &&
                   selected.directoryLaunchEligible !== false &&

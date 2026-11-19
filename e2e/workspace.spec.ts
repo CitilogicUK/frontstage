@@ -3132,7 +3132,15 @@ test('a directory access request receives a recorded owner decision', async ({
   const conflictMessage =
     'This app no longer has an eligible directory listing.';
   await page.route('**/api/governance/apps', route =>
-    route.fulfill({ json: { actor, canReview: false, apps: [app] } }),
+    route.fulfill({
+      json: {
+        actor,
+        canReview: false,
+        apps: [app],
+        appsWithPendingAccessRequests:
+          actor === owner && status === 'pending' ? [app.id] : undefined,
+      },
+    }),
   );
   await page.route('**/api/governance/apps/access-app/directory', route => {
     expect(route.request().method()).toBe('PUT');
@@ -3220,9 +3228,16 @@ test('a directory access request receives a recorded owner decision', async ({
   ).toHaveCount(0);
 
   actor = owner;
-  await page.goto('/?app=access-app');
-  await expect(details.or(guest)).toBeVisible();
+  await page.goto('/');
+  const workQueue = page.getByRole('link', {
+    name: '1 of your apps has pending access requests',
+  });
+  await expect(workQueue.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await workQueue.click();
+  await expect(page).toHaveURL(/owner=me&review=access/);
+  await page.getByRole('button', { name: app.name }).click();
+  await expect(details).toBeVisible();
   await details.getByText('Directory access requests', { exact: true }).click();
   await expect(details.getByText(requester, { exact: true })).toBeVisible();
   await expect(details.getByText(message, { exact: true })).toBeVisible();
@@ -3260,6 +3275,10 @@ test('a directory access request receives a recorded owner decision', async ({
   await expect(
     details.getByRole('button', { name: 'Record access decision' }),
   ).toHaveCount(0);
+
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(workQueue).toHaveCount(0);
+  await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
 
   actor = requester;
   await page.goto('/?view=directory');

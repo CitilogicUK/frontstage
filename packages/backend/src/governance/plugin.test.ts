@@ -514,6 +514,24 @@ describe('governance record access', () => {
         },
       ]),
     );
+    const { body: ownerInventory } = await api
+      .get(collection)
+      .set('Authorization', auth(owner))
+      .expect('Cache-Control', 'no-store')
+      .expect(200);
+    expect(ownerInventory.appsWithPendingAccessRequests).toEqual([app.id]);
+    expect(JSON.stringify(ownerInventory)).not.toContain(requestMessage);
+    for (const credentials of [
+      auth(requester),
+      auth(reviewer),
+      mockCredentials.service.header(),
+    ]) {
+      const { body } = await api
+        .get(collection)
+        .set('Authorization', credentials)
+        .expect(200);
+      expect(body).not.toHaveProperty('appsWithPendingAccessRequests');
+    }
     expect(reviewerQueue.requests).toHaveLength(2);
     expect(reviewerQueue.canApprove).toBe(true);
     await api
@@ -571,6 +589,13 @@ describe('governance record access', () => {
       decidedAt: expect.any(String),
     });
     await decide(reviewer, created.id, 'declined').expect(409);
+    const { body: partiallyDecidedInventory } = await api
+      .get(collection)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    expect(partiallyDecidedInventory.appsWithPendingAccessRequests).toEqual([
+      app.id,
+    ]);
     await feed(requester).expect(200, {
       apps: [{ ...entry, requestStatus: 'approved' }],
     });
@@ -591,6 +616,13 @@ describe('governance record access', () => {
       'declined',
     ).expect(200);
     expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
+    const { body: decidedInventory } = await api
+      .get(collection)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    expect(decidedInventory).not.toHaveProperty(
+      'appsWithPendingAccessRequests',
+    );
     await api
       .get(queue)
       .set('Authorization', auth(owner))
