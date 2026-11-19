@@ -690,17 +690,24 @@ export function GovernancePage() {
   }, [selected]);
   const dialog = useRef<HTMLDialogElement>(null);
   const editorSummary = useRef<HTMLElement>(null);
-  const detailOpen = Boolean(selected);
+  const ticketEditor = useRef<HTMLDetailsElement>(null);
+  const selectedAppId = selected?.id;
   const appEditorRequested = params.get('edit') === '1';
+  const ticketEditorRequested =
+    view === 'Reviews' && reviewFilter === 'missing-ticket' && canReview;
 
   useEffect(() => {
-    if (detailOpen) {
+    if (selectedAppId) {
       dialog.current?.showModal();
       if (appEditorRequested) editorSummary.current?.focus();
+      else if (ticketEditorRequested && ticketEditor.current) {
+        ticketEditor.current.open = true;
+        ticketEditor.current.querySelector('summary')?.focus();
+      }
     } else {
       dialog.current?.close();
     }
-  }, [detailOpen, appEditorRequested]);
+  }, [selectedAppId, appEditorRequested, ticketEditorRequested]);
 
   const api = useCallback(
     async (
@@ -2554,6 +2561,7 @@ export function GovernancePage() {
                 <details
                   className="gov-app-editor"
                   key={`review-ticket-${selected.id}`}
+                  ref={ticketEditor}
                 >
                   <summary>Edit review ticket</summary>
                   <ReviewTicketContext

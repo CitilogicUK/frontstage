@@ -1902,6 +1902,25 @@ test('reviewers can find required reviews without a linked ticket', async ({
   await expect(rows.filter({ hasText: app.name })).toHaveCount(1);
   await expect(rows.filter({ hasText: overdueApp.name })).toHaveCount(1);
 
+  await rows
+    .filter({ hasText: app.name })
+    .getByRole('button', { name: app.name })
+    .click();
+  const details = page.getByRole('dialog', { name: app.name });
+  await expect(
+    details.getByText('Edit review ticket', { exact: true }),
+  ).toBeFocused();
+  await expect(
+    details.getByRole('textbox', { name: 'Ticket URL', exact: true }),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Copy review ticket context' }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/view=reviews&review=missing-ticket$/);
+  await expect(filter).toHaveValue('missing-ticket');
+  await expect(rows).toHaveCount(2);
+
   const search = page.getByRole('searchbox', { name: 'Search apps' });
   await search.fill('no matching review tickets');
   await expect(
