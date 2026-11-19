@@ -135,6 +135,24 @@ try {
       headers: { Origin: origin, 'X-Requested-With': 'XMLHttpRequest' },
     });
     assert.equal(guest.status, 404);
+    for (const [method, path] of [
+      ['GET', '/api/governance/apps'],
+      ['POST', '/api/governance/apps'],
+      ['GET', '/api/governance/reports/registration-feedback'],
+      ['GET', '/api/catalog/entities'],
+      ['POST', '/api/catalog/locations'],
+    ]) {
+      const anonymous = await fetch(origin + path, {
+        method,
+        redirect: 'manual',
+        ...(method === 'POST' && {
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        }),
+      });
+      assert.equal(anonymous.status, 401, method + ' ' + path + ' must require authentication');
+      await anonymous.body?.cancel();
+    }
     const start = new URL('/api/auth/github/start', origin);
     start.search = new URLSearchParams({ env: 'pilot', origin, flow: 'popup' }).toString();
     const oauth = await fetch(start, { redirect: 'manual' });
@@ -145,23 +163,26 @@ try {
     assert.equal(redirect.searchParams.get('redirect_uri'), origin + '/api/auth/github/handler/frame');
   `,
   ]);
-  const table = docker([
+  docker([
     'exec',
     database,
     'psql',
-    '-At',
+    '-v',
+    'ON_ERROR_STOP=1',
     '-U',
     'postgres',
     '-d',
     'frontstage_pilot',
     '-c',
-    "SELECT to_regclass('governance.governance_apps')",
+    'SELECT 1 FROM governance.governance_apps LIMIT 0',
+    '-c',
+    'SELECT utc_day, elapsed_seconds FROM governance.governance_tier_one_registration_timing LIMIT 0',
+    '-c',
+    'SELECT token_digest, utc_day, rating FROM governance.governance_registration_feedback LIMIT 0',
   ]);
-  if (table !== 'governance.governance_apps')
-    throw new Error('The governance migration did not create its app table');
 
   console.log(
-    'Pilot image is healthy, non-root, and serving Frontstage on PostgreSQL. OAuth redirect verified.',
+    'Pilot image is healthy and non-root. PostgreSQL migrations, anonymous API denial, and OAuth redirect verified.',
   );
 } catch (error) {
   if (interruption.signal.aborted) {
