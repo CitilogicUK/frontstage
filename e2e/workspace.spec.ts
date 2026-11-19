@@ -1367,8 +1367,12 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     blockReport.getByRole('link', { name: renewal.name }),
   ).toHaveCount(0);
-  await blockReason.selectOption('');
   await procurement.getByRole('button').click();
+  await expect(
+    blockReport.getByText('No policy blocks match this reason'),
+  ).toBeVisible();
+  await expect(blockReason).toHaveValue('ownership');
+  await blockReason.selectOption('');
   await expect(page).toHaveURL(/usageTeam=group%3Adefault%2Fprocurement$/);
   await expect(page.getByRole('combobox', { name: 'Usage team' })).toHaveValue(
     'group:default/procurement',

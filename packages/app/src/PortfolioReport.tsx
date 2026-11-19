@@ -388,6 +388,10 @@ export function PortfolioReport({
   const blocks = teamBlocks
     ?.filter(row => !selectedBlockReason || row.reason === selectedBlockReason)
     .sort((a, b) => b.calls - a.calls);
+  let emptyBlockTitle = 'No policy blocks recorded';
+  if (selectedTeam) emptyBlockTitle = 'No policy blocks for this team';
+  if (selectedBlockReason)
+    emptyBlockTitle = 'No policy blocks match this reason';
   const rows = report?.usage
     .map(row => ({
       ...row,
@@ -1190,13 +1194,7 @@ export function PortfolioReport({
           {blocks.length === 0 && (
             <WorkspaceEmptyState
               icon={<AssessmentOutlinedIcon aria-hidden="true" />}
-              title={
-                selectedBlockReason
-                  ? 'No policy blocks match this reason'
-                  : selectedTeam
-                  ? 'No policy blocks for this team'
-                  : 'No policy blocks recorded'
-              }
+              title={emptyBlockTitle}
             />
           )}
           {blocks.length > 0 && (
