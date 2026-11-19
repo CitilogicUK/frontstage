@@ -36,6 +36,8 @@ Use one row per requirement when recording pilot results. Capture the Frontstage
 
 The local image smoke test also checks that Frontstage becomes ready after an app restart and that a synthetic registration timing row remains in PostgreSQL. It restores a logical backup to a fresh database on the same disposable PostgreSQL instance and checks readiness and row persistence again. [Image smoke test](../scripts/test-pilot-image.mjs)
 
+For an audit restore drill, save the record and key head digests separately from the backup while the test app is quiescent. After restoring, export Audit history again before making changes. Pass the saved record head as the second argument to `yarn audit:verify` and the saved key head with `--key-head`. If the versioned export had no key events, use `--expect-no-key-events` instead. After writes resume, use the saved nonempty digests with `--checkpoint` and `--key-checkpoint` to check that the new history still includes them.
+
 ## Metric scope
 
 | Spec metric          | What the prototype measures                                                                                                                                                                                                                                                    |

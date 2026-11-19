@@ -10,7 +10,7 @@ function parseJson(text, message) {
   }
 }
 
-function verifyKeyEvents(audit, expectedHead, checkpoint) {
+function verifyKeyEvents(audit, expectedHead, checkpoint, expectEmpty) {
   const checkpointDigest = checkpoint?.toLowerCase();
   if (audit.keyAuditVersion !== undefined && audit.keyAuditVersion !== 1)
     throw new Error('Unsupported gateway key audit version.');
@@ -20,6 +20,10 @@ function verifyKeyEvents(audit, expectedHead, checkpoint) {
       : audit.keyEvents;
   if (!Array.isArray(entries))
     throw new Error('Invalid gateway key event list.');
+  if (expectEmpty && (audit.keyAuditVersion !== 1 || entries.length !== 0))
+    throw new Error(
+      'Expected a versioned gateway key audit chain with zero events.',
+    );
   const chained =
     audit.keyAuditVersion === 1 ||
     expectedHead !== undefined ||
@@ -83,6 +87,7 @@ try {
       checkpoint,
       'key-head': keyHead,
       'key-checkpoint': keyCheckpoint,
+      'expect-no-key-events': expectNoKeyEvents,
     },
   } = parseArgs({
     allowPositionals: true,
@@ -90,18 +95,21 @@ try {
       checkpoint: { type: 'string' },
       'key-head': { type: 'string' },
       'key-checkpoint': { type: 'string' },
+      'expect-no-key-events': { type: 'boolean' },
     },
   });
   const digests = [expectedHead, checkpoint, keyHead, keyCheckpoint];
   if (
     !filename ||
     extra.length ||
+    (expectNoKeyEvents &&
+      (keyHead !== undefined || keyCheckpoint !== undefined)) ||
     digests.some(
       digest => digest !== undefined && !/^[a-f0-9]{64}$/i.test(digest),
     )
   ) {
     throw new Error(
-      'Usage: yarn audit:verify <export.json> [expected-head-sha256] [--checkpoint sha256] [--key-head sha256] [--key-checkpoint sha256]',
+      'Usage: yarn audit:verify <export.json> [expected-head-sha256] [--checkpoint sha256] [--key-head sha256] [--key-checkpoint sha256] [--expect-no-key-events]',
     );
   }
   const checkpointDigest = checkpoint?.toLowerCase();
@@ -160,7 +168,7 @@ try {
   if (checkpointDigest && checkpointRevision === undefined)
     throw new Error('The saved checkpoint is absent from this export.');
 
-  verifyKeyEvents(audit, keyHead, keyCheckpoint);
+  verifyKeyEvents(audit, keyHead, keyCheckpoint, expectNoKeyEvents);
 
   console.log(
     `Verified ${audit.events.length} record events (revisions ${firstRevision}–${previousRevision}).`,
