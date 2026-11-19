@@ -50,6 +50,17 @@ const catalog = catalogPlugin.withOverrides({
 
 const app = appPlugin.withOverrides({
   extensions: [
+    appPlugin.getExtension('sign-in-page:app').override({
+      factory: original =>
+        original({
+          params: {
+            loader: () =>
+              import('./WorkspaceSignIn').then(
+                module => module.WorkspaceSignIn,
+              ),
+          },
+        }),
+    }),
     appPlugin.getExtension('app/layout').override({
       factory: (_original, { inputs }) => [
         coreExtensionData.reactElement(

@@ -1,3 +1,5 @@
+app:
+  signInProvider: guest
 auth:
   environment: development
   providers:
