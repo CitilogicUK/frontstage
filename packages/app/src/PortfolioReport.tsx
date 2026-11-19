@@ -17,6 +17,7 @@ import {
 } from './AppRenewalException';
 import {
   downloadCsv,
+  gatewaySpendShareCsv,
   ownershipIssuesCsv,
   portfolioCsv,
   type PortfolioExportRow,
@@ -140,12 +141,17 @@ const spendShareFormat = new Intl.NumberFormat('en-US', {
 function GatewaySpendShare({
   liveCost,
   windowLabel,
+  windowStart,
+  windowDays,
 }: {
   liveCost: number;
   windowLabel: string;
+  windowStart: string;
+  windowDays: number;
 }) {
   const [outsideSpend, setOutsideSpend] = useState('');
   const outsideCost = Number(outsideSpend);
+  let share: number | undefined;
   let result = 'Enter an amount to calculate the share.';
   if (outsideSpend !== '') {
     if (!Number.isFinite(outsideCost) || outsideCost < 0) {
@@ -153,9 +159,8 @@ function GatewaySpendShare({
     } else if (liveCost === 0 && outsideCost === 0) {
       result = 'No spend in this window.';
     } else {
-      result = `${spendShareFormat.format(
-        liveCost / (liveCost + outsideCost),
-      )} estimated gateway share`;
+      share = liveCost / (liveCost + outsideCost);
+      result = `${spendShareFormat.format(share)} estimated gateway share`;
     }
   }
 
@@ -174,10 +179,29 @@ function GatewaySpendShare({
         />
       </label>
       <small id="gov-spend-share-window">
-        Use outside-gateway spend for the same last {windowLabel}. The amount is
-        not saved.
+        Use outside-gateway spend from the last {windowLabel}. The amount stays
+        on this page unless you download it.
       </small>
       <p role="status">{result}</p>
+      {share !== undefined && (
+        <button
+          type="button"
+          onClick={() =>
+            downloadCsv(
+              gatewaySpendShareCsv(
+                windowStart,
+                windowDays,
+                liveCost,
+                outsideCost,
+                share,
+              ),
+              'frontstage-gateway-spend-share.csv',
+            )
+          }
+        >
+          Download spend share CSV
+        </button>
+      )}
     </details>
   );
 }
@@ -692,6 +716,8 @@ export function PortfolioReport({
               key={`${usageDays}:${report.from}`}
               liveCost={liveCost}
               windowLabel={windowLabel}
+              windowStart={report.from}
+              windowDays={usageDays}
             />
           </div>
         )}

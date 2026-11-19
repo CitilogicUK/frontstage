@@ -1564,6 +1564,19 @@ test('audit history shows production review and ownership handoff', async ({
   await page.getByText('Estimate gateway spend share', { exact: true }).click();
   await outsideSpend.fill('0.08');
   await expect(page.getByText('60% estimated gateway share')).toBeVisible();
+  const spendExportPending = page.waitForEvent('download');
+  const downloadSpend = page.getByRole('button', {
+    name: 'Download spend share CSV',
+  });
+  await downloadSpend.click();
+  const spendExport = await spendExportPending;
+  expect(spendExport.suggestedFilename()).toBe(
+    'frontstage-gateway-spend-share.csv',
+  );
+  expect(await readFile(await spendExport.path(), 'utf8')).toBe(
+    'window_start_utc,window_days,estimated_gateway_cost_usd,reported_outside_cost_usd,estimated_gateway_share\r\n' +
+      '"2025-01-01T00:00:00.000Z",30,0.12,0.08,0.6\r\n',
+  );
   await outsideSpend.fill('-1');
   await expect(
     page.getByText('Enter a non-negative USD amount.'),

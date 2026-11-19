@@ -69,6 +69,25 @@ export function portfolioCsv(rows: PortfolioExportRow[]) {
   );
 }
 
+export function gatewaySpendShareCsv(
+  from: string,
+  windowDays: number,
+  liveCost: number,
+  outsideCost: number,
+  share: number,
+) {
+  return encodeCsv(
+    [
+      'window_start_utc',
+      'window_days',
+      'estimated_gateway_cost_usd',
+      'reported_outside_cost_usd',
+      'estimated_gateway_share',
+    ],
+    [[from, windowDays, liveCost, outsideCost, share]],
+  );
+}
+
 export function ownershipIssuesCsv(
   issues: Array<{
     appId: string;
