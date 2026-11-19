@@ -399,6 +399,17 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(reviewStatus).toHaveValue('upcoming');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Due soon app');
+  const upcomingDownload = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const upcomingCalendar = await readFile(
+    await (await upcomingDownload).path(),
+    'utf8',
+  );
+  expect(upcomingCalendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(upcomingCalendar).toContain('SUMMARY:App attestation: Due soon app');
+  expect(upcomingCalendar).toContain(`URL:${workspaceUrl}/?app=soon`);
   await reviewStatus.selectOption('');
   const lifecycle = page.getByRole('combobox', {
     name: 'Lifecycle',
