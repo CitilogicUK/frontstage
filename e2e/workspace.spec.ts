@@ -1788,6 +1788,15 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
     }),
   );
   await page.route(
+    '**/api/governance/discovery/github',
+    route =>
+      route.fulfill({
+        status: 503,
+        json: { error: { message: 'Discovery is temporarily unavailable.' } },
+      }),
+    { times: 1 },
+  );
+  await page.route(
     '**/api/governance/discovery/github/sample/decision',
     route => {
       registered = true;
@@ -1807,6 +1816,11 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(heading.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await expect(page.getByRole('alert')).toContainText(
+    'temporarily unavailable',
+  );
+  await page.getByRole('button', { name: 'Retry loading Discovery' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByText('Dismiss repository', { exact: true }).click();
   await page.getByLabel('Dismissal reason').fill('Not an app');
   await page.getByRole('button', { name: 'Confirm dismissal' }).click();
