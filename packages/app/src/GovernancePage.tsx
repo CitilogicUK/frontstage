@@ -230,6 +230,11 @@ function options(values: string[]) {
 function CopyAppLink({ appId }: { appId: string }) {
   const [copied, setCopied] = useState(false);
   const [manualLink, setManualLink] = useState('');
+  const manualLinkInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (manualLink) manualLinkInput.current?.focus();
+  }, [manualLink]);
 
   async function copy() {
     const link = new URL(window.location.href);
@@ -242,6 +247,7 @@ function CopyAppLink({ appId }: { appId: string }) {
     } catch {
       setCopied(false);
       setManualLink(link.href);
+      manualLinkInput.current?.focus();
     }
   }
 
@@ -255,6 +261,7 @@ function CopyAppLink({ appId }: { appId: string }) {
         <label>
           Copy this app link
           <input
+            ref={manualLinkInput}
             value={manualLink}
             readOnly
             onFocus={event => event.currentTarget.select()}

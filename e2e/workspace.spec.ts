@@ -445,9 +445,11 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     });
   });
   await page.getByRole('button', { name: 'Copy app link' }).click();
-  await expect(
-    page.getByRole('textbox', { name: 'Copy this app link' }),
-  ).toHaveValue(`${workspaceUrl}/?app=overdue`);
+  const manualLink = page.getByRole('textbox', { name: 'Copy this app link' });
+  await expect(manualLink).toHaveValue(copiedLink);
+  await expect(manualLink).toBeFocused();
+  await expect(manualLink).toHaveJSProperty('selectionStart', 0);
+  await expect(manualLink).toHaveJSProperty('selectionEnd', copiedLink.length);
 
   const reminderPending = page.waitForEvent('download');
   await page
