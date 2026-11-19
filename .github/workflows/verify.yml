@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       use_local_runner:
-        description: Use the repository's frontstage-local runner
+        description: Use the repository's frontstage-local runner (start it before dispatch)
         type: boolean
-        default: false
+        default: true
       verification_ref:
-        description: Trusted branch or commit to verify on the local runner (defaults to the dispatch commit)
+        description: Local runner only. Trusted branch or commit to verify (defaults to the dispatch commit)
         type: string
         required: false
   push:
@@ -23,7 +23,7 @@ jobs:
   verify:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (vars.FRONTSTAGE_AUTOMATIC_VERIFICATION != 'disabled' &&
+      (vars.FRONTSTAGE_AUTOMATIC_VERIFICATION == 'enabled' &&
        (github.event_name != 'pull_request' || !github.event.pull_request.draft))
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.use_local_runner && fromJSON('["self-hosted","frontstage-local"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
