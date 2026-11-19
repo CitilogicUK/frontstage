@@ -1269,6 +1269,57 @@ test('reviewers can find required reviews without a linked ticket', async ({
   ).toHaveCount(0);
 });
 
+test('the risk reassessment queue shows both tiers and prioritizes increases', async ({
+  page,
+}) => {
+  const base = {
+    owner: 'user:default/demo-owner',
+    team: 'group:default/platform',
+    purpose: 'Synthetic reassessment fixture',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'experimental',
+    models: [],
+    reviewStatus: 'pending',
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor: 'user:default/reviewer',
+        canReview: true,
+        apps: [
+          {
+            ...base,
+            id: 'decrease',
+            name: 'Tier decrease',
+            tier: 3,
+            riskAssessment: { tier: 2, reasons: [] },
+          },
+          {
+            ...base,
+            id: 'increase',
+            name: 'Tier increase',
+            tier: 1,
+            riskAssessment: { tier: 2, reasons: ['configured-minimum'] },
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?review=reassess');
+  const rows = page.locator('tbody tr');
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(rows.first().or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('Tier increase');
+  await expect(rows.first()).toContainText('T1 · Personal');
+  await expect(rows.first()).toContainText('Current policy tier 2');
+  await expect(rows.last()).toContainText('Tier decrease');
+  await expect(rows.last()).toContainText('T3 · Critical');
+  await expect(rows.last()).toContainText('Current policy tier 2');
+});
+
 test('audit history shows production review and ownership handoff', async ({
   page,
 }) => {

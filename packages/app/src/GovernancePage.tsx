@@ -1248,6 +1248,16 @@ export function GovernancePage() {
         (pendingFirstDecisions.get(a.id) ?? 0) -
         (pendingFirstDecisions.get(b.id) ?? 0),
     );
+  } else if (inventoryReviewFilter === 'reassess') {
+    matching.sort((a, b) => {
+      const currentA = a.riskAssessment?.tier ?? a.tier;
+      const currentB = b.riskAssessment?.tier ?? b.tier;
+      return (
+        Number(currentB > b.tier) - Number(currentA > a.tier) ||
+        currentB - currentA ||
+        a.name.localeCompare(b.name)
+      );
+    });
   } else if (inventoryReviewFilter === 'workspace') {
     matching.sort(
       (a, b) =>
@@ -1948,6 +1958,12 @@ export function GovernancePage() {
                           </td>
                           <td data-label="Risk">
                             <RiskBadge tier={app.tier} />
+                            {inventoryReviewFilter === 'reassess' &&
+                              app.riskAssessment && (
+                                <small className="gov-current-tier">
+                                  Current policy tier {app.riskAssessment.tier}
+                                </small>
+                              )}
                           </td>
                           <td data-label="Delivery stage">
                             {appStage
