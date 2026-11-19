@@ -45,7 +45,7 @@ Critical apps start pending review and require a current approval before they ca
 
 ## App templates
 
-Open **Templates** and choose **AI-assisted software** for projects built with coding agents that do not call models at runtime. Every ZIP includes shared `AGENTS.md` instructions, a `CLAUDE.md` import, a project brief, and a registration descriptor. Choose a delivery stage and data classification before downloading to customize the brief and registration defaults. The instructions scale from trial and proof of concept through pilot and production. Delivery stage is separate from the calculated risk tier.
+Open **Templates** and choose **AI-assisted software** for projects built with coding agents that do not call models at runtime. Every ZIP includes shared `AGENTS.md` instructions, a `CLAUDE.md` import, a project brief, and a registration descriptor. Choose a delivery stage and data classification before downloading to customize the brief and registration defaults. The instructions scale from trial and proof of concept through pilot and production. The brief includes exit criteria for the selected stage. The included `.gitignore` excludes local environment files and allows a placeholder-only `.env.example`. Delivery stage is separate from the calculated risk tier.
 
 For apps that call AI at runtime, choose the assistant, agent, or automation starter. Choose a model that the workspace approves for that classification. The ZIP and registration form use both choices. The generated client defaults to the workspace’s configured backend URL. Each ZIP includes a dependency-free Node.js client, a Frontstage registration descriptor, and activation instructions. Use **Register from template** to start the form with the starter’s defaults, or import its edited descriptor. The agent drafts a plan and answer in two gateway calls. The automation summarizes a local text file.
 
@@ -61,10 +61,16 @@ yarn start --config ../../app-config.reviewer.yaml
 In a second terminal at the repository root, run `yarn demo:seed` after the backend starts. Open [Frontstage](http://localhost:3000) in a private window and sign in as **Guest**. In this profile, Guest signs in as the reviewer. The seed creates five records owned by `user:default/guest`, a separate demo identity.
 
 1. **Show both ways to build.** In **Templates**, compare **AI-assisted software** with **Gateway assistant**. In **Inventory**, **Stock count proof of concept** and **Purchase order pilot** both run without models or gateway keys. The stock count is Tier 1. The purchase order pilot is Tier 3 because it submits orders to a sandbox. **Meeting summary demo** uses a model at runtime. Issue a key, select `gpt-4.1-mini`, and send `Summarize these synthetic notes: the team agreed to test the sandbox on Friday.` The result is marked as simulated. See [App templates](#app-templates).
-2. **Hand off a critical app for review.** Open **Restricted intake demo** from **Reviews**. Issue a key and attempt a synthetic call with `gpt-4.1-mini`. The pending review blocks it. Under **Edit app details**, enter `https://example.com/reviews/restricted-intake` as the **Review ticket URL**, then save. The app’s details URL can be shared with a signed-in reviewer. Record an approval with sandbox-only scope in **Review notes**, set **Lifecycle** to active, and select **Update lifecycle**. Retry with the same key and model. The playground lists `gpt-4.1-nano` as unavailable for restricted data. See [Review evidence](#review-evidence) and [Separate critical sign-offs](#separate-critical-sign-offs).
+2. **Hand off a critical app for review.** Open **Restricted intake demo** from **Reviews**. Issue a key and attempt a synthetic call with `gpt-4.1-mini`. The pending review blocks it. Open **Edit review ticket**, enter `https://example.com/reviews/restricted-intake` as the **Ticket URL**, then save. Select **Copy app link** to share the app record with a signed-in reviewer. Record an approval with sandbox-only scope in **Review notes**, set **Lifecycle** to active, and select **Update lifecycle**. Retry with the same key and model. The playground lists `gpt-4.1-nano` as unavailable for restricted data. See [Review evidence](#review-evidence) and [Separate critical sign-offs](#separate-critical-sign-offs).
 3. **Trace model impact.** In **Reports**, choose **Declared model** under **Group inventory by**, then select the count for `gpt-4.1-nano` to open the matching records. The count includes declarations even when a call is blocked or no call is recorded. Back in **Reports**, set **Group gateway usage** to **Model** to see the successful simulated calls under **Other calls**. **Gateway policy blocks** shows the denied attempts. Live estimated spend stays at zero. See [Portfolio reports](#portfolio-reports).
 
-To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace.
+To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace. To demonstrate the owner confirmation, stop the reviewer server and restart it against the same database with the owner identity:
+
+```sh
+APP_CONFIG_auth_providers_guest_userEntityRef=user:default/guest yarn start --config ../../app-config.reviewer.yaml
+```
+
+Sign in as Guest in a fresh private window. Open **Hosted workspace demo** and record the quarterly workspace attestation. The app details show the next due date.
 
 The gateway checks active catalog ownership before issuing or rotating keys and before forwarding calls. The simulation uses the same key, lifecycle, review, and model checks as the live adapter. Seeding again preserves existing records. Restart with a fresh temporary database to replay from the initial state.
 
@@ -104,7 +110,7 @@ The gateway stores app key hashes and usage metadata. The app panel shows input 
 
 To require two independent sign-offs, configure `governance.reviewTracks.security` and `governance.reviewTracks.dataProtection` as disjoint lists of Backstage user references. Reviewers can record a decision only for their assigned track. Both approvals must be current before launch. The default local demo uses a combined reviewer decision.
 
-With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision.
+With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision. The filtered queue can be downloaded as CSV, with the app, owner, team, pending sign-offs assigned to you, the scheduled review date when available, and a direct link to each app.
 
 ## Tier 3 renewal exceptions
 
@@ -114,7 +120,7 @@ The app still needs fresh approval for first launch, reactivation after its appr
 
 ## Engineering co-ownership
 
-Set `governance.graduationGroups` to the Backstage groups that can accept co-ownership of Tier 3 production apps. An owner or reviewer can nominate an active direct member of one of those groups. The nominee finds the request in Inventory and records their decision. The handoff and decision appear in Audit history. The existing accountable owner and gateway access stay in place.
+Set `governance.graduationGroups` to the Backstage groups that can accept co-ownership of Tier 3 production apps. An owner or reviewer can nominate an active direct member of one of those groups. The nominee finds the request in Inventory and records their decision. The handoff and decision appear in Audit history. The existing accountable owner and gateway access stay in place. If the co-owner leaves the role, the app owner or another reviewer can end the handoff with a reason and nominate a replacement. Audit history records who ended it, the former co-owner, and the reason.
 
 For a local walkthrough, start the reviewer profile, open a Tier 3 app, and set its delivery stage to **Production**. In **Engineering co-owner**, nominate `user:default/engineer`. Stop the server and restart it against the same database with the engineering identity, then sign in in a new private browser session.
 
@@ -127,13 +133,19 @@ Open the app from Inventory and accept or decline the nomination. The reviewer p
 
 ## Review evidence
 
-An owner or reviewer can link an existing work item using **Review ticket URL** in app details. Owners, backup owners, and reviewers can open the linked ticket. Changing the link preserves the current approval. The ticket system continues to manage ticket access and status.
+An owner or reviewer can open **Edit review ticket** in a non-retired Tier 3 app’s details to link or remove an existing work item without editing the rest of the app. Owners, backup owners, and reviewers can open the linked ticket. Changing the link preserves the current approval. The ticket system continues to manage ticket access and status.
 
 Use **Edit app details** in the app details to save links to test evidence, a data-flow diagram, or an incident plan. The owner, backup owner, and reviewers can read the links. Changing evidence reopens a critical app’s review.
 
 ## Owner attestation
 
-In Inventory, switch **Ownership** to **My apps** to see your apps, with upcoming and overdue governance work shown first. The accountable owner of a Tier 2 app can confirm its current purpose, ownership, and declared risk inputs in the app details. Frontstage records the attestation in the audit history and sets the next review date one year later. After an ownership transfer, the new Tier 2 owner’s first attestation is due immediately. Owners, backup owners, and reviewers can download an individual review or attestation date as a calendar file with a seven-day reminder. Use **Apps I back up** to find records where you’re listed as backup owner. Both ownership views let you download the scheduled dates for the current filtered list in one calendar file.
+In Inventory, switch **Ownership** to **My apps** to see your apps, with upcoming and overdue governance work shown first. The accountable owner of a Tier 2 app can confirm its current purpose, ownership, and declared risk inputs in the app details. Frontstage records the attestation in the audit history and sets the next review date one year later. After an ownership transfer, the new Tier 2 owner’s first attestation is due immediately. Owners, backup owners, and reviewers can download an individual review or attestation date as a calendar file with a seven-day reminder. Use **Apps I back up** to find records where you’re listed as backup owner. Both ownership views let you download the scheduled dates for the current filtered list in one calendar file. Use **Due in the next 30 days** under **Review status** to focus on upcoming renewals and attestations.
+
+## Backup owner handover
+
+When Backstage marks an accountable owner inactive or no longer has their user record, the registered backup owner can open the app from **Inventory → Apps I back up** and confirm the handover. Tier 2 and Tier 3 apps need a different active backup owner. Frontstage checks the catalog and the current app revision before transferring ownership.
+
+A handover revokes the old gateway key and appears in Audit history. Tier 2 apps need an attestation from the new owner. Tier 3 apps return to review before they can go live again.
 
 ## App scorecards
 
@@ -141,7 +153,7 @@ Owners, backup owners, and reviewers can open **App scorecard** in an app’s de
 
 ## Portfolio reports
 
-Inventory supports filtering by lifecycle and can download the current search and filter results as CSV. The export includes ownership, classification, risk, delivery stage, runtime AI use, and review status.
+Inventory supports filtering by lifecycle and can download the current search and filter results as CSV. Inventory and Reviews show elapsed days for overdue reviews and attestations with scheduled dates. The overdue Inventory filter puts the oldest due dates first, and the CSV includes the same overdue age for dated items and direct links to the app records. The export includes ownership, classification, risk, delivery stage, runtime AI use, and review status.
 
 Open **Reports** for the non-retired inventory count, critical apps needing review, and the percentage of non-retired Tier 2 and Tier 3 apps past their review or attestation date. The lifecycle, platform, risk tier, and effective data classification breakdowns link to matching Inventory rows. The delivery-stage table counts all registered apps by runtime AI use, including retired records. Select a stage or a runtime AI count to open the matching Inventory records. Reviewers can open apps with missing or inactive owners, backup owners, or teams from the **Ownership issues** panel. The reviewer profile also shows successful gateway calls and estimated cost over a selectable 24-hour, seven-day, or 30-day window, searchable by app, team, model, and execution mode. Only calls recorded as live count toward the live estimate. The team table groups calls, blocks, and live estimates by each app’s current team. Select a team to filter the detailed usage and blocks below it. Switch the summary to Model to see successful calls and live estimated spend per model. The reporting window, selected team, and grouping are preserved in the shareable Reports URL. Reviewers can download the selected team or the full portfolio as separate CSV files. Earlier calls without a recorded mode remain visible separately. A separate table shows policy-blocked calls by app, reason, and execution mode. Reviewers can download the selected window as CSV with app and team labels, successful and blocked counts, and estimated cost. These events store no prompt, response, or key.
 
@@ -152,6 +164,12 @@ The owner checks for use outside the gateway and records a reason for keeping or
 Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080 to schedule retirement review requests. For a daily check, use `1440`. The task applies the same eligibility criteria and 90-day cooldown after a keep decision, then assigns a review to the app owner. The app’s lifecycle and gateway key stay as they were when the task opens a review. Audit history records the Backstage governance service as the requester. Leave the setting unset for reviewer-initiated requests.
 
 **Median time to first Tier 3 decision** measures from the first pending submission to the first recorded overall approval or request for changes. It uses the available audit history across all reporting windows. The calculation includes elapsed time on UTC weekdays and excludes weekends. A partial sign-off or an app still waiting for a decision does not contribute to the median. Set `governance.firstDecisionTargetWeekdays` to a positive integer to flag pending reviews that reach your team’s target in Reports and the **Awaiting first decision** queue.
+
+## Hosted workspace attestation
+
+For provider-hosted apps where no admin API is available, the accountable owner can open the app details and confirm that the provider workspace, sharing, and data access match the declaration. Frontstage records who confirmed the settings and when in Audit history. The next confirmation is due in 90 days. Changing the owner or declared hosted settings clears the current confirmation. The scorecard highlights missing or overdue confirmations. Reviewers can open **Hosted workspace attestations** in Reports to find apps that need follow-up.
+
+After a workspace is confirmed, owners, backup owners, and reviewers can select **Download workspace reminder** in the app details. The calendar event links to the app and includes a seven-day alert.
 
 ## Discover and claim a GitHub repository
 
@@ -166,6 +184,14 @@ Reviewers can dismiss false positives with a reason and reopen them from the **D
 Signed-in builders can browse and claim repositories verified as public by Discovery. Reviewers can also work with private repositories that the configured discovery token can read. Rescan older discovery records to verify their visibility.
 
 Set `governance.discovery.github.organization` and `topic` to use a different GitHub organization. For private repositories, supply a read-only GitHub token through `APP_CONFIG_governance_discovery_github_token`. A scan looks at up to 100 matches. Complete scans remove missing unclaimed candidates from the queue and preserve their decision history. A partial scan preserves unseen candidates. Reviewers see whether a scan returned partial results. Set `governance.discovery.github.scanIntervalMinutes` to enable automatic scans on a 15-minute to 7-day interval. The queue shows the last scan’s time, trigger, and outcome. Open a registered app directly from Discovery or Portfolio reports. The app details URL can be shared with signed-in teammates.
+
+## App directory
+
+The **Directory** lets signed-in teammates find apps that their owners or reviewers have published. Open an active app in Inventory, enter a summary suitable for the directory and its HTTPS launch URL, then publish it. The listing shows the app name, summary, and launch link. The destination app handles access.
+
+Owners and reviewers can update or remove a listing. The directory hides apps that no longer meet current launch requirements or whose catalog owners or team are unavailable. Leaving active status or transferring the accountable owner clears the listing.
+
+A teammate can request access to a listed app with a short message. In the app details, the accountable owner or a reviewer can approve or decline the pending request. The requester sees the decision in Directory while the app remains listed. Frontstage records the decision. Provisioning and revoking access happen in the destination app.
 
 ## Approved connector registry
 
@@ -191,4 +217,14 @@ Give concurrent worktrees different browser-test ports so they can run alongside
 FRONTSTAGE_E2E_APP_PORT=3101 FRONTSTAGE_E2E_BACKEND_PORT=7101 yarn verify
 ```
 
-Draft pull requests skip the automated verification job. Ready PR updates, marking a PR ready, and pushes to `main` run the full check. The workflow also supports manual dispatch once it is available on the default branch. The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
+Draft pull requests skip the automated verification job. Run checks in worktrees by default. Set the repository Actions variable `FRONTSTAGE_AUTOMATIC_VERIFICATION` to `enabled` to run the full check on a GitHub-hosted runner for ready PR updates, marking a PR ready, and pushes to `main`. Manual dispatch defaults to the local runner. Once this workflow lands on `main`, start the repository's isolated `frontstage-local` runner for on-demand verification. Dispatch the workflow from `main` and supply the reviewed commit to verify. The tested branch does not need its own copy of the dispatch inputs.
+
+```sh
+gh workflow run verify.yml --ref main -f verification_ref=REVIEWED_COMMIT_SHA
+```
+
+Use a commit you reviewed because the checkout runs its own install and test scripts on the local runner. When the runner is unavailable, run `yarn verify` in the feature worktree.
+
+For an isolated Docker runner, register the Linux runner for this repository with `--ephemeral --labels frontstage-local`. Give it an isolated Docker network with a disposable PostgreSQL 17 container and set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` in the runner container to that database. Set `BACKSTAGE_TEST_DISABLE_DOCKER=1` so Backstage uses the supplied test database without a Docker socket. The runner needs outbound access to GitHub and package registries and permission to install Playwright's Linux dependencies. The runner deregisters after the job, and you can remove its container, the test database, and the network.
+
+The gateway browser test starts an isolated SQLite backend. To include PostgreSQL 17 in local unit checks, set `BACKSTAGE_TEST_DATABASE_POSTGRES17_CONNECTION_STRING` to a disposable test instance. Discovery unit tests use simulated GitHub responses.
