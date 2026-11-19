@@ -10,6 +10,7 @@ import CategoryIcon from '@material-ui/icons/Category';
 import CloudUploadOutlinedIcon from '@material-ui/icons/CloudUploadOutlined';
 import MenuBookOutlinedIcon from '@material-ui/icons/MenuBookOutlined';
 import SearchIcon from '@material-ui/icons/Search';
+import ViewListOutlinedIcon from '@material-ui/icons/ViewListOutlined';
 import './governance.css';
 
 export const workspaceViews = {
@@ -18,6 +19,12 @@ export const workspaceViews = {
     title: 'AI app inventory',
     summary: 'Find AI tools already in use and see who owns them.',
     icon: AppsIcon,
+  },
+  Directory: {
+    path: '/?view=directory',
+    title: 'App directory',
+    summary: 'Find and open published apps.',
+    icon: ViewListOutlinedIcon,
   },
   Catalog: {
     path: '/catalog',

@@ -7,6 +7,7 @@ const catalogPath =
   '/catalog?filters%5Bkind%5D=component&filters%5Buser%5D=all&limit=20';
 const destinations = [
   { label: 'Inventory', heading: 'AI app inventory' },
+  { label: 'Directory', heading: 'App directory' },
   { label: 'Discovery', heading: 'App discovery' },
   { label: 'Reviews', heading: 'Critical app reviews' },
   { label: 'Reports', heading: 'Portfolio reports' },
@@ -26,6 +27,7 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
   ).toHaveCount(1);
   await expect(navigation.getByRole('link')).toHaveText([
     'Inventory',
+    'Directory',
     'Catalog',
     'Discovery',
     'Reviews',
@@ -102,6 +104,9 @@ test('workspace screens share navigation and fit the viewport', async ({
     page.getByRole('button', { name: 'Components', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
 
+  await page.route('**/api/governance/directory', route =>
+    route.fulfill({ json: { apps: [] } }),
+  );
   const navigation = page.getByRole('navigation', { name: 'AI governance' });
   for (const destination of destinations) {
     await navigation
@@ -2545,4 +2550,160 @@ test('the playground clears a revealed key after ownership changes', async ({
   await expect(
     playground.getByRole('button', { name: 'Send prompt' }),
   ).toBeDisabled();
+});
+
+test('an owner can publish a searchable directory listing and remove it', async ({
+  page,
+}) => {
+  const owner = 'user:default/owner';
+  const app = {
+    id: 'listed-app',
+    name: 'Inventory reconciliation',
+    purpose: 'Private implementation notes for the operations team.',
+    owner,
+    team: 'group:default/operations',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/private-source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    usesAiAtRuntime: false,
+    directoryLaunchEligible: true,
+    models: [],
+    reviewStatus: 'not required',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  const listing = {
+    summary: 'Reconcile stock discrepancies.',
+    url: 'https://example.com/launch/reconciliation',
+  };
+  let current: typeof app & { directoryListing?: typeof listing } = app;
+  let inventoryReads = 0;
+  await page.route('**/api/governance/apps', route => {
+    inventoryReads += 1;
+    if (inventoryReads === 1)
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Inventory temporarily unavailable.' } },
+      });
+    return route.fulfill({
+      json: { actor: owner, canReview: false, apps: [current] },
+    });
+  });
+  let directoryReads = 0;
+  await page.route('**/api/governance/directory', route => {
+    directoryReads += 1;
+    if (directoryReads === 1) return route.fulfill({ status: 503 });
+    return route.fulfill({
+      json: {
+        apps:
+          current.directoryLaunchEligible && current.directoryListing
+            ? [{ id: app.id, name: app.name, ...current.directoryListing }]
+            : [],
+      },
+    });
+  });
+  await page.route('**/api/governance/apps/listed-app/directory', route => {
+    const request = route.request();
+    if (request.method() === 'PUT') {
+      expect(request.postDataJSON()).toEqual({
+        ...listing,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      current = {
+        ...app,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+        directoryListing: listing,
+      };
+    } else {
+      expect(request.method()).toBe('DELETE');
+      expect(request.postDataJSON()).toEqual({
+        expectedUpdatedAt: '2025-05-02T00:00:00.000Z',
+      });
+      current = { ...app, updatedAt: '2025-05-03T00:00:00.000Z' };
+    }
+    return route.fulfill({ json: current });
+  });
+
+  const nav = page.getByRole('navigation', { name: 'AI governance' });
+  const directory = page.getByRole('region', { name: 'Directory apps' });
+  const empty = directory.getByRole('heading', {
+    name: 'No apps listed',
+  });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await page.goto('/?view=directory');
+  const directoryError = directory.getByRole('alert');
+  await expect(directoryError.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(directoryError).toHaveText('The app directory could not load.');
+  await directory
+    .getByRole('button', { name: 'Retry loading Directory' })
+    .click();
+  await expect(empty).toBeVisible();
+  expect(directoryReads).toBe(2);
+  expect(inventoryReads).toBe(0);
+
+  await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Error: Inventory temporarily unavailable.',
+  );
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  await expect(empty).toBeVisible();
+  expect(inventoryReads).toBe(1);
+
+  const details = page.getByRole('dialog', { name: app.name });
+  async function openPublisher() {
+    await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
+    await page.getByRole('button', { name: new RegExp(app.name) }).click();
+    await details.getByText('Directory listing', { exact: true }).click();
+  }
+  await openPublisher();
+  const summary = details.getByRole('textbox', { name: 'Directory summary' });
+  const url = details.getByRole('textbox', { name: 'Launch URL' });
+  await expect(summary).toHaveValue('');
+  await expect(url).toHaveValue('');
+  await summary.fill(listing.summary);
+  await url.fill(listing.url);
+  await details.getByRole('button', { name: 'Publish in Directory' }).click();
+  await expect(
+    details.getByRole('button', { name: 'Update directory listing' }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  const launch = directory
+    .locator('td[data-label="Launch"]')
+    .getByRole('link', { name: `Open ${app.name}` });
+  await expect(launch).toHaveAttribute('href', listing.url);
+  await expect(launch).toHaveAttribute('rel', 'noreferrer');
+  await expect(directory.getByText(app.purpose)).toHaveCount(0);
+  const search = directory.getByRole('searchbox', { name: 'Search directory' });
+  await search.fill('unmatched');
+  await expect(
+    directory.getByRole('heading', { name: 'No matching apps' }),
+  ).toBeVisible();
+  await search.fill('discrepancies');
+  await expect(launch).toBeVisible();
+  await assertWorkspace(page, 'App directory', 'Directory');
+
+  current = { ...current, directoryLaunchEligible: false };
+  await page.reload();
+  await expect(empty).toBeVisible();
+  await openPublisher();
+  await expect(
+    details.getByText(
+      'This listing is hidden until the app meets current launch requirements.',
+    ),
+  ).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Update directory listing' }),
+  ).toBeDisabled();
+  await details
+    .getByRole('button', { name: 'Unpublish from Directory' })
+    .click();
+  await expect(details.getByText('Directory listing removed.')).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await nav.getByRole('link', { name: 'Directory', exact: true }).click();
+  await expect(empty).toBeVisible();
+  expect(inventoryReads).toBe(3);
 });
