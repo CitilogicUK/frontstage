@@ -2167,6 +2167,7 @@ test('critical reviews can request changes while required evidence is missing', 
     classification: 'internal',
     tier: 3,
     reviewStatus: 'pending',
+    reviewNotes: 'Verify the data flow before resubmitting.',
     usesAiAtRuntime: false,
     models: [],
     updatedAt: '2026-06-01T00:00:00.000Z',
@@ -2218,6 +2219,12 @@ test('critical reviews can request changes while required evidence is missing', 
   await expect(rows).toHaveCount(1);
   await rows.getByRole('button', { name: app.name }).click();
   const details = page.getByRole('dialog', { name: app.name });
+
+  await expect(
+    details.getByText(
+      'Previous review notes. Verify the data flow before resubmitting.',
+    ),
+  ).toBeVisible();
 
   const decision = details.getByRole('combobox', { name: 'Decision' });
   const approval = decision.locator('option[value="approved"]');

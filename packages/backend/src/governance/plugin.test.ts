@@ -6242,10 +6242,14 @@ describe('governance record access', () => {
           );
           expect(body.apps[0]).not.toHaveProperty('evidence');
         });
+      const requestedChanges = 'Document the data flow before launch.';
       const review = (
         expectedUpdatedAt: string,
         status = 'approved',
         actor = reviewer,
+        notes = status === 'changes needed'
+          ? requestedChanges
+          : 'Checked the evidence on the synthetic app.',
       ) =>
         api
           .post(`${path}/reviews`)
@@ -6253,7 +6257,7 @@ describe('governance record access', () => {
           .send({
             expectedUpdatedAt,
             status,
-            notes: 'Checked the evidence on the synthetic app.',
+            notes,
             ...(separateTracks && {
               track: actor === reviewer ? 'security' : 'dataProtection',
             }),
@@ -6276,6 +6280,7 @@ describe('governance record access', () => {
         const { description } =
           notifications.send.mock.calls[call - 1][0].payload;
         expect(description).not.toContain('Checked the evidence');
+        expect(description).not.toContain(requestedChanges);
         expect(description).not.toContain('https://');
         expect(description).not.toContain(app.name);
       };
@@ -6312,6 +6317,10 @@ describe('governance record access', () => {
         })
         .expect(200);
       expect(completed).not.toHaveProperty('missingCriticalReviewEvidence');
+      expect(completed).toMatchObject({
+        reviewStatus: 'pending',
+        reviewNotes: requestedChanges,
+      });
       const { body: decision } = await review(completed.updatedAt).expect(200);
       expect(decision.reviewStatus).toBe(
         separateTracks ? 'pending' : 'approved',
@@ -6375,6 +6384,91 @@ describe('governance record access', () => {
         reviewStatus: 'changes needed',
         updatedAt: changed.updatedAt,
       });
+
+      const otherTrackApproved = separateTracks
+        ? (
+            await review(
+              changed.updatedAt,
+              'approved',
+              protection,
+              'Data Protection approval does not address the open changes.',
+            ).expect(200)
+          ).body
+        : changed;
+      expect(otherTrackApproved.reviewStatus).toBe('changes needed');
+      const edit = (
+        record: typeof app,
+        updates: Partial<typeof app>,
+        actor = owner,
+      ) =>
+        api
+          .put(path)
+          .set('Authorization', auth(actor))
+          .send({ ...record, ...updates, expectedUpdatedAt: record.updatedAt })
+          .expect(200);
+      const { body: reopened } = await edit(otherTrackApproved, {
+        purpose: 'Update the declared purpose after receiving review feedback.',
+      });
+      const { body: editedAgain } = await edit(reopened, {
+        purpose: 'Clarify the revised purpose for the next review.',
+      });
+      expect(editedAgain).toMatchObject({
+        reviewStatus: 'pending',
+        reviewNotes: requestedChanges,
+      });
+      for (const user of [owner, backup]) {
+        const { body: visible } = await api
+          .get(path)
+          .set('Authorization', auth(user))
+          .expect(200);
+        expect(visible).toMatchObject({
+          reviewStatus: 'pending',
+          reviewNotes: requestedChanges,
+        });
+      }
+      const { body: unrelated } = await api
+        .get(path)
+        .set('Authorization', auth('user:default/other'))
+        .expect(200);
+      expect(unrelated).not.toHaveProperty('reviewNotes');
+      await api
+        .get(collection)
+        .set('Authorization', auth('user:default/other'))
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.apps[0]).not.toHaveProperty('reviewNotes');
+        });
+
+      const { body: backupChanged } = await edit(editedAgain, {
+        backupOwner: 'user:default/next-backup',
+      });
+      expect(backupChanged.reviewStatus).toBe('pending');
+      expect(backupChanged).not.toHaveProperty('reviewNotes');
+      const { body: requestedAgain } = await review(
+        backupChanged.updatedAt,
+        'changes needed',
+      ).expect(200);
+      const newOwner = 'user:default/next-owner';
+      const { body: ownerChanged } = await edit(requestedAgain, {
+        owner: newOwner,
+      });
+      expect(ownerChanged.reviewStatus).toBe('pending');
+      const { body: transferred } = await api
+        .get(path)
+        .set('Authorization', auth(newOwner))
+        .expect(200);
+      expect(transferred).not.toHaveProperty('reviewNotes');
+      const { body: renewedRequest } = await review(
+        ownerChanged.updatedAt,
+        'changes needed',
+      ).expect(200);
+      const { body: lowerRisk } = await edit(
+        renewedRequest,
+        { audience: 'team' },
+        newOwner,
+      );
+      expect(lowerRisk.tier).toBeLessThan(3);
+      expect(lowerRisk).not.toHaveProperty('reviewNotes');
     },
   );
 
