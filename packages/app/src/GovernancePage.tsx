@@ -389,6 +389,16 @@ export function GovernancePage() {
   const candidate = discoveries?.repositories.find(
     item => item.id === repositoryId && !item.appId && !item.dismissed,
   );
+  const registrationFormKey =
+    view === 'Register' && (!repositoryId || candidate)
+      ? repositoryId ??
+        (starter ? `${starter.id}:${params.get('stage')}` : 'register')
+      : undefined;
+  const registrationStartedAt = useRef<number>();
+  useEffect(() => {
+    registrationStartedAt.current =
+      registrationFormKey === undefined ? undefined : performance.now();
+  }, [registrationFormKey]);
   const [query, setQuery] = useState('');
   const tierParam = params.get('tier');
   const tier =
@@ -2838,7 +2848,7 @@ export function GovernancePage() {
               : 'Loading repository…')}
         </p>
       )}
-      {view === 'Register' && (!repositoryId || candidate) && (
+      {registrationFormKey !== undefined && (
         <section className="gov-registration" aria-label="App registration">
           <aside className="gov-risk" aria-label="Registration requirements">
             <h2>Risk assessment</h2>
@@ -2867,10 +2877,7 @@ export function GovernancePage() {
           </aside>
           <form
             className="gov-register-form"
-            key={
-              repositoryId ??
-              (starter ? `${starter.id}:${params.get('stage')}` : 'register')
-            }
+            key={registrationFormKey}
             onChange={event => {
               const target = event.target as HTMLInputElement;
               if (target.name && target.name !== 'models')
@@ -2900,7 +2907,8 @@ export function GovernancePage() {
                 const deliveryStage = parseDeliveryStage(
                   value('deliveryStage'),
                 );
-                const registered = await api(endpoint, {
+                const startedAt = registrationStartedAt.current;
+                const registered: App = await api(endpoint, {
                   name: value('name'),
                   purpose: value('purpose'),
                   type: value('type'),
@@ -2946,8 +2954,13 @@ export function GovernancePage() {
                 if (candidate) source = 'discovery';
                 else if (starter) source = 'template';
                 analytics.captureEvent('register-app', 'governance-app', {
+                  value:
+                    startedAt === undefined
+                      ? undefined
+                      : (performance.now() - startedAt) / 1000,
                   attributes: {
                     source,
+                    tier: registered.tier,
                     deliveryStage: deliveryStage ?? 'unspecified',
                     usesAiAtRuntime,
                   },

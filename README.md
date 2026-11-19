@@ -206,7 +206,7 @@ The **Builder guide** lists approved MCP servers and data connectors with their 
 
 Use the [workspace screen recipes](docs/workspace/README.md) for shared components, desktop and phone references, and the browser regression check.
 
-Backstage Analytics receives semantic events when a registration is saved or a starter download begins. Event attributes use fixed source and starter categories, delivery stage, and runtime AI use. App names, model names, owners, and form content are excluded. An analytics provider is needed to collect these events in a deployment.
+Backstage Analytics receives semantic events when a registration is saved or a starter download begins. Event attributes use fixed source and starter categories, delivery stage, and runtime AI use. App names, model names, owners, and form content are excluded. The `register-app` event includes the saved risk tier and elapsed seconds from opening the form to successful save, including retries. Use the median event value for Tier 1 to track the registration time target. The metric covers successful registrations through the interactive form. An analytics provider is needed to collect these events in a deployment.
 
 ## Deployment and roadmap
 
