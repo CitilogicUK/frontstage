@@ -675,12 +675,14 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(report.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
 
-  await report
-    .getByRole('textbox', { name: 'Outside-gateway usage JSON' })
-    .fill(JSON.stringify(snapshot));
-  await report
-    .getByRole('button', { name: 'Preview outside-gateway usage' })
-    .click();
+  const usageJson = report.getByRole('textbox', {
+    name: 'Outside-gateway usage JSON',
+  });
+  const preview = report.getByRole('button', {
+    name: 'Preview outside-gateway usage',
+  });
+  await usageJson.fill(JSON.stringify(snapshot));
+  await preview.click();
   const match = report.getByRole('link', { name: app.name });
   await expect(match).toBeVisible();
   await expect(report.getByText('No app matched')).toBeVisible();
@@ -690,6 +692,20 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(
     report.getByText('15 reported calls · 2 rows · 1 unmatched'),
   ).toBeVisible();
+  await usageJson.clear();
+  await report.getByLabel('Upload usage JSON').setInputFiles({
+    name: 'outside-gateway-usage.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(snapshot)),
+  });
+  const uploadedPreview = page.waitForResponse(
+    response =>
+      response.url().endsWith('/reports/outside-gateway/preview') &&
+      response.request().method() === 'POST',
+  );
+  await preview.click();
+  expect((await uploadedPreview).ok()).toBe(true);
+  await expect(match).toBeVisible();
   const pendingCsv = page.waitForEvent('download');
   await report
     .getByRole('button', { name: 'Download outside-gateway usage CSV' })

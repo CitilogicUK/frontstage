@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import {
   discoveryApiRef,
   fetchApiRef,
@@ -11,6 +11,8 @@ import {
   type OutsideGatewayUsagePreview,
 } from './portfolioExport';
 
+const maxUsageFileSize = 1024 * 1024;
+
 export function OutsideGatewayUsage({
   appLink,
 }: {
@@ -21,30 +23,49 @@ export function OutsideGatewayUsage({
   const [preview, setPreview] = useState<OutsideGatewayUsagePreview>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState<File>();
+  const fileInput = useRef<HTMLInputElement>(null);
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
 
   async function loadPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPreview(undefined);
     setError(undefined);
-    let payload: unknown;
-    try {
-      payload = JSON.parse(
-        String(new FormData(event.currentTarget).get('usage')),
-      );
-    } catch {
-      setError('Enter valid JSON for the usage preview.');
+    if (file && file.size > maxUsageFileSize) {
+      setError('Choose a JSON file that is 1 MB or smaller.');
       return;
     }
 
+    const pastedUsage = String(new FormData(event.currentTarget).get('usage'));
     setBusy(true);
     try {
+      let input = pastedUsage;
+      if (file) {
+        try {
+          input = await file.text();
+        } catch {
+          setError('The selected JSON file could not be read.');
+          return;
+        }
+      }
+      let payload: unknown;
+      try {
+        payload = JSON.parse(input);
+      } catch {
+        setError('Enter valid JSON for the usage preview.');
+        return;
+      }
+
       const base = await discovery.getBaseUrl('governance');
       const response = await fetch(`${base}/reports/outside-gateway/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      if (response.status === 413) {
+        setError('The usage preview request must be 1 MB or smaller.');
+        return;
+      }
       if (response.status === 400) {
         setError(
           'Use a UTC start before the end, with 1 to 100 rows and one positive call count per source and model.',
@@ -67,19 +88,46 @@ export function OutsideGatewayUsage({
     >
       <h2 id="outside-gateway-usage-title">Outside-gateway usage</h2>
       <p id="outside-gateway-usage-help">
-        Paste JSON with UTC timestamps in <code>from</code> and <code>to</code>{' '}
-        and up to 100 <code>rows</code> with <code>sourceUrl</code>,{' '}
-        <code>model</code>, and <code>calls</code> for each entry.
+        Upload or paste JSON with UTC timestamps in <code>from</code> and{' '}
+        <code>to</code> and up to 100 <code>rows</code> with{' '}
+        <code>sourceUrl</code>, <code>model</code>, and <code>calls</code> for
+        each entry.
       </p>
       <form onSubmit={loadPreview}>
+        <label>
+          Upload usage JSON
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".json,application/json"
+            aria-describedby="outside-gateway-usage-help"
+            disabled={busy}
+            onChange={event => setFile(event.target.files?.[0])}
+          />
+        </label>
+        {file && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (fileInput.current) {
+                fileInput.current.value = '';
+                fileInput.current.focus();
+              }
+              setFile(undefined);
+            }}
+          >
+            Clear selected file
+          </button>
+        )}
         <label>
           Outside-gateway usage JSON
           <textarea
             name="usage"
             aria-describedby="outside-gateway-usage-help"
             rows={5}
-            required
-            disabled={busy}
+            required={!file}
+            disabled={busy || Boolean(file)}
           />
         </label>
         <button type="submit" disabled={busy}>
