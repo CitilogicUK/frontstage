@@ -3102,7 +3102,17 @@ test('audit history shows production review and ownership handoff', async ({
   expect(uncoveredRow).toContain(`"${workspaceUrl}/?app=${uncovered.appId}"`);
   expect(uncoveredCsv).toContain(uncovered.owner);
   expect(uncoveredCsv).not.toContain(handoff.owner);
-  await ownershipRole.selectOption('owner-over-30-days');
+  const agingMetric = page.locator('.gov-report-summary > div').filter({
+    hasText: 'Owner gaps observed over 30 days ago',
+  });
+  await expect(agingMetric.locator('dd')).toHaveText('1');
+  await agingMetric
+    .getByRole('button', { name: 'View long-running owner gaps' })
+    .click();
+  await expect(
+    ownership.getByRole('heading', { name: 'Ownership issues' }),
+  ).toBeFocused();
+  await expect(ownershipRole).toHaveValue('owner-over-30-days');
   await expect(page).toHaveURL(/ownershipRole=owner-over-30-days$/);
   await expect(ownershipItems).toHaveCount(1);
   await expect(ownershipItems.first()).toContainText(handoff.name);
