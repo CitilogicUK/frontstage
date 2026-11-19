@@ -17,6 +17,7 @@ import {
   outsideGatewayUsageCsv,
   type OutsideGatewayUsagePreview,
 } from './portfolioExport';
+import { WorkspaceFilterTabs } from './WorkspaceLayout';
 
 const maxUsageFileSize = 1024 * 1024;
 const reconciliationPath = '/reports/outside-gateway/reconciliations';
@@ -73,6 +74,7 @@ export function OutsideGatewayUsage({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File>();
+  const [matchFilter, setMatchFilter] = useState('all');
   const [saved, setSaved] = useState<SavedReconciliation>();
   const [history, setHistory] = useState<ReconciliationPage | null>();
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -164,6 +166,9 @@ export function OutsideGatewayUsage({
     .replace(/\/$/, '')}/examples/outside-gateway-usage`;
   const preview = saved?.preview ?? livePreview;
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
+  const unmatchedRows = preview?.rows.filter(row => !row.appId) ?? [];
+  const visibleRows =
+    matchFilter === 'unmatched' ? unmatchedRows : preview?.rows;
 
   async function loadOlder(before: string) {
     historyRequest.current?.abort();
@@ -522,7 +527,7 @@ export function OutsideGatewayUsage({
             {callCount?.toLocaleString()} reported{' '}
             {callCount === 1 ? 'call' : 'calls'} · {preview.rows.length}{' '}
             {preview.rows.length === 1 ? 'row' : 'rows'} ·{' '}
-            {preview.rows.filter(row => !row.appId).length} unmatched
+            {unmatchedRows.length} unmatched
           </p>
           <button
             type="button"
@@ -535,7 +540,20 @@ export function OutsideGatewayUsage({
           >
             Download outside-gateway usage CSV
           </button>
-          {preview.rows.length ? (
+          <WorkspaceFilterTabs
+            label="Usage match status"
+            options={[
+              { value: 'all', label: 'All rows', count: preview.rows.length },
+              {
+                value: 'unmatched',
+                label: 'Unmatched',
+                count: unmatchedRows.length,
+              },
+            ]}
+            value={matchFilter}
+            onChange={setMatchFilter}
+          />
+          {visibleRows?.length ? (
             <div className="governance-table">
               <table>
                 <thead>
@@ -547,8 +565,8 @@ export function OutsideGatewayUsage({
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.rows.map((row, index) => (
-                    <tr key={JSON.stringify([row.sourceUrl, row.model, index])}>
+                  {visibleRows.map(row => (
+                    <tr key={JSON.stringify([row.sourceUrl, row.model])}>
                       <td className="gov-app-cell">
                         {row.appId ? (
                           <Link to={appLink(row.appId)}>
@@ -578,7 +596,11 @@ export function OutsideGatewayUsage({
               </table>
             </div>
           ) : (
-            <p>No usage rows to preview.</p>
+            <p role="status">
+              {matchFilter === 'unmatched'
+                ? 'No unmatched usage rows.'
+                : 'No usage rows to preview.'}
+            </p>
           )}
         </>
       )}

@@ -857,6 +857,14 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await preview.click();
   expect((await uploadedPreview).ok()).toBe(true);
   await expect(match).toBeVisible();
+  const matchFilters = report.getByRole('group', {
+    name: 'Usage match status',
+  });
+  await matchFilters.getByRole('button', { name: /unmatched/i }).click();
+  await expect(match).toHaveCount(0);
+  await expect(
+    report.getByRole('row', { name: /No app matched/ }),
+  ).toBeVisible();
   const pendingCsv = page.waitForEvent('download');
   await report
     .getByRole('button', { name: 'Download outside-gateway usage CSV' })
@@ -871,6 +879,8 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     `"${snapshot.from}","${snapshot.to}","${app.sourceUrl}","gpt-4.1-mini",12,"${app.id}","${app.name}"`,
     `"${snapshot.from}","${snapshot.to}","${snapshot.rows[1].sourceUrl}","gpt-4.1-mini",3,"",""`,
   ]);
+  await matchFilters.getByRole('button', { name: /all rows/i }).click();
+  await expect(match).toBeVisible();
   await match.click();
   const details = page.getByRole('dialog', { name: app.name });
   await expect(details).toBeVisible();
@@ -954,6 +964,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   ).toContainText('3');
   expect(previewCalls).toBe(4);
 
+  await matchFilters.getByRole('button', { name: /unmatched/i }).click();
+  await expect(report.getByText('No unmatched usage rows.')).toBeVisible();
+
   currentMatchRemoved = true;
   await report
     .getByRole('button', {
@@ -962,6 +975,8 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     .click();
   await expect(startRegistration).toBeVisible();
   await expect(report.getByRole('link', { name: draft.name })).toHaveCount(0);
+  await expect(match).toHaveCount(0);
+  await matchFilters.getByRole('button', { name: /all rows/i }).click();
   await expect(report.getByRole('link', { name: app.name })).toBeVisible();
   expect(previewCalls).toBe(5);
 
