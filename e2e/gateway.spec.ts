@@ -611,6 +611,11 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       audit.keyEvents.map((event: { action: string }) => event.action),
     ).toEqual(['issued', 'revoked']);
     expect(
+      audit.keyEvents.map(
+        ({ event }: { event: string }) => JSON.parse(event).environment,
+      ),
+    ).toEqual(['sandbox', 'sandbox']);
+    expect(
       audit.keyEvents.every(
         (event: { actor: string }) => event.actor === 'user:default/reviewer',
       ),
