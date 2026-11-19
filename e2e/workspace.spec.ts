@@ -1514,6 +1514,17 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
       nextDue: '2025-04-01T00:00:00.000Z',
     },
   };
+  const backedUpApp = {
+    ...initialApp,
+    id: 'backup-hosted-app',
+    name: 'Backup hosted app',
+    owner: 'user:default/other-owner',
+    backupOwner: initialApp.owner,
+    hostedAttestation: {
+      at: new Date().toISOString(),
+      nextDue: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+    },
+  };
   const retiredApp = {
     ...initialApp,
     id: 'retired-hosted-app',
@@ -1550,7 +1561,7 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
         actor: app.owner,
         gatewayEnabled: true,
         canReview: canReviewHostedApps,
-        apps: [app, overdueApp, retiredApp, regularApp],
+        apps: [app, overdueApp, retiredApp, regularApp, backedUpApp],
       },
     }),
   );
@@ -1692,6 +1703,16 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   });
   await ownership.selectOption('backup');
   await expect(statusFilter).toHaveValue('');
+  const backupDownload = page.waitForEvent('download');
+  await inventory
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const backupCalendar = await readFile(
+    await (await backupDownload).path(),
+    'utf8',
+  );
+  expect(backupCalendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(backupCalendar).toContain('UID:backup-hosted-app-hosted-attestation@');
   await statusFilter.selectOption('workspace');
   await expect(ownership).toHaveValue('me');
   await expect(inventory.getByRole('row')).toHaveCount(3);
