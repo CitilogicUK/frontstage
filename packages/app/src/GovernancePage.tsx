@@ -868,6 +868,7 @@ export function GovernancePage() {
     view === 'Inventory' &&
     (inventoryReview === 'overdue' ||
       inventoryReview === 'attention' ||
+      inventoryReview === 'upcoming' ||
       inventoryReview === 'retirement')
       ? inventoryReview
       : '';
@@ -910,6 +911,8 @@ export function GovernancePage() {
       (inventoryReviewFilter !== 'overdue' || isReviewOverdue(app, now)) &&
       (inventoryReviewFilter !== 'attention' ||
         appReview(app, now).priority <= 1) &&
+      (inventoryReviewFilter !== 'upcoming' ||
+        appReview(app, now).priority === 1) &&
       (inventoryReviewFilter !== 'retirement' ||
         ownerCanDecideRetirement(app, actor)) &&
       (!lifecycleFilter || app.lifecycle === lifecycleFilter) &&
@@ -1222,6 +1225,7 @@ export function GovernancePage() {
                       <option value="overdue">
                         Overdue reviews and attestations
                       </option>
+                      <option value="upcoming">Due in the next 30 days</option>
                       <option value="retirement">
                         My retirement decisions
                       </option>
