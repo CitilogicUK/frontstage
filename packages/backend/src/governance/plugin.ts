@@ -109,15 +109,16 @@ const importInput = z.union([
   z.object({ csv: z.string().min(1).max(500_000) }).strict(),
 ]);
 
+function isReviewLink(value: string) {
+  if (value.length > 2048 || !URL.canParse(value)) return false;
+  const { username, password } = new URL(value);
+  return !username && !password;
+}
+
 const reviewTicketPatchInput = z.object({
   url: z.preprocess(
     value => (typeof value === 'string' ? value.trim() : value),
-    reviewTicketUrlInput.refine(value => {
-      if (value === null) return true;
-      if (value.length > 2048 || !URL.canParse(value)) return false;
-      const { username, password } = new URL(value);
-      return !username && !password;
-    }),
+    reviewTicketUrlInput.refine(value => value === null || isReviewLink(value)),
   ),
   expectedUpdatedAt: z.string().datetime(),
 });
@@ -601,7 +602,7 @@ export const governancePlugin = createBackendPlugin({
           }
         }
 
-        function parseApp(input: unknown) {
+        function parseApp(input: unknown, previous?: AppInput) {
           const result = appInput.safeParse(input);
           if (!result.success) {
             throw new InputError(
@@ -611,6 +612,22 @@ export const governancePlugin = createBackendPlugin({
             );
           }
           const app = result.data;
+          const links = [
+            [app.reviewTicketUrl, previous?.reviewTicketUrl],
+            [app.evidence?.tests, previous?.evidence?.tests],
+            [app.evidence?.dataFlow, previous?.evidence?.dataFlow],
+            [app.evidence?.incidentPlan, previous?.evidence?.incidentPlan],
+          ];
+          if (
+            links.some(
+              ([value, prior]) =>
+                value && value !== prior && !isReviewLink(value),
+            )
+          ) {
+            throw new InputError(
+              'Review ticket and evidence links must be at most 2,048 characters and contain no credentials.',
+            );
+          }
           if (
             evaluateTier(app) >= 2 &&
             (!app.backupOwner || app.backupOwner === app.owner)
@@ -2252,11 +2269,14 @@ export const governancePlugin = createBackendPlugin({
               'The app changed since you opened it. Reopen the current record before editing.',
             );
           }
-          const app = parseApp({
-            evidence: record.evidence,
-            reviewTicketUrl: record.reviewTicketUrl,
-            ...req.body,
-          });
+          const app = parseApp(
+            {
+              evidence: record.evidence,
+              reviewTicketUrl: record.reviewTicketUrl,
+              ...req.body,
+            },
+            record,
+          );
           if (app.sourceUrl !== record.sourceUrl)
             throw new InputError('The registered source URL is fixed.');
           await validateOwners(app);
@@ -2368,11 +2388,14 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Choose a backup owner other than the new owner.',
             );
-          const app = parseApp({
-            ...record,
-            owner: actor,
-            backupOwner: replacement,
-          });
+          const app = parseApp(
+            {
+              ...record,
+              owner: actor,
+              backupOwner: replacement,
+            },
+            record,
+          );
           const active = await handoverCatalog(record, actor, replacement);
           if (!backupCanTakeOwnership(record, actor, active))
             throw new ConflictError(
@@ -2614,7 +2637,7 @@ export const governancePlugin = createBackendPlugin({
               'Owner attestation applies to current, non-retired Tier 2 apps.',
             );
           }
-          await validateOwners(parseApp(record));
+          await validateOwners(parseApp(record, record));
           const at = nextRecordTimestamp(record.updatedAt);
           const updated = {
             ...record,
@@ -2830,7 +2853,7 @@ export const governancePlugin = createBackendPlugin({
                 'The current risk policy changed. Reassess the app before approving it.',
               );
             }
-            await validateOwners(parseApp(record));
+            await validateOwners(parseApp(record, record));
           }
           const track = decision.data.track;
           if (
