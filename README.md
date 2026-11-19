@@ -315,6 +315,14 @@ The dev server uses seed identities and SQLite. Before deployment, configure com
 
 The prototype evidence guide covers demo scenarios, metric scope, and checks that need a pilot environment. [Prototype evidence](docs/prototype-evidence.md)
 
+### PostgreSQL for a pilot
+
+Create a dedicated PostgreSQL database and a Frontstage login role that can create schemas in that database. Backstage creates a separate schema for each plugin and runs its migrations at startup. The login can use an ordinary database role with no cluster-wide database creation privileges.
+
+Set `FRONTSTAGE_POSTGRES_URL` in the backend environment and load the PostgreSQL overlay after the base configuration. Use a connection URL with `sslmode=verify-full` and a trusted server certificate for remote databases. A local development trial can use `yarn start --config ../../app-config.reviewer.yaml --config ../../app-config.postgres.yaml` and the existing demo seed command. [PostgreSQL overlay](app-config.postgres.yaml)
+
+The profile starts with the records in the chosen PostgreSQL database. Use a dedicated pilot database and seed only synthetic data for the demo.
+
 ### GitHub sign-in for a pilot
 
 The base app offers GitHub sign-in. The development and reviewer profiles use Guest, and the GitHub overlay disables Guest if those profiles are also loaded.
