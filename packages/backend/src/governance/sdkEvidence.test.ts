@@ -47,3 +47,49 @@ it('only extracts named Python requirements and handles duplicate spellings', ()
   ).toEqual(['anthropic', 'google-genai', 'openai']);
   expect(sdkPackages('requirements.txt', '')).toEqual([]);
 });
+
+it('reads PEP 621 project and optional dependencies with TOML syntax', () => {
+  const manifest = `
+[project]
+name = 'example-tools'
+dependencies = [
+  'openai[realtime]>=1; python_version >= "3.11"',
+  'google_genai>=0.7',
+  'openai-wrapper',
+]
+
+[project.optional-dependencies]
+examples = ['anthropic @ https://example.com/package.whl', 'OPENAI']
+'extra.tests' = ['GOOGLE.GENAI', 'langchain-openai>=0.2']
+
+[build-system]
+requires = ['litellm']
+
+[tool.poetry.dependencies]
+llama-index = "^0.12"
+
+[dependency-groups]
+dev = ['langchain']
+`;
+  expect(sdkPackages('pyproject.toml', manifest)).toEqual([
+    'anthropic',
+    'google-genai',
+    'langchain-openai',
+    'openai',
+  ]);
+  expect(
+    sdkPackages('pyproject.toml', '[project]\ndependencies = ['),
+  ).toBeUndefined();
+  expect(
+    sdkPackages('pyproject.toml', "[project]\ndependencies = 'openai'"),
+  ).toBeUndefined();
+  expect(
+    sdkPackages(
+      'pyproject.toml',
+      "[project.optional-dependencies]\ndev = 'openai'",
+    ),
+  ).toBeUndefined();
+  expect(
+    sdkPackages('pyproject.toml', "[tool.poetry.dependencies]\nopenai = '1'"),
+  ).toEqual([]);
+});

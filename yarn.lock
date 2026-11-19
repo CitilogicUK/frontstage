@@ -8956,6 +8956,7 @@ __metadata:
     knex: "npm:^3.3.0"
     node-gyp: "npm:^10.0.0"
     pg: "npm:^8.11.3"
+    smol-toml: "npm:^1.9.1"
     supertest: "npm:^7.3.2"
     yaml: "npm:^2.8.0"
     zod: "npm:^3.25.0"
@@ -21798,6 +21799,13 @@ __metadata:
   version: 4.2.0
   resolution: "smart-buffer@npm:4.2.0"
   checksum: 10c0/a16775323e1404dd43fabafe7460be13a471e021637bc7889468eb45ce6a6b207261f454e4e530a19500cc962c4cc5348583520843b363f4193cee5c00e1e539
+  languageName: node
+  linkType: hard
+
+"smol-toml@npm:^1.9.1":
+  version: 1.9.1
+  resolution: "smol-toml@npm:1.9.1"
+  checksum: 10c0/8acccf7bbc063f29405f58f5014ab39bf4eb9d7f0e000e5e3f140f7d4d6ead5696681a7c15260d1f2910213012c0af43b31a05bf94f704b0bdf39989fba08c02
   languageName: node
   linkType: hard
 

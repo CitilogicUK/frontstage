@@ -1802,6 +1802,13 @@ describe('governance record access', () => {
         new Response('google_genai>=1\n# langchain', {
           headers: { 'Content-Type': 'application/vnd.github.raw+json' },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          "[project]\ndependencies = ['anthropic']\n" +
+            "[project.optional-dependencies]\nresearch = ['litellm']",
+          { headers: { 'Content-Type': 'application/vnd.github.raw+json' } },
+        ),
       );
     await evidence(100, owner)
       .expect('Cache-Control', 'no-store')
@@ -1817,10 +1824,20 @@ describe('governance record access', () => {
             status: 'checked',
             packages: ['google-genai'],
           },
+          {
+            path: 'pyproject.toml',
+            status: 'checked',
+            packages: ['anthropic', 'litellm'],
+          },
         ],
       });
-    expect(github.mock.calls.slice(-2)).toEqual(
-      ['package.json', 'requirements.txt'].map(path => [
+    const evidencePaths = [
+      'package.json',
+      'requirements.txt',
+      'pyproject.toml',
+    ];
+    expect(github.mock.calls.slice(-3)).toEqual(
+      evidencePaths.map(path => [
         new URL(`https://api.github.com/repos/example/helper/contents/${path}`),
         expect.objectContaining({
           headers: {
@@ -1836,15 +1853,17 @@ describe('governance record access', () => {
 
     github
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
-      .mockResolvedValueOnce(new Response(''));
+      .mockResolvedValueOnce(new Response(''))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
     await evidence(200, reviewer).expect(200, {
       manifests: [
         { path: 'package.json', status: 'missing', packages: [] },
         { path: 'requirements.txt', status: 'checked', packages: [] },
+        { path: 'pyproject.toml', status: 'missing', packages: [] },
       ],
     });
-    expect(github.mock.calls.slice(-2)).toEqual(
-      ['package.json', 'requirements.txt'].map(path => [
+    expect(github.mock.calls.slice(-3)).toEqual(
+      evidencePaths.map(path => [
         new URL(
           `https://api.github.com/repos/example/private/contents/${path}`,
         ),
@@ -1859,11 +1878,13 @@ describe('governance record access', () => {
 
     github
       .mockResolvedValueOnce(new Response('invalid JSON'))
-      .mockResolvedValueOnce(new Response('x'.repeat(100_001)));
+      .mockResolvedValueOnce(new Response('x'.repeat(100_001)))
+      .mockResolvedValueOnce(new Response('[project]\ndependencies = ['));
     await evidence(100, owner).expect(200, {
       manifests: [
         { path: 'package.json', status: 'unavailable', packages: [] },
         { path: 'requirements.txt', status: 'unavailable', packages: [] },
+        { path: 'pyproject.toml', status: 'unavailable', packages: [] },
       ],
     });
 
@@ -1876,11 +1897,13 @@ describe('governance record access', () => {
           },
         ),
       )
+      .mockResolvedValueOnce(Response.json({ type: 'dir', entries: [] }))
       .mockResolvedValueOnce(Response.json({ type: 'dir', entries: [] }));
     await evidence(100, owner).expect(200, {
       manifests: [
         { path: 'package.json', status: 'unavailable', packages: [] },
         { path: 'requirements.txt', status: 'unavailable', packages: [] },
+        { path: 'pyproject.toml', status: 'unavailable', packages: [] },
       ],
     });
 
@@ -1934,7 +1957,10 @@ describe('governance record access', () => {
           { headers: { 'Content-Type': 'application/vnd.github.raw+json' } },
         );
       })
-      .mockResolvedValueOnce(new Response('openai'));
+      .mockResolvedValueOnce(new Response('openai'))
+      .mockResolvedValueOnce(
+        new Response("[project]\ndependencies = ['openai']"),
+      );
     await evidence(400, reviewer).expect(404);
     github.mockClear();
     await evidence(400, reviewer).expect(404);

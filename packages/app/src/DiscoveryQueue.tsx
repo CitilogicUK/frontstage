@@ -32,7 +32,7 @@ export type DiscoveryResult = {
 
 type SdkEvidenceResult = {
   manifests: Array<{
-    path: 'package.json' | 'requirements.txt';
+    path: 'package.json' | 'requirements.txt' | 'pyproject.toml';
     status: 'checked' | 'missing' | 'unavailable';
     packages: string[];
   }>;
