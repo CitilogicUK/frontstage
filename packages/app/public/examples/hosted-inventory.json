@@ -4,7 +4,9 @@
       "name": "Hosted project briefs demo",
       "provider": "Example AI",
       "workspace": "Company sandbox",
-      "sourceUrl": "https://example.com/frontstage-demo/hosted-project-briefs"
+      "sourceUrl": "https://example.com/frontstage-demo/hosted-project-briefs",
+      "sharing": "public link",
+      "dataAccess": "none"
     },
     {
       "name": "Hosted workspace demo",

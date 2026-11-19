@@ -75,6 +75,7 @@ import {
   appInput,
   AppInput,
   calculateTier,
+  classification,
   evaluateTierPolicy,
   effectiveClassification,
   hostedDataAccessInput,
@@ -100,6 +101,9 @@ const hostedInventoryInput = z
               .trim()
               .max(2048)
               .refine(isHttpsUrlWithoutCredentials),
+            sharing: hostedSharingInput.optional(),
+            dataAccess: hostedDataAccessInput.optional(),
+            dataClassification: classification.optional(),
           })
           .strict(),
       )
@@ -731,9 +735,15 @@ export const governancePlugin = createBackendPlugin({
           return parseApp(entity.data.spec);
         }
 
-        function hostedWorkspaceApproval(app: AppInput) {
+        function hostedWorkspaceApproval(
+          hosted:
+            | Pick<
+                NonNullable<AppInput['hosted']>,
+                'provider' | 'workspace' | 'sharing' | 'dataAccess'
+              >
+            | undefined,
+        ) {
           if (!approvedHostedWorkspaces) return 'unconfigured';
-          const { hosted } = app;
           if (!hosted) return 'unlisted';
           const entries = approvedHostedWorkspaces.filter(
             entry =>
@@ -751,7 +761,7 @@ export const governancePlugin = createBackendPlugin({
         }
 
         function hostedWorkspaceApproved(app: AppInput) {
-          const approval = hostedWorkspaceApproval(app);
+          const approval = hostedWorkspaceApproval(app.hosted);
           return approval === 'unconfigured'
             ? undefined
             : approval === 'approved';
@@ -779,7 +789,7 @@ export const governancePlugin = createBackendPlugin({
             !workspaceMeetsLaunchRequirements(app)
           ) {
             throw new InputError(
-              hostedWorkspaceApproval(app) === 'settings-mismatch'
+              hostedWorkspaceApproval(app.hosted) === 'settings-mismatch'
                 ? 'Choose sharing and data access settings allowed for this provider workspace before activating this app.'
                 : 'Choose an approved provider workspace before activating this app.',
             );
@@ -1133,7 +1143,7 @@ export const governancePlugin = createBackendPlugin({
                 app.lifecycle !== 'retired',
             )
             .flatMap(app => {
-              const approval = hostedWorkspaceApproval(app);
+              const approval = hostedWorkspaceApproval(app.hosted);
               if (approval !== 'unlisted' && approval !== 'settings-mismatch')
                 return [];
               return [
@@ -1945,20 +1955,45 @@ export const governancePlugin = createBackendPlugin({
           );
           res.set('Cache-Control', 'no-store').json({
             apps: input.data.apps.map((app, index) => {
+              const { provider, workspace, sharing, dataAccess } = app;
+              const observation = {
+                ...app,
+                ...(sharing !== undefined &&
+                  dataAccess !== undefined && {
+                    observedWorkspaceApproval: hostedWorkspaceApproval({
+                      provider,
+                      workspace,
+                      sharing,
+                      dataAccess,
+                    }),
+                  }),
+              };
               const match = registered.get(sources[index]);
-              if (!match) return app;
+              if (!match) return observation;
               const { id: appId, record } = match;
               if (record.type !== 'provider-hosted app' || !record.hosted)
-                return { ...app, appId, mismatch: 'app-type' };
-              const { provider, workspace } = record.hosted;
-              if (provider !== app.provider || workspace !== app.workspace)
-                return {
-                  ...app,
-                  appId,
+                return { ...observation, appId, mismatch: 'app-type' };
+              const declared = record.hosted;
+              const settingDifferences = (
+                ['sharing', 'dataAccess', 'dataClassification'] as const
+              ).flatMap(field =>
+                app[field] !== undefined && app[field] !== declared[field]
+                  ? [{ field, registered: declared[field] ?? null }]
+                  : [],
+              );
+              return {
+                ...observation,
+                appId,
+                ...(settingDifferences.length > 0 && { settingDifferences }),
+                ...((declared.provider !== provider ||
+                  declared.workspace !== workspace) && {
                   mismatch: 'workspace',
-                  registeredWorkspace: { provider, workspace },
-                };
-              return { ...app, appId };
+                  registeredWorkspace: {
+                    provider: declared.provider,
+                    workspace: declared.workspace,
+                  },
+                }),
+              };
             }),
           });
         });
@@ -3009,7 +3044,7 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Hosted workspace attestation applies to non-retired provider-hosted apps.',
             );
-          const approval = hostedWorkspaceApproval(record);
+          const approval = hostedWorkspaceApproval(record.hosted);
           if (approval === 'unlisted' || approval === 'settings-mismatch')
             throw new InputError(
               approval === 'settings-mismatch'

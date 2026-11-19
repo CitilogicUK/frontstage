@@ -2820,7 +2820,19 @@ describe('governance record access', () => {
         governancePlugin,
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
-          data: { governance: { reviewers: [reviewer] } },
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              approvedHostedWorkspaces: [
+                {
+                  provider: 'Example AI',
+                  workspace: 'Enterprise',
+                  allowedSharing: ['private'],
+                  allowedDataAccess: ['none'],
+                },
+              ],
+            },
+          },
         }),
       ],
     });
@@ -2840,15 +2852,21 @@ describe('governance record access', () => {
       name: 'Unregistered hosted assistant',
       sourceUrl: 'https://example.com/apps/new',
     };
-    await db('governance_apps').insert({
+    const original = {
       id: 'known',
       source_key: known.sourceUrl,
       payload: JSON.stringify({
         type: 'provider-hosted app',
-        hosted: { provider: known.provider, workspace: known.workspace },
+        hosted: {
+          provider: known.provider,
+          workspace: known.workspace,
+          sharing: 'private',
+          dataAccess: 'none',
+        },
       }),
       revision: 0,
-    });
+    };
+    await db('governance_apps').insert(original);
     await preview('user:default/builder')
       .send({ apps: [known] })
       .expect(403);
@@ -2896,6 +2914,74 @@ describe('governance record access', () => {
           },
         ],
       });
+    const observed = {
+      ...moved,
+      sharing: 'company',
+      dataAccess: 'none',
+      dataClassification: 'internal',
+    };
+    const exact = {
+      ...known,
+      sharing: 'private',
+      dataAccess: 'none',
+    };
+    const violating = {
+      ...candidate,
+      sharing: 'private',
+      dataAccess: 'both',
+    };
+    await preview(reviewer)
+      .send({ apps: [observed, violating] })
+      .expect(200, {
+        apps: [
+          {
+            ...observed,
+            appId: 'known',
+            mismatch: 'workspace',
+            registeredWorkspace: {
+              provider: known.provider,
+              workspace: known.workspace,
+            },
+            settingDifferences: [
+              { field: 'sharing', registered: 'private' },
+              { field: 'dataClassification', registered: null },
+            ],
+            observedWorkspaceApproval: 'unlisted',
+          },
+          { ...violating, observedWorkspaceApproval: 'settings-mismatch' },
+        ],
+      });
+    await preview(reviewer)
+      .send({ apps: [exact] })
+      .expect(200, {
+        apps: [
+          { ...exact, appId: 'known', observedWorkspaceApproval: 'approved' },
+        ],
+      });
+    const partial = { ...known, dataAccess: 'both' };
+    await preview(reviewer)
+      .send({ apps: [partial] })
+      .expect(200, {
+        apps: [
+          {
+            ...partial,
+            appId: 'known',
+            settingDifferences: [{ field: 'dataAccess', registered: 'none' }],
+          },
+        ],
+      });
+    for (const invalid of [
+      { ...known, sharing: 'external' },
+      { ...known, dataAccess: 'writes connected data' },
+      { ...known, dataClassification: 'secret' },
+    ]) {
+      await preview(reviewer)
+        .send({ apps: [invalid] })
+        .expect(400);
+    }
+    expect(await db('governance_apps').select('*')).toEqual([original]);
+    expect(await db('governance_history').select('*')).toEqual([]);
+
     await db('governance_apps')
       .where({ id: 'known' })
       .update({ payload: JSON.stringify({ type: 'app' }) });
