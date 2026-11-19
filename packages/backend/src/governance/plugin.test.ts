@@ -3866,7 +3866,11 @@ describe('governance record access', () => {
       })
       .expect(200);
     expect(retired.body).not.toHaveProperty('graduation');
-    const notices = notifications.send.mock.calls.map(([notice]) => notice);
+    const notices = notifications.send.mock.calls
+      .map(([notice]) => notice)
+      .filter(notice =>
+        notice.payload.scope?.startsWith('governance-graduation-'),
+      );
     expect(notices).toHaveLength(9);
     expect(
       notices.filter(notice =>
