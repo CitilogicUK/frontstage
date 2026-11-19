@@ -491,6 +491,7 @@ export function GovernancePage() {
     candidate && appliedDescriptor?.repositoryId === candidate.id
       ? appliedDescriptor?.app
       : undefined;
+  const [riskPreviewAttempt, setRiskPreviewAttempt] = useState(0);
   const [riskPreview, setRiskPreview] = useState<{
     answers: string;
     tier?: number;
@@ -1014,7 +1015,7 @@ export function GovernancePage() {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [answers, api, view]);
+  }, [answers, api, riskPreviewAttempt, view]);
 
   const now = Date.now();
   const myReviewAttentionCount =
@@ -3004,6 +3005,17 @@ export function GovernancePage() {
                 preview.effectiveClassification !== registrationClass &&
                 ` · Effective data classification: ${preview.effectiveClassification}`}
             </p>
+            {preview && !preview.tier && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRiskPreview(undefined);
+                  setRiskPreviewAttempt(attempt => attempt + 1);
+                }}
+              >
+                Retry risk assessment
+              </button>
+            )}
             {preview?.reasons && <TierReasons codes={preview.reasons} />}
             {preview?.tier === 2 && (
               <p>Shared apps need a backup owner and a yearly attestation.</p>

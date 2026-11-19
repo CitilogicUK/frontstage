@@ -2306,7 +2306,21 @@ test('registration explains the highest matching tier and clears outdated reason
     exact: true,
   });
   const reasons = risk.getByRole('list', { name: 'Reasons for this tier' });
+  let riskRequestFailed = false;
+  await page.route('**/api/governance/tier-preview', route => {
+    if (
+      !riskRequestFailed &&
+      route.request().postDataJSON().classification === 'restricted'
+    ) {
+      riskRequestFailed = true;
+      return route.fulfill({ status: 503, json: {} });
+    }
+    return route.fallback();
+  });
   await classification.selectOption('restricted');
+  await expect(risk).toContainText('Risk preview unavailable');
+  await risk.getByRole('button', { name: 'Retry risk assessment' }).click();
+  await expect(classification).toHaveValue('restricted');
   await expect(risk).toContainText('Estimated risk tier 3 · Critical');
   await expect(reasons).toContainText('handles restricted data');
 
