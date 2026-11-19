@@ -11,11 +11,34 @@ import {
   WorkspaceSearch,
 } from './WorkspaceLayout';
 
+const incompleteReasonLabels = {
+  'missing-record': 'App record missing. Check the repository’s registration.',
+  'source-mismatch':
+    'Source URL mismatch. Check which app owns this repository.',
+  retired:
+    'App record retired. Confirm whether this repository is still in use.',
+  'invalid-record': 'App record incomplete. Review the saved app details.',
+  'backup-required':
+    'Backup owner missing. Add a backup owner to the app record.',
+  'ownership-unavailable':
+    'Ownership could not be verified. Check the owner details in Catalog.',
+} as const;
+
+type IncompleteReason = keyof typeof incompleteReasonLabels;
+
 export type DiscoveryResult = {
   source: { organization: string; topic: string } | null;
   intervalMinutes: number | null;
   recordCoverage?:
-    | { complete: number; eligible: number; incompleteRepositoryIds?: string[] }
+    | {
+        complete: number;
+        eligible: number;
+        incompleteRepositoryIds?: string[];
+        incompleteRecords?: Array<{
+          repositoryId: string;
+          reason: IncompleteReason;
+        }>;
+      }
     | { eligible: number; unavailable: true };
   lastScan: {
     at: string;
@@ -178,6 +201,14 @@ export function DiscoveryQueue({
     recordCoverage.incompleteRepositoryIds !== undefined
       ? new Set(recordCoverage.incompleteRepositoryIds)
       : undefined;
+  const incompleteReasons = new Map(
+    recordCoverage && 'complete' in recordCoverage
+      ? recordCoverage.incompleteRecords?.map(({ repositoryId, reason }) => [
+          repositoryId,
+          reason,
+        ])
+      : undefined,
+  );
   const incompleteUnavailable =
     result?.source && filter === 'incomplete' && !incompleteIds;
   const search = query.trim().toLowerCase();
@@ -201,7 +232,10 @@ export function DiscoveryQueue({
   const start = (page - 1) * repositoriesPerPage;
   const end = Math.min(start + repositoriesPerPage, totalMatches);
   const shownRange = start + 1 === end ? end : `${start + 1}–${end}`;
-  const visibleRepositories = matches?.slice(start, end);
+  const visibleRepositories = matches?.slice(start, end).map(repository => ({
+    repository,
+    incompleteReason: incompleteReasons.get(repository.id),
+  }));
   const { eligible } = counts;
 
   function searchRepositories(value: string) {
@@ -396,7 +430,7 @@ export function DiscoveryQueue({
               </tr>
             </thead>
             <tbody>
-              {visibleRepositories.map(repository => (
+              {visibleRepositories.map(({ repository, incompleteReason }) => (
                 <tr key={repository.id}>
                   <td className="gov-app-cell">
                     <a className="gov-app-link" href={repository.sourceUrl}>
@@ -416,16 +450,21 @@ export function DiscoveryQueue({
                       {!repository.appId &&
                         (repository.dismissed ? 'Dismissed' : 'Unowned')}
                     </span>
+                    {filter === 'incomplete' && incompleteReason && (
+                      <p>{incompleteReasonLabels[incompleteReason]}</p>
+                    )}
                   </td>
                   <td data-label="Action">
-                    {repository.appId && (
-                      <Link
-                        className="gov-button"
-                        to={appRecordPath(repository.appId, params)}
-                      >
-                        Open app record
-                      </Link>
-                    )}
+                    {repository.appId &&
+                      incompleteReason !== 'missing-record' &&
+                      incompleteReason !== 'source-mismatch' && (
+                        <Link
+                          className="gov-button"
+                          to={appRecordPath(repository.appId, params)}
+                        >
+                          Open app record
+                        </Link>
+                      )}
                     {!repository.appId && !repository.dismissed && (
                       <Link
                         className="gov-button"

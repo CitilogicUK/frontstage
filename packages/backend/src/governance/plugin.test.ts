@@ -4120,9 +4120,9 @@ describe('governance record access', () => {
       return body;
     };
     const publicApp = await register('public');
-    await register('private');
+    const privateApp = await register('private');
     const incomplete = await register('incomplete');
-    await register('retired', 'retired');
+    const retiredApp = await register('retired', 'retired');
     await db('governance_apps')
       .where({ id: incomplete.id })
       .update({
@@ -4146,6 +4146,10 @@ describe('governance record access', () => {
       complete: 2,
       eligible: 5,
       incompleteRepositoryIds: ['102', '103'],
+      incompleteRecords: [
+        { repositoryId: '102', reason: 'backup-required' },
+        { repositoryId: '103', reason: 'retired' },
+      ],
     });
     expect(complete.body.lastScan.partial).toBe(true);
     expect(complete.body.repositories).toHaveLength(6);
@@ -4171,6 +4175,12 @@ describe('governance record access', () => {
       complete: 0,
       eligible: 5,
       incompleteRepositoryIds: ['102', '101', '100', '103'],
+      incompleteRecords: [
+        { repositoryId: '102', reason: 'backup-required' },
+        { repositoryId: '101', reason: 'ownership-unavailable' },
+        { repositoryId: '100', reason: 'ownership-unavailable' },
+        { repositoryId: '103', reason: 'retired' },
+      ],
     });
 
     await db('governance_apps')
@@ -4185,6 +4195,11 @@ describe('governance record access', () => {
       complete: 1,
       eligible: 5,
       incompleteRepositoryIds: ['102', '100', '103'],
+      incompleteRecords: [
+        { repositoryId: '102', reason: 'backup-required' },
+        { repositoryId: '100', reason: 'source-mismatch' },
+        { repositoryId: '103', reason: 'retired' },
+      ],
     });
     catalog.mockRejectedValueOnce(new Error('Catalog unavailable'));
     const degraded = await read();
@@ -4194,6 +4209,37 @@ describe('governance record access', () => {
     });
     expect(degraded.body.repositories).toHaveLength(6);
     expect(degraded.body.lastScan.partial).toBe(true);
+
+    await db('governance_apps')
+      .where({ id: privateApp.id })
+      .update({ payload: JSON.stringify({ ...privateApp, name: '' }) });
+    const invalid = (await read()).body.recordCoverage;
+    expect(invalid.complete).toBe(0);
+    expect(invalid.incompleteRecords).toContainEqual({
+      repositoryId: '101',
+      reason: 'invalid-record',
+    });
+    for (const [record, changes] of [
+      [incomplete, { classification: 'public' }],
+      [retiredApp, {}],
+      [privateApp, { name: '' }],
+    ] as const) {
+      await db('governance_apps')
+        .where({ id: record.id })
+        .update({
+          payload: JSON.stringify({
+            ...record,
+            ...changes,
+            sourceUrl: 'https://github.com/example/other-source',
+          }),
+        });
+    }
+    expect((await read()).body.recordCoverage.incompleteRecords).toEqual(
+      ['102', '101', '100', '103'].map(repositoryId => ({
+        repositoryId,
+        reason: 'source-mismatch',
+      })),
+    );
   });
 
   it('previews a matching discovered descriptor without writing or exposing GitHub credentials', async () => {

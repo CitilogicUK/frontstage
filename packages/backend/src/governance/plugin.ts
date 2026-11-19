@@ -105,6 +105,7 @@ import {
   ReviewStatus,
   reviewTicketUrlInput,
   riskInput,
+  sourceUrl,
   tierPolicyInput,
 } from './policy';
 
@@ -2150,6 +2151,14 @@ export const governancePlugin = createBackendPlugin({
             dismissed: boolean | number;
           }>,
         ) {
+          type IncompleteReason =
+            | 'missing-record'
+            | 'source-mismatch'
+            | 'retired'
+            | 'invalid-record'
+            | 'backup-required'
+            | 'ownership-unavailable';
+          type RecordCheck = { app: AppInput } | { reason: IncompleteReason };
           const tracked = repositories.filter(
             repo => repo.appId || !repo.dismissed,
           );
@@ -2159,7 +2168,9 @@ export const governancePlugin = createBackendPlugin({
               tracked.flatMap(repo => (repo.appId ? [repo.appId] : [])),
             ),
           ];
-          const apps = new Map<string, AppInput>();
+          const apps = new Map<string, RecordCheck>();
+          const persistedSourceKeys = new Map<string, string>();
+          const sourceField = z.object({ sourceUrl });
           for (let offset = 0; offset < appIds.length; offset += 100) {
             const rows = await db(table)
               .whereIn('id', appIds.slice(offset, offset + 100))
@@ -2169,41 +2180,63 @@ export const governancePlugin = createBackendPlugin({
               try {
                 input = JSON.parse(row.payload);
               } catch {
+                apps.set(row.id, { reason: 'invalid-record' });
                 continue;
               }
+              const identity = sourceField.safeParse(input);
+              if (identity.success)
+                persistedSourceKeys.set(
+                  row.id,
+                  appSourceKey(identity.data.sourceUrl),
+                );
               const parsed = appInput.safeParse(input);
-              if (!parsed.success || parsed.data.lifecycle === 'retired')
+              if (!parsed.success) {
+                const onlyMissingBackup = parsed.error.issues.every(
+                  issue =>
+                    issue.code === 'custom' && issue.path[0] === 'backupOwner',
+                );
+                apps.set(row.id, {
+                  reason: onlyMissingBackup
+                    ? 'backup-required'
+                    : 'invalid-record',
+                });
                 continue;
+              }
               const app = parsed.data;
+              if (app.lifecycle === 'retired') {
+                apps.set(row.id, { reason: 'retired' });
+                continue;
+              }
               if (
                 evaluateTier(app) >= 2 &&
                 (!app.backupOwner || app.backupOwner === app.owner)
-              )
+              ) {
+                apps.set(row.id, { reason: 'backup-required' });
                 continue;
-              apps.set(row.id, app);
+              }
+              apps.set(row.id, { app });
             }
           }
           const registered = tracked.flatMap(repo => {
             if (!repo.appId) return [];
-            const app = apps.get(repo.appId);
-            return [
-              {
-                id: repo.id,
-                app:
-                  app &&
-                  appSourceKey(app.sourceUrl) === appSourceKey(repo.sourceUrl)
-                    ? app
-                    : undefined,
-              },
-            ];
+            let check: RecordCheck = apps.get(repo.appId) ?? {
+              reason: 'missing-record',
+            };
+            const persistedSourceKey = persistedSourceKeys.get(repo.appId);
+            if (
+              persistedSourceKey !== undefined &&
+              persistedSourceKey !== appSourceKey(repo.sourceUrl)
+            )
+              check = { reason: 'source-mismatch' };
+            return [{ repositoryId: repo.id, check }];
           });
           let unavailable: Set<string>;
           try {
             unavailable = await unavailableOwners(
               [
                 ...new Set(
-                  registered.flatMap(({ app }) =>
-                    app ? ownershipRefs(app) : [],
+                  registered.flatMap(({ check }) =>
+                    'app' in check ? ownershipRefs(check.app) : [],
                   ),
                 ),
               ],
@@ -2212,15 +2245,23 @@ export const governancePlugin = createBackendPlugin({
           } catch {
             return { eligible, unavailable: true as const };
           }
-          const incompleteRepositoryIds = registered.flatMap(({ id, app }) =>
-            app && ownershipRefs(app).every(ref => !unavailable.has(ref))
-              ? []
-              : [id],
-          );
+          const incompleteRecords = registered.flatMap<{
+            repositoryId: string;
+            reason: IncompleteReason;
+          }>(({ repositoryId, check }) => {
+            if ('reason' in check)
+              return [{ repositoryId, reason: check.reason }];
+            return ownershipRefs(check.app).some(ref => unavailable.has(ref))
+              ? [{ repositoryId, reason: 'ownership-unavailable' }]
+              : [];
+          });
           return {
             eligible,
-            complete: registered.length - incompleteRepositoryIds.length,
-            incompleteRepositoryIds,
+            complete: registered.length - incompleteRecords.length,
+            incompleteRepositoryIds: incompleteRecords.map(
+              ({ repositoryId }) => repositoryId,
+            ),
+            incompleteRecords,
           };
         }
 
