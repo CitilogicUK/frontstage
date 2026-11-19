@@ -116,6 +116,21 @@ export function discoveryCounts(repositories: DiscoveryResult['repositories']) {
   return { ...counts, eligible: counts.registered + counts.unowned };
 }
 
+export function discoveryRouteParams(
+  current: URLSearchParams,
+  repositoryId?: string,
+) {
+  const next = new URLSearchParams({
+    view: repositoryId === undefined ? 'discovery' : 'register',
+  });
+  if (repositoryId !== undefined) next.set('repository', repositoryId);
+  for (const key of ['discoveryStatus', 'discoveryPage', 'discoveryQuery']) {
+    const value = current.get(key);
+    if (value) next.set(key, value);
+  }
+  return next;
+}
+
 const repositoriesPerPage = 25;
 
 export function DiscoveryQueue({
@@ -376,9 +391,13 @@ export function DiscoveryQueue({
                     {!repository.appId && !repository.dismissed && (
                       <Link
                         className="gov-button"
-                        to={`/?view=register&repository=${encodeURIComponent(
-                          repository.id,
-                        )}`}
+                        to={{
+                          pathname: '/',
+                          search: discoveryRouteParams(
+                            params,
+                            repository.id,
+                          ).toString(),
+                        }}
                       >
                         Claim repository
                       </Link>

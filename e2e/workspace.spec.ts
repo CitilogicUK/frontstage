@@ -4157,11 +4157,22 @@ test('claiming a repository opens its app in the registered Discovery queue', as
       return route.fulfill({ status: 201, json: claimed });
     },
   );
-  await page.goto('/?view=discovery');
+  const queuePath =
+    '/?view=discovery&discoveryStatus=all&discoveryQuery=workbook';
+  await page.goto(queuePath);
   const claim = page.getByRole('link', { name: 'Claim repository' });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(claim.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await claim.click();
+  await expect(page).toHaveURL(
+    /view=register&repository=claimable.*discoveryQuery=workbook$/,
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page).toHaveURL(workspaceUrl + queuePath);
+  await expect(
+    page.getByRole('searchbox', { name: 'Search discoveries' }),
+  ).toHaveValue('workbook');
   await claim.click();
   await page.getByRole('button', { name: 'Preview descriptor' }).click();
   await expect(

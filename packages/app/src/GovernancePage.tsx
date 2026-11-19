@@ -16,7 +16,11 @@ import {
 import AppsIcon from '@material-ui/icons/Apps';
 import CloseIcon from '@material-ui/icons/Close';
 import { Link, useSearchParams } from 'react-router-dom';
-import { DiscoveryQueue, type DiscoveryResult } from './DiscoveryQueue';
+import {
+  DiscoveryQueue,
+  discoveryRouteParams,
+  type DiscoveryResult,
+} from './DiscoveryQueue';
 import {
   RepositoryDescriptorPreview,
   type RepositoryDescriptor,
@@ -4068,8 +4072,10 @@ export function GovernancePage() {
                 type="button"
                 onClick={() => {
                   if (usageRegistrationSource) navigate('Reports');
-                  else if (candidate || hostedRegistration)
-                    navigate('Discovery');
+                  else if (candidate) {
+                    resetView();
+                    setParams(discoveryRouteParams(params));
+                  } else if (hostedRegistration) navigate('Discovery');
                   else navigate('Inventory');
                 }}
               >
