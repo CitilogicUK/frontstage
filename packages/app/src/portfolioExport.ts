@@ -1,7 +1,12 @@
 import { registrationSource } from './appDimensions';
 import type { HostedSnapshotApp } from './HostedSnapshotPreview';
 import { appRecordUrl, reviewDaysOverdue } from './reviewDue';
-import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
+import {
+  reviewSignoffLines,
+  reviewTrackLabels,
+  type ReviewSignoffs,
+  type ReviewTrack,
+} from './reviewTracks';
 
 const usageColumns = [
   'window_start_utc',
@@ -316,9 +321,11 @@ export function missingReviewTicketsCsv(
     owner: string;
     team: string;
     reviewStatus: string;
+    signoffs?: ReviewSignoffs;
     nextReview: string | null;
   }>,
   baseUrl: string,
+  tracks: readonly ReviewTrack[],
 ) {
   return encodeCsv(
     [
@@ -329,6 +336,7 @@ export function missingReviewTicketsCsv(
       'review_status',
       'next_review_utc',
       'app_url',
+      'review_sign_offs',
     ],
     apps.map(app => [
       app.id,
@@ -338,6 +346,7 @@ export function missingReviewTicketsCsv(
       app.reviewStatus,
       app.nextReview ?? '',
       appRecordUrl(baseUrl, app.id).href,
+      reviewSignoffLines(tracks, app.signoffs).join(' | '),
     ]),
   );
 }

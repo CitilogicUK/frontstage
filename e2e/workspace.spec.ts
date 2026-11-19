@@ -2049,6 +2049,9 @@ test('reviewers can find required reviews without a linked ticket', async ({
     tier: 3,
     lifecycle: 'experimental',
     reviewStatus: 'pending',
+    signoffs: {
+      security: { status: 'approved', actor: 'user:default/security-reviewer' },
+    },
     nextReview: null,
     updatedAt: '2025-01-01T00:00:00.000Z',
     classification: 'internal',
@@ -2090,6 +2093,7 @@ test('reviewers can find required reviews without a linked ticket', async ({
       json: {
         canReview,
         actor: 'user:default/reviewer',
+        reviewTracks: ['security', 'dataProtection'],
         apps: [
           { ...app, reviewTicketUrl },
           { ...overdueApp, reviewTicketUrl: overdueTicketUrl },
@@ -2160,7 +2164,12 @@ test('reviewers can find required reviews without a linked ticket', async ({
     'frontstage-missing-review-tickets.csv',
   );
   const csv = await readFile(await download.path(), 'utf8');
-  const [, ...exportedRows] = csv.trimEnd().split(/\r?\n/);
+  const [headers, ...exportedRows] = csv.trimEnd().split(/\r?\n/);
+  expect(headers).toMatch(/,review_sign_offs$/);
+  expect(exportedRows[0]).toContain(
+    '"Security sign-off: approved | Data Protection sign-off: pending"',
+  );
+  expect(csv).not.toContain(app.signoffs.security.actor);
   expect(exportedRows).toHaveLength(1);
   expect(exportedRows[0]).toContain(`"${app.name}"`);
   expect(exportedRows[0]).toContain(`"${workspaceUrl}/?app=${app.id}"`);
