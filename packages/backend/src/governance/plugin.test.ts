@@ -4747,8 +4747,31 @@ describe('governance record access', () => {
     await issue(
       `/api/governance/apps/${draft.body.id}/gateway-key?environment=production`,
     ).expect(403);
+    const scorecard = () =>
+      api.get(`${path}/scorecard`).set('Authorization', auth).expect(200);
+    const ownerScorecard = () =>
+      api
+        .get('/api/governance/owner-scorecard')
+        .set('Authorization', auth)
+        .expect(200);
     const sandbox = await issue(sandboxPath).expect(201);
+    expect((await scorecard()).body.checks).toContainEqual({
+      name: 'Gateway key',
+      status: 'attention',
+      detail:
+        'Ask the app owner or a reviewer to issue a production gateway key.',
+    });
+    expect((await ownerScorecard()).body.issues).toContainEqual({
+      appId: app.body.id,
+      checks: ['Gateway key'],
+    });
     const issued = await issue(productionPath).expect(201);
+    expect((await scorecard()).body.checks).toContainEqual({
+      name: 'Gateway key',
+      status: 'pass',
+      detail: 'A production gateway key is issued for this app.',
+    });
+    expect((await ownerScorecard()).body.issues).toEqual([]);
     expect(issued.body.key).not.toBe(sandbox.body.key);
     await keyStatus(sandboxPath).expect(200, { issued: true });
     await keyStatus(productionPath).expect(200, { issued: true });
