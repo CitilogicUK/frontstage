@@ -2066,9 +2066,7 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   const record = page.getByRole('dialog', { name: 'Registered sample app' });
   await expect(record).toBeVisible();
   await record.getByRole('button', { name: 'Close app details' }).click();
-  await expect(page).toHaveURL(
-    /view=discovery&discoveryStatus=registered&discoveryQuery=Sample$/,
-  );
+  await expect(page).toHaveURL(/view=discovery&discoveryStatus=registered$/);
   await expect(
     page.getByRole('searchbox', { name: 'Search discoveries' }),
   ).toHaveValue('Sample');
@@ -2151,14 +2149,14 @@ test('Discovery paginates search results and preserves the page when reopening a
   await queue
     .getByRole('searchbox', { name: 'Search discoveries' })
     .fill('Repository 26');
-  await expect(page).toHaveURL(/discoveryQuery=Repository\+26$/);
+  await expect(page).toHaveURL(/view=discovery&discoveryStatus=all$/);
   await expect(queue.getByRole('row')).toHaveCount(2);
   await expect(pages).toHaveCount(0);
   await page.reload();
   await expect(
     queue.getByRole('searchbox', { name: 'Search discoveries' }),
-  ).toHaveValue('Repository 26');
-  await expect(queue.getByRole('row')).toHaveCount(2);
+  ).toHaveValue('');
+  await expect(queue.getByRole('row')).toHaveCount(26);
 });
 
 test('claiming a repository opens its app in the registered Discovery queue', async ({
