@@ -1558,10 +1558,24 @@ test('audit history shows production review and ownership handoff', async ({
 
   const windowSelect = page.getByRole('combobox', { name: 'Reporting window' });
   await expect(windowSelect).toHaveValue('30');
+  const outsideSpend = page.getByRole('spinbutton', {
+    name: 'Model spend outside the gateway (USD)',
+  });
+  await page.getByText('Estimate gateway spend share', { exact: true }).click();
+  await outsideSpend.fill('0.08');
+  await expect(page.getByText('60% estimated gateway share')).toBeVisible();
+  await outsideSpend.fill('-1');
+  await expect(
+    page.getByText('Enter a non-negative USD amount.'),
+  ).toBeVisible();
   await windowSelect.selectOption('7');
   await expect(page).toHaveURL(/view=reports&days=7$/);
   await expect(page.getByText('No gateway calls recorded')).toBeVisible();
   await expect(page.getByText('Live estimated cost · 7 days')).toBeVisible();
+  await page.getByText('Estimate gateway spend share', { exact: true }).click();
+  await expect(outsideSpend).toHaveValue('');
+  await outsideSpend.fill('0');
+  await expect(page.getByText('No spend in this window.')).toBeVisible();
   await windowSelect.selectOption('30');
   const thresholds = page.getByRole('region', {
     name: 'Monthly spend thresholds',

@@ -749,6 +749,18 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.gov-spend-share {
+  margin-top: 8px;
+}
+.gov-spend-share label {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 4px;
+}
+.gov-spend-share input {
+  width: 100%;
+  min-width: 0;
+}
 .gov-report-heading p {
   color: var(--gov-muted);
 }
