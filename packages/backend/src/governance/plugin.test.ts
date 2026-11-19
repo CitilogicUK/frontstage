@@ -19,13 +19,19 @@ describe('governance record access', () => {
     const backup = 'user:default/backup';
     const reviewer = 'user:default/reviewer';
     const teammate = 'user:default/teammate';
+    const inactive = new Set<string>();
     jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
         items: entityRefs.map(ref => ({
           apiVersion: 'backstage.io/v1alpha1',
           kind: ref.startsWith('group:') ? 'Group' : 'User',
-          metadata: { name: ref.split('/')[1] },
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
         })),
       }));
     jest.replaceProperty(process, 'env', {
@@ -245,6 +251,17 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
       .expect(200);
+    inactive.add(owner);
+    await list().expect(200, { apps: [] });
+    await api
+      .put(`${personalPath}/directory`)
+      .set('Authorization', auth(reviewer))
+      .send({ ...listing, expectedUpdatedAt: publicPersonal.body.updatedAt })
+      .expect(400);
+    inactive.delete(owner);
+    await list().expect(200, {
+      apps: [{ id: personalApp.id, name: personalApp.name, ...listing }],
+    });
     const personalQueue = `${personalPath}/directory-requests`;
     const { body: pendingTransferRequest } = await api
       .post(personalQueue)
@@ -353,13 +370,19 @@ describe('governance record access', () => {
     const reviewer = 'user:default/reviewer';
     const requester = 'user:default/requester';
     const otherRequester = 'user:default/other-requester';
+    const inactive = new Set<string>();
     jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
         items: entityRefs.map(ref => ({
           apiVersion: 'backstage.io/v1alpha1',
           kind: ref.startsWith('group:') ? 'Group' : 'User',
-          metadata: { name: ref.split('/')[1] },
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: inactive.has(ref)
+              ? { 'governance.backstage.io/active': 'false' }
+              : undefined,
+          },
         })),
       }));
     const db = await databases.init('SQLITE_3');
@@ -484,6 +507,23 @@ describe('governance record access', () => {
     await api
       .get(queue)
       .set('Authorization', auth(owner))
+      .expect(200, reviewerQueue);
+
+    inactive.add(owner);
+    await feed(requester).expect(200, { apps: [] });
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
+      .expect(200, { ...reviewerQueue, canApprove: false });
+    await createRequest(reviewer).expect(404);
+    await decide(reviewer, created.id, 'approved').expect(409);
+    inactive.delete(owner);
+    await feed(requester).expect(200, {
+      apps: [{ ...entry, requestStatus: 'pending' }],
+    });
+    await api
+      .get(queue)
+      .set('Authorization', auth(reviewer))
       .expect(200, reviewerQueue);
 
     await decide(requester, created.id, 'approved').expect(403);

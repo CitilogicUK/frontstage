@@ -152,7 +152,7 @@ Set `governance.discovery.github.organization` and `topic` to use a different Gi
 
 The **Directory** lets signed-in teammates find apps that their owners or reviewers have published. Open an active app in Inventory, enter a summary suitable for the directory and its HTTPS launch URL, then publish it. The listing shows the app name, summary, and launch link. The destination app handles access.
 
-Owners and reviewers can update or remove a listing. The directory hides apps that no longer meet current launch requirements. Leaving active status or transferring the accountable owner clears the listing.
+Owners and reviewers can update or remove a listing. The directory hides apps that no longer meet current launch requirements or whose catalog owners or team are unavailable. Leaving active status or transferring the accountable owner clears the listing.
 
 A teammate can request access to a listed app with a short message. In the app details, the accountable owner or a reviewer can approve or decline the pending request. The requester sees the decision in Directory while the app remains listed. Frontstage records the decision. Provisioning and revoking access happen in the destination app.
 

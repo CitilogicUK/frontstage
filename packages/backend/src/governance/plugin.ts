@@ -979,6 +979,16 @@ export const governancePlugin = createBackendPlugin({
             : undefined;
         }
 
+        async function hasEligibleDirectoryListing(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          return (
+            Boolean(eligibleDirectoryListing(record, now)) &&
+            (await ownersAreActive(record))
+          );
+        }
+
         router.get('/directory', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
@@ -993,11 +1003,21 @@ export const governancePlugin = createBackendPlugin({
           const ownStatuses = new Map(
             ownRequests.map(row => [row.app_id, row.status]),
           );
-          const apps = rows
-            .flatMap(row => {
-              const record = JSON.parse(row.payload) as GovernanceRecord;
+          const candidates = rows
+            .map(row => JSON.parse(row.payload) as GovernanceRecord)
+            .flatMap(record => {
               const listing = eligibleDirectoryListing(record, now);
-              if (!listing) return [];
+              return listing ? [{ record, listing }] : [];
+            });
+          const unavailable = await unavailableOwners([
+            ...new Set(
+              candidates.flatMap(({ record }) => ownershipRefs(record)),
+            ),
+          ]);
+          const apps = candidates
+            .flatMap(({ record, listing }) => {
+              if (ownershipRefs(record).some(ref => unavailable.has(ref)))
+                return [];
               const { summary, url } = listing;
               return [
                 {
@@ -1049,6 +1069,7 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Resolve the current launch requirements before publishing an active app.',
             );
+          await validateOwners(record);
           const updated: GovernanceRecord = {
             ...record,
             directoryListing: { summary, url },
@@ -1103,7 +1124,7 @@ export const governancePlugin = createBackendPlugin({
           const created = await db.transaction(async transaction => {
             const { record } = await load(req.params.id, transaction);
             const now = Date.now();
-            if (!eligibleDirectoryListing(record, now))
+            if (!(await hasEligibleDirectoryListing(record, now)))
               throw new NotFoundError(
                 'This app has no current directory listing.',
               );
@@ -1145,7 +1166,7 @@ export const governancePlugin = createBackendPlugin({
               .orderBy('id');
             return {
               requests: requests.map(directoryRequestView),
-              canApprove: Boolean(eligibleDirectoryListing(record)),
+              canApprove: await hasEligibleDirectoryListing(record),
             };
           });
           res.set('Cache-Control', 'no-store').json(queue);
@@ -1182,7 +1203,7 @@ export const governancePlugin = createBackendPlugin({
               const now = Date.now();
               if (
                 input.data === 'approved' &&
-                !eligibleDirectoryListing(record, now)
+                !(await hasEligibleDirectoryListing(record, now))
               )
                 throw new ConflictError(
                   'This app no longer has an eligible directory listing.',
