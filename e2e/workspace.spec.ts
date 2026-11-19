@@ -700,7 +700,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   );
   const csv = await readFile(await download.path(), 'utf8');
   expect(csv.trimEnd().split(/\r?\n/)).toEqual([
-    'window_start_utc,window_end_utc,source_url,model,calls,app_id,app_name',
+    '\uFEFFwindow_start_utc,window_end_utc,source_url,model,calls,app_id,app_name',
     `"${snapshot.from}","${snapshot.to}","${app.sourceUrl}","fixture-model",12,"${app.id}","${app.name}"`,
     `"${snapshot.from}","${snapshot.to}","${snapshot.rows[1].sourceUrl}","fixture-model",3,"",""`,
   ]);
