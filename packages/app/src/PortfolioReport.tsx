@@ -156,6 +156,7 @@ export function PortfolioReport({
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
   const selectedTeam = params.get('usageTeam') ?? '';
+  const selectedBlockReason = params.get('blockReason') ?? '';
   const groupByModel = params.get('usageGroup') === 'model';
   const inventoryGroups = {
     lifecycle: {
@@ -245,7 +246,8 @@ export function PortfolioReport({
       | 'usageTeam'
       | 'usageGroup'
       | 'inventoryGroup'
-      | 'ownershipRole',
+      | 'ownershipRole'
+      | 'blockReason',
     value: string,
   ) {
     setParams(previous => {
@@ -374,8 +376,17 @@ export function PortfolioReport({
           right.liveCost - left.liveCost || a.localeCompare(b),
       )
     : teams;
-  const blocks = report?.blocks
-    .filter(row => !selectedTeam || teamOf(row.appId) === selectedTeam)
+  const teamBlocks = report?.blocks.filter(
+    row => !selectedTeam || teamOf(row.appId) === selectedTeam,
+  );
+  const blockReasons = [...new Set(teamBlocks?.map(row => row.reason))];
+  if (selectedBlockReason && !blockReasons.includes(selectedBlockReason))
+    blockReasons.push(selectedBlockReason);
+  blockReasons.sort((a, b) =>
+    gatewayBlockReason(a).localeCompare(gatewayBlockReason(b)),
+  );
+  const blocks = teamBlocks
+    ?.filter(row => !selectedBlockReason || row.reason === selectedBlockReason)
     .sort((a, b) => b.calls - a.calls);
   const rows = report?.usage
     .map(row => ({
@@ -1157,12 +1168,32 @@ export function PortfolioReport({
               Requests blocked in the last {windowLabel}
               {selectedTeam && ` for ${selectedTeam}`}.
             </p>
+            {blockReasons.length > 0 && (
+              <label>
+                Block reason
+                <select
+                  value={selectedBlockReason}
+                  onChange={event =>
+                    setReportFilter('blockReason', event.target.value)
+                  }
+                >
+                  <option value="">All block reasons</option>
+                  {blockReasons.map(reason => (
+                    <option key={reason} value={reason}>
+                      {gatewayBlockReason(reason)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           {blocks.length === 0 && (
             <WorkspaceEmptyState
               icon={<AssessmentOutlinedIcon aria-hidden="true" />}
               title={
-                selectedTeam
+                selectedBlockReason
+                  ? 'No policy blocks match this reason'
+                  : selectedTeam
                   ? 'No policy blocks for this team'
                   : 'No policy blocks recorded'
               }
