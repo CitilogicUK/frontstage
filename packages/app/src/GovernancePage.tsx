@@ -3613,7 +3613,10 @@ export function GovernancePage() {
                       usageSignal,
                     );
                     if (usageSignal?.aborted) return;
-                    setUsagePreview(refreshed);
+                    setUsagePreview({
+                      ...refreshed,
+                      savedReconciliationId: usagePreview.savedReconciliationId,
+                    });
                   } catch {
                     if (usageSignal?.aborted) return;
                     setUsagePreview(undefined);

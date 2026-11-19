@@ -887,8 +887,11 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(report.getByRole('link', { name: app.name })).toBeVisible();
   expect(previewCalls).toBe(4);
 
+  await expect(
+    report.getByRole('button', { name: 'Save reconciliation', exact: true }),
+  ).toHaveCount(0);
   await report
-    .getByRole('button', { name: /Open saved reconciliation/ })
+    .getByRole('button', { name: 'Open original reconciliation' })
     .click();
   await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
   await expect(report.getByRole('link', { name: draft.name })).toBeVisible();

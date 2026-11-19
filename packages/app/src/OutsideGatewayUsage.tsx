@@ -174,7 +174,7 @@ export function OutsideGatewayUsage({
       );
       if (result) {
         setSaved(undefined);
-        onPreview(result);
+        onPreview({ ...result, savedReconciliationId: reconciliation.id });
       }
     } catch {
       if (!controller.signal.aborted)
@@ -334,9 +334,13 @@ export function OutsideGatewayUsage({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void accessReconciliation()}
+                onClick={() =>
+                  void accessReconciliation(livePreview?.savedReconciliationId)
+                }
               >
-                Save reconciliation
+                {livePreview?.savedReconciliationId
+                  ? 'Open original reconciliation'
+                  : 'Save reconciliation'}
               </button>
             </>
           )}

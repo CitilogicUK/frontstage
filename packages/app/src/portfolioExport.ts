@@ -90,6 +90,7 @@ export function gatewaySpendShareCsv(
 }
 
 export type OutsideGatewayUsagePreview = {
+  savedReconciliationId?: string;
   from: string;
   to: string;
   rows: Array<{
