@@ -13,10 +13,12 @@ export type HostedSnapshotApp = {
 
 export function HostedSnapshotPreview({
   apps,
+  sampleUrl,
   onPreview,
   onRegister,
 }: {
   apps: HostedSnapshotApp[] | undefined;
+  sampleUrl: string;
   onPreview: (snapshot: unknown, signal: AbortSignal) => Promise<void>;
   onRegister: (app: HostedSnapshotApp) => void;
 }) {
@@ -84,6 +86,13 @@ export function HostedSnapshotPreview({
           <code>sourceUrl</code>).
         </p>
       </div>
+      <a
+        className="gov-button"
+        href={sampleUrl}
+        download="hosted-inventory.json"
+      >
+        Download sample JSON
+      </a>
       <form onSubmit={preview}>
         <fieldset className="gov-fieldset" disabled={pending}>
           <legend>Preview snapshot</legend>

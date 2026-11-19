@@ -1,0 +1,22 @@
+{
+  "apps": [
+    {
+      "name": "Hosted project briefs demo",
+      "provider": "Example AI",
+      "workspace": "Company sandbox",
+      "sourceUrl": "https://example.com/frontstage-demo/hosted-project-briefs"
+    },
+    {
+      "name": "Hosted workspace demo",
+      "provider": "Example AI",
+      "workspace": "Company sandbox",
+      "sourceUrl": "https://example.com/frontstage-demo/hosted-workspace"
+    },
+    {
+      "name": "Hosted meeting notes demo",
+      "provider": "Example AI",
+      "workspace": "Company sandbox",
+      "sourceUrl": "https://example.com/frontstage-demo/hosted-meeting-notes"
+    }
+  ]
+}

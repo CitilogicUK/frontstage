@@ -163,6 +163,23 @@ const scenarios = [
       dataAccess: 'none',
     },
   },
+  {
+    ...base,
+    name: 'Hosted project briefs demo',
+    purpose: 'Summarizes synthetic project briefs in the approved workspace.',
+    type: 'provider-hosted app',
+    platform: 'Hosted workspace & tools',
+    sourceUrl: 'https://example.com/frontstage-demo/hosted-project-briefs',
+    classification: 'internal',
+    deliveryStage: 'trial',
+    lifecycle: 'experimental',
+    hosted: {
+      provider: 'Example AI',
+      workspace: 'Company sandbox',
+      sharing: 'private',
+      dataAccess: 'none',
+    },
+  },
 ];
 
 function printRecord(record, summary) {
