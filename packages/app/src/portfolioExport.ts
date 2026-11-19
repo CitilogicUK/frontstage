@@ -1,3 +1,4 @@
+import { registrationSource } from './appDimensions';
 import { appRecordUrl, reviewDaysOverdue } from './reviewDue';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 
@@ -114,6 +115,7 @@ const inventoryColumns = [
   'next_review_utc',
   'days_overdue',
   'app_url',
+  'registration_source',
 ];
 
 export function inventoryCsv(
@@ -128,6 +130,7 @@ export function inventoryCsv(
     tier: number;
     lifecycle: string;
     deliveryStage?: string;
+    discoverySource?: string;
     usesAiAtRuntime?: boolean;
     models: string[];
     reviewStatus: string;
@@ -154,6 +157,7 @@ export function inventoryCsv(
       app.nextReview ?? '',
       reviewDaysOverdue(app, now) ?? '',
       appRecordUrl(baseUrl, app.id).href,
+      registrationSource(app.discoverySource),
     ]),
   );
 }

@@ -4,6 +4,8 @@ import {
   appClassifications,
   appLifecycles,
   appRiskTierNames,
+  appRegistrationSources,
+  registrationSource,
 } from './appDimensions';
 import { deliveryStages, parseDeliveryStage } from './deliveryStages';
 import AssessmentOutlinedIcon from '@material-ui/icons/AssessmentOutlined';
@@ -38,6 +40,7 @@ type AppSummary = {
   classification: string;
   effectiveClassification?: string;
   deliveryStage?: string;
+  discoverySource?: string;
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
   reviewTicketUrl?: string;
@@ -202,6 +205,11 @@ export function PortfolioReport({
         a.localeCompare(b),
       ),
       valuesOf: (app: AppSummary) => [app.platform],
+    },
+    registrationSource: {
+      label: 'Registration source',
+      values: Object.keys(appRegistrationSources),
+      valuesOf: (app: AppSummary) => [registrationSource(app.discoverySource)],
     },
     model: {
       label: 'Declared model',
@@ -656,6 +664,8 @@ export function PortfolioReport({
                 label = value;
               if (inventoryGroup === 'tier')
                 label = appRiskTierNames[Number(value) - 1];
+              if (inventoryGroup === 'registrationSource')
+                label = appRegistrationSources[registrationSource(value)];
               return (
                 <div key={value}>
                   <dt>{label}</dt>
