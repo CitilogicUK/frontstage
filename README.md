@@ -186,6 +186,8 @@ An owner or reviewer can open **Edit review ticket** in a non-retired Tier 3 app
 
 Use **Edit app details** in the app details to save links to test evidence, a data-flow diagram, or an incident plan. The owner, backup owner, and reviewers can read the links. New or changed ticket and evidence URLs must be at most 2,048 characters and contain no URL credentials. Changing evidence reopens a critical app’s review.
 
+Set `governance.requiredCriticalReviewEvidence` to any combination of `tests`, `dataFlow`, and `incidentPlan` to require those links for new Tier 3 approvals, including separate sign-offs. Owners and reviewers can see which links are missing. Reviewers can still request changes. Leave the setting unset to keep the links optional.
+
 Set `governance.requireHumanApprovalEvidence` to true to require reviewers approving critical apps that take actions to confirm the human approval safeguard and provide an HTTPS evidence URL. With separate review tracks, each approving reviewer supplies that confirmation. Frontstage records the evidence on the approval event in Audit history. The setting applies when a new decision is made. The app or the destination system implements and enforces the human approval step.
 
 ## Owner attestation

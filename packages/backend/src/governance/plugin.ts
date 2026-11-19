@@ -392,6 +392,15 @@ export const governancePlugin = createBackendPlugin({
           config.getOptionalBoolean(
             'governance.requireHumanApprovalEvidence',
           ) ?? false;
+        const requiredCriticalReviewEvidence = z
+          .array(z.enum(['tests', 'dataFlow', 'incidentPlan']))
+          .refine(fields => new Set(fields).size === fields.length, {
+            message: 'Critical review evidence fields must be distinct.',
+          })
+          .default([])
+          .parse(
+            config.getOptional('governance.requiredCriticalReviewEvidence'),
+          );
         const approvedHostedWorkspaces = z
           .array(
             z.object({
@@ -1275,8 +1284,19 @@ export const governancePlugin = createBackendPlugin({
           );
         }
 
+        function missingCriticalReviewEvidence(record: GovernanceRecord) {
+          if (record.tier !== 3 || record.lifecycle === 'retired') return [];
+          return requiredCriticalReviewEvidence.filter(
+            field => !record.evidence?.[field],
+          );
+        }
+
         function appReviewDetails(record: GovernanceRecord) {
+          const missing = missingCriticalReviewEvidence(record);
           return {
+            ...(missing.length > 0 && {
+              missingCriticalReviewEvidence: missing,
+            }),
             riskAssessment: evaluateTierPolicy(record, tierPolicy),
             ...(humanApprovalEvidenceRequired(record) && {
               humanApprovalEvidenceRequired: true,
@@ -3362,6 +3382,13 @@ export const governancePlugin = createBackendPlugin({
           }
           if (!trackConfig && track)
             throw new InputError('Separate review tracks are disabled.');
+          if (
+            decision.data.status === 'approved' &&
+            missingCriticalReviewEvidence(record).length > 0
+          )
+            throw new InputError(
+              'Add the required review evidence to the app record before approving.',
+            );
           let humanApprovalEvidenceUrl: string | undefined;
           if (
             decision.data.status === 'approved' &&

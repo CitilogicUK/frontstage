@@ -1963,6 +1963,98 @@ test('reviewers can download the spreadsheet import sample', async ({
   ).toBeVisible();
 });
 
+test('critical reviews can request changes while required evidence is missing', async ({
+  page,
+  request,
+}) => {
+  await expect
+    .poll(
+      async () => {
+        const health = await request
+          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
+            timeout: 2_000,
+          })
+          .catch(() => undefined);
+        if (!health) return 0;
+        const status = health.status();
+        await health.dispose();
+        return status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(200);
+  const app = {
+    id: 'critical-evidence',
+    name: 'Critical evidence demo',
+    purpose: 'Processes synthetic records.',
+    owner: 'user:default/owner',
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/critical-evidence',
+    lifecycle: 'experimental',
+    classification: 'internal',
+    tier: 3,
+    reviewStatus: 'pending',
+    usesAiAtRuntime: false,
+    models: [],
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  };
+  let evidenceMissing = true;
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        apps: [
+          evidenceMissing
+            ? { ...app, missingCriticalReviewEvidence: ['dataFlow'] }
+            : { ...app, evidence: { dataFlow: 'https://example.com/flow' } },
+        ],
+        actor: 'user:default/reviewer',
+        canReview: true,
+      },
+    }),
+  );
+  await page.route('**/api/governance/apps/critical-evidence/reviews', route =>
+    route.fulfill({
+      json: {
+        ...app,
+        missingCriticalReviewEvidence: ['dataFlow'],
+        reviewStatus: 'changes needed',
+        updatedAt: '2026-06-01T00:01:00.000Z',
+      },
+    }),
+  );
+  await page.goto('/?app=critical-evidence');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  const decision = details.getByRole('combobox', { name: 'Decision' });
+  const approval = decision.locator('option[value="approved"]');
+  await expect(
+    details
+      .getByRole('region', { name: 'Review evidence' })
+      .getByText(/Data-flow diagram/),
+  ).toBeVisible();
+  await expect(approval).toBeDisabled();
+  await decision.selectOption('changes needed');
+  await details
+    .getByRole('textbox', { name: 'Review notes' })
+    .fill('Please add the data-flow diagram.');
+  const submission = page.waitForRequest(request =>
+    request.url().endsWith('/critical-evidence/reviews'),
+  );
+  await details.getByRole('button', { name: 'Record decision' }).click();
+  expect((await submission).postDataJSON()).toMatchObject({
+    status: 'changes needed',
+  });
+  await expect(details.getByText('Review recorded.')).toBeVisible();
+
+  evidenceMissing = false;
+  await page.reload();
+  await expect(approval).toBeEnabled();
+});
+
 test('consequential action reviews ask for human approval evidence', async ({
   page,
 }) => {
