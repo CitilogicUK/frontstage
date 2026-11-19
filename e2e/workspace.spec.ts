@@ -282,6 +282,7 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
 }) => {
   const actor = 'user:default/demo-owner';
+  let viewer = actor;
   const base = {
     owner: actor,
     purpose: 'Synthetic inventory fixture',
@@ -300,8 +301,8 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
-        actor,
-        canReview: false,
+        actor: viewer,
+        canReview: viewer !== actor,
         gatewayEnabled: true,
         apps: [
           {
@@ -456,6 +457,26 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(
     playground.getByRole('option', { name: 'gpt-4.1-mini' }),
   ).toHaveCount(1);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'Copy app link' }).click();
+  await expect(
+    page.getByText('App link copied.', { exact: true }),
+  ).toBeVisible();
+  const copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedLink).toBe(`${workspaceUrl}/?app=overdue`);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.reject(new Error('Clipboard permission denied')),
+    });
+  });
+  await page.getByRole('button', { name: 'Copy app link' }).click();
+  const manualLink = page.getByRole('textbox', { name: 'Copy this app link' });
+  await expect(manualLink).toHaveValue(copiedLink);
+  await expect(manualLink).toBeFocused();
+  await expect(manualLink).toHaveJSProperty('selectionStart', 0);
+  await expect(manualLink).toHaveJSProperty('selectionEnd', copiedLink.length);
+
   const reminderPending = page.waitForEvent('download');
   await page
     .getByRole('button', { name: 'Download calendar reminder' })
@@ -656,6 +677,14 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(page.getByText('No matching apps')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows).toHaveCount(4);
+
+  viewer = 'user:default/reviewer';
+  await page.goto(copiedLink);
+  const sharedApp = page.getByRole('dialog', { name: 'Overdue app' });
+  await expect(sharedApp).toBeVisible();
+  await expect(
+    sharedApp.getByRole('button', { name: 'Record attestation' }),
+  ).toHaveCount(0);
 });
 
 test('reviewers can download the spreadsheet import sample', async ({

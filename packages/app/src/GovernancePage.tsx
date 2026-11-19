@@ -246,6 +246,51 @@ function options(values: string[]) {
   return values.map(value => <option key={value}>{value}</option>);
 }
 
+function CopyAppLink({ appId }: { appId: string }) {
+  const [copied, setCopied] = useState(false);
+  const [manualLink, setManualLink] = useState('');
+  const manualLinkInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (manualLink) manualLinkInput.current?.focus();
+  }, [manualLink]);
+
+  async function copy() {
+    const link = new URL(window.location.href);
+    link.search = new URLSearchParams({ app: appId }).toString();
+    link.hash = '';
+    try {
+      await navigator.clipboard.writeText(link.href);
+      setCopied(true);
+      setManualLink('');
+    } catch {
+      setCopied(false);
+      setManualLink(link.href);
+      manualLinkInput.current?.focus();
+    }
+  }
+
+  return (
+    <div>
+      <button type="button" onClick={copy}>
+        Copy app link
+      </button>
+      {copied && <p role="status">App link copied.</p>}
+      {manualLink && (
+        <label>
+          Copy this app link
+          <input
+            ref={manualLinkInput}
+            value={manualLink}
+            readOnly
+            onFocus={event => event.currentTarget.select()}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 export function GovernancePage() {
   const analytics = useAnalytics();
   const config = useApi(configApiRef);
@@ -1582,6 +1627,10 @@ export function GovernancePage() {
             </div>
             <h2 id="gov-detail-title">{selected.name}</h2>
             <p>{selected.purpose}</p>
+            <CopyAppLink
+              key={`copy-app-link-${selected.id}`}
+              appId={selected.id}
+            />
             {error && (
               <p className="gov-notice" role="alert">
                 {error}
