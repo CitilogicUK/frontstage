@@ -702,6 +702,56 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     },
   );
 
+  const reconciliation = {
+    id: 'reconciliation-1',
+    confirmedAt: '2026-06-09T10:00:00.000Z',
+    confirmedBy: reviewer,
+    preview: {
+      ...snapshot,
+      rows: [
+        { ...snapshot.rows[0], appId: app.id, appName: app.name },
+        { ...snapshot.rows[1], appId: draft.id, appName: draft.name },
+      ],
+    },
+  };
+  let reconciliationSaved = false;
+  await page.route(
+    '**/api/governance/reports/outside-gateway/reconciliations',
+    route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        expect(request.postDataJSON()).toEqual(snapshot);
+        reconciliationSaved = true;
+        return route.fulfill({ status: 201, json: reconciliation });
+      }
+      expect(request.method()).toBe('GET');
+      return route.fulfill({
+        json: {
+          reconciliations: reconciliationSaved
+            ? [
+                {
+                  id: reconciliation.id,
+                  confirmedAt: reconciliation.confirmedAt,
+                  confirmedBy: reconciliation.confirmedBy,
+                  from: snapshot.from,
+                  to: snapshot.to,
+                  rowCount: snapshot.rows.length,
+                },
+              ]
+            : [],
+        },
+      });
+    },
+  );
+  await page.route(
+    '**/api/governance/reports/outside-gateway/reconciliations/reconciliation-1',
+    route => {
+      expect(route.request().method()).toBe('GET');
+      expect(reconciliationSaved).toBe(true);
+      return route.fulfill({ json: reconciliation });
+    },
+  );
+
   await page.goto('/?view=reports');
   const report = page.getByRole('region', { name: 'Outside-gateway usage' });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
@@ -806,6 +856,23 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     .getByRole('button', { name: 'Close app details' })
     .click();
   await expect(startRegistration).toHaveCount(0);
+  expect(previewCalls).toBe(3);
+
+  await report.getByRole('button', { name: 'Save reconciliation' }).click();
+  await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
+  await page.reload();
+  await expect(report.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await report
+    .getByRole('button', { name: /Open saved reconciliation/ })
+    .click();
+  await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
+  await expect(
+    report.getByRole('row', { name: new RegExp(app.name) }),
+  ).toContainText('12');
+  await expect(
+    report.getByRole('row', { name: new RegExp(draft.name) }),
+  ).toContainText('3');
   expect(previewCalls).toBe(3);
 
   await page.getByRole('link', { name: 'Inventory', exact: true }).click();

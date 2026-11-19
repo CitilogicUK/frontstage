@@ -1,4 +1,12 @@
 import {
+  listOutsideGatewayUsage,
+  outsideGatewayUsageMigration,
+  parseOutsideGatewayUsage,
+  readOutsideGatewayUsage,
+  reconcileOutsideGatewayUsage,
+  saveOutsideGatewayUsage,
+} from './outsideGatewayUsage';
+import {
   directoryRequestsMigration,
   directoryRequestsTable,
   directoryRequestView,
@@ -477,6 +485,7 @@ export const governancePlugin = createBackendPlugin({
             '015_directory_requests',
             '016_review_reminders',
             '017_gateway_key_environments',
+            '018_outside_gateway_usage',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -484,6 +493,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '018_outside_gateway_usage')
+              return outsideGatewayUsageMigration();
             if (name === '017_gateway_key_environments')
               return gatewayKeyEnvironmentsMigration(table);
             if (name === '016_review_reminders')
@@ -1005,65 +1016,62 @@ export const governancePlugin = createBackendPlugin({
           });
           if (!reviewers.includes(principal.userEntityRef))
             throw new NotAllowedError('Reviewer access is required.');
-
-          const input = z
-            .object({
-              from: z.string().datetime(),
-              to: z.string().datetime(),
-              rows: z
-                .array(
-                  z
-                    .object({
-                      sourceUrl: z
-                        .string()
-                        .max(2048)
-                        .refine(isHttpsUrlWithoutCredentials),
-                      model: z.string().trim().min(1).max(128),
-                      calls: z.number().int().min(1).max(1_000_000_000),
-                    })
-                    .strict(),
-                )
-                .min(1)
-                .max(100),
-            })
-            .strict()
-            .safeParse(req.body);
-          const invalidPeriodOrRows =
-            'Supply a valid UTC period and 1 to 100 distinct outside gateway usage rows.';
-          if (!input.success) throw new InputError(invalidPeriodOrRows);
-          const { from, to, rows } = input.data;
-          if (!(Date.parse(from) < Date.parse(to)))
-            throw new InputError(invalidPeriodOrRows);
-
-          const sourceKeys = rows.map(row => appSourceKey(row.sourceUrl));
-          const usageKeys = rows.map((row, index) =>
-            JSON.stringify([sourceKeys[index], row.model]),
+          const result = await reconcileOutsideGatewayUsage(
+            db,
+            table,
+            parseOutsideGatewayUsage(req.body),
           );
-          if (new Set(usageKeys).size !== rows.length)
-            throw new InputError(invalidPeriodOrRows);
-
-          const matches = await db(table)
-            .whereIn('source_key', [...new Set(sourceKeys)])
-            .select<Array<{ id: string; source_key: string; payload: string }>>(
-              'id',
-              'source_key',
-              'payload',
-            );
-          const appsBySource = new Map(
-            matches.map(app => {
-              const { name } = JSON.parse(app.payload) as GovernanceRecord;
-              return [app.source_key, { appId: app.id, appName: name }];
-            }),
-          );
-          res.set('Cache-Control', 'no-store').json({
-            from,
-            to,
-            rows: rows.map((row, index) => ({
-              ...row,
-              ...appsBySource.get(sourceKeys[index]),
-            })),
-          });
+          res.set('Cache-Control', 'no-store').json(result);
         });
+
+        router.post(
+          '/reports/outside-gateway/reconciliations',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            if (!reviewers.includes(principal.userEntityRef))
+              throw new NotAllowedError('Reviewer access is required.');
+            const result = await saveOutsideGatewayUsage(
+              db,
+              table,
+              parseOutsideGatewayUsage(req.body),
+              principal.userEntityRef,
+            );
+            res
+              .set('Cache-Control', 'no-store')
+              .status(result.created ? 201 : 200)
+              .json(result.receipt);
+          },
+        );
+
+        router.get(
+          '/reports/outside-gateway/reconciliations',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            if (!reviewers.includes(principal.userEntityRef))
+              throw new NotAllowedError('Reviewer access is required.');
+            res.set('Cache-Control', 'no-store').json({
+              reconciliations: await listOutsideGatewayUsage(db),
+            });
+          },
+        );
+
+        router.get(
+          '/reports/outside-gateway/reconciliations/:id',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            if (!reviewers.includes(principal.userEntityRef))
+              throw new NotAllowedError('Reviewer access is required.');
+            res
+              .set('Cache-Control', 'no-store')
+              .json(await readOutsideGatewayUsage(db, req.params.id));
+          },
+        );
 
         router.get('/reports/ownership', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
