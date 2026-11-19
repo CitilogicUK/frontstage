@@ -14,20 +14,28 @@ const configuration = { organization: 'ExampleAI', topic: 'llm' };
 let db: Knex;
 let github: jest.SpiedFunction<typeof fetch>;
 
-function results(fullName: string) {
+function repositoryPage(startId: number, count: number) {
+  return Array.from({ length: count }, (_, offset) => ({
+    id: startId + offset,
+    full_name: `ExampleAI/tool-${startId + offset}`,
+    description: 'AI prototype',
+    private: false,
+  }));
+}
+
+function searchResults(
+  items: ReturnType<typeof repositoryPage>,
+  total = items.length,
+) {
   return Response.json({
-    total_count: 2,
+    total_count: total,
     incomplete_results: false,
-    items: [
-      {
-        id: 101,
-        full_name: fullName,
-        description: 'AI prototype',
-        private: false,
-      },
-      { id: 102, full_name: 'unrelated/private-tool', description: null },
-    ],
+    items,
   });
+}
+
+function results(fullName: string) {
+  return searchResults([{ ...repositoryPage(101, 1)[0], full_name: fullName }]);
 }
 
 beforeEach(async () => {
@@ -209,6 +217,134 @@ test('preserves the queue on a GitHub outage and scopes results by topic', async
   await expect(otherTopic.list()).resolves.toEqual([]);
   await expect(otherTopic.get('101')).resolves.toBeUndefined();
 });
+
+test('reads a complete second page with stable ordering and prunes unseen candidates', async () => {
+  const discovery = githubDiscovery(db, table, configuration);
+  github.mockResolvedValueOnce(results('ExampleAI/old'));
+  await discovery.scan();
+  github.mockClear();
+  github
+    .mockResolvedValueOnce(searchResults(repositoryPage(1, 100), 101))
+    .mockResolvedValueOnce(searchResults(repositoryPage(201, 1), 101));
+  const timeout = jest.spyOn(AbortSignal, 'timeout');
+  try {
+    await expect(discovery.scan()).resolves.toEqual({
+      found: 101,
+      partial: false,
+    });
+    expect(timeout.mock.calls).toEqual([[15_000]]);
+  } finally {
+    timeout.mockRestore();
+  }
+  expect(github).toHaveBeenCalledTimes(2);
+  const [first, second] = github.mock.calls;
+  const queries = [first, second].map(([address]) =>
+    Object.fromEntries(new URL(String(address)).searchParams),
+  );
+  const common = {
+    q: 'org:ExampleAI topic:llm archived:false',
+    per_page: '100',
+    sort: 'created',
+    order: 'desc',
+  };
+  expect(queries).toEqual([common, { ...common, page: '2' }]);
+  expect(first[1]?.signal).toBeInstanceOf(AbortSignal);
+  expect(second[1]?.signal).toBe(first[1]?.signal);
+  await expect(discovery.list()).resolves.toHaveLength(101);
+  await expect(discovery.get('201')).resolves.toMatchObject({
+    source_url: 'https://github.com/exampleai/tool-201',
+  });
+  await expect(discovery.get('101')).resolves.toBeUndefined();
+});
+
+test('records a failed second page as partial and preserves unseen candidates', async () => {
+  const discovery = githubDiscovery(db, table, configuration);
+  github.mockResolvedValueOnce(results('ExampleAI/unseen'));
+  await discovery.scan();
+  github.mockClear();
+  github
+    .mockResolvedValueOnce(searchResults(repositoryPage(1, 100), 102))
+    .mockResolvedValueOnce(new Response(null, { status: 503 }));
+  await expect(discovery.scan()).resolves.toEqual({
+    found: 100,
+    partial: true,
+  });
+  expect(github).toHaveBeenCalledTimes(2);
+  await expect(discovery.list()).resolves.toHaveLength(101);
+  await expect(discovery.get('1')).resolves.toMatchObject({
+    source_url: 'https://github.com/exampleai/tool-1',
+  });
+  await expect(discovery.get('101')).resolves.toMatchObject({
+    source_url: 'https://github.com/exampleai/unseen',
+  });
+  await expect(discovery.lastScan()).resolves.toMatchObject({
+    trigger: 'manual',
+    status: 'completed',
+    found: 100,
+    partial: true,
+  });
+});
+
+test('stops after three pages and records the capped scan as partial', async () => {
+  const discovery = githubDiscovery(db, table, configuration);
+  for (const startId of [1, 101, 201])
+    github.mockResolvedValueOnce(
+      searchResults(repositoryPage(startId, 100), 301),
+    );
+  await expect(discovery.scan()).resolves.toEqual({
+    found: 300,
+    partial: true,
+  });
+  expect(
+    github.mock.calls.map(([address]) =>
+      new URL(String(address)).searchParams.get('page'),
+    ),
+  ).toEqual([null, '2', '3']);
+  await expect(discovery.list()).resolves.toHaveLength(300);
+});
+
+test.each([
+  {
+    defect: 'a changed advertised total',
+    second: repositoryPage(201, 2),
+    total: 102,
+    found: 102,
+    earlierPrivate: false,
+  },
+  {
+    defect: 'a duplicate with contradictory visibility',
+    second: repositoryPage(100, 1),
+    total: 101,
+    found: 100,
+    earlierPrivate: true,
+  },
+  {
+    defect: 'an out-of-scope result',
+    second: [{ ...repositoryPage(201, 1)[0], full_name: 'OtherOrg/tool' }],
+    total: 101,
+    found: 100,
+    earlierPrivate: false,
+  },
+])(
+  'preserves prior candidates when a later page has $defect',
+  async ({ second, total, found, earlierPrivate }) => {
+    const discovery = githubDiscovery(db, table, configuration);
+    github.mockResolvedValueOnce(results('ExampleAI/unseen'));
+    await discovery.scan();
+    const first = repositoryPage(1, 100);
+    if (earlierPrivate) first[99].private = true;
+    github
+      .mockResolvedValueOnce(searchResults(first, 101))
+      .mockResolvedValueOnce(searchResults(second, total));
+    await expect(discovery.scan()).resolves.toEqual({ found, partial: true });
+    await expect(discovery.list(true)).resolves.toHaveLength(found + 1);
+    expect(Boolean(await discovery.get('100'))).toBe(!earlierPrivate);
+    await expect(discovery.get('100', true)).resolves.toBeDefined();
+    await expect(discovery.get('101')).resolves.toMatchObject({
+      source_url: 'https://github.com/exampleai/unseen',
+    });
+  },
+);
 
 test('keeps dismissal through rescans, rejects claims, and records reopening', async () => {
   const discovery = githubDiscovery(db, table, configuration);
