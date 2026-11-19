@@ -503,6 +503,73 @@ test('workspace screens share navigation and fit the viewport', async ({
   );
 });
 
+test('templates recover runtime downloads after retrying approved models', async ({
+  page,
+}) => {
+  const model = 'gpt-4.1-mini';
+  let policyAvailable = false;
+  await page.route('**/api/governance/gateway/models', route =>
+    policyAvailable
+      ? route.fulfill({
+          json: {
+            enabled: true,
+            models: [
+              {
+                id: model,
+                allowedClassifications: ['internal'],
+                maxCompletionTokens: 1024,
+              },
+            ],
+          },
+        })
+      : route.fulfill({
+          status: 503,
+          json: { error: { message: 'Unavailable' } },
+        }),
+  );
+
+  await page.goto('/?view=templates');
+  const heading = page.getByRole('heading', {
+    level: 1,
+    name: 'App templates',
+  });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(heading.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  const failure = page.getByText('Approved models could not load.', {
+    exact: true,
+  });
+  const runtimeDownload = page.getByRole('button', {
+    name: 'Download assistant starter',
+  });
+  const localDownload = page.getByRole('button', {
+    name: 'Download AI-assisted software starter',
+  });
+  const models = page.getByRole('combobox', { name: 'Approved model' });
+  await expect(failure).toBeVisible();
+  await expect(runtimeDownload).toBeDisabled();
+  await expect(localDownload).toBeEnabled();
+  await expect(models).toHaveCount(0);
+
+  policyAvailable = true;
+  await page
+    .getByRole('button', { name: 'Retry loading approved models' })
+    .click();
+  await expect(models).toHaveValue(model);
+  await expect(runtimeDownload).toBeEnabled();
+  await expect(localDownload).toBeEnabled();
+  await expect(failure).toHaveCount(0);
+  await page
+    .getByRole('combobox', { name: 'Starter data classification' })
+    .selectOption('restricted');
+  await expect(
+    page.getByText('No approved model is available for restricted data.'),
+  ).toBeVisible();
+  await expect(runtimeDownload).toBeDisabled();
+  await expect(localDownload).toBeEnabled();
+});
+
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
   request,
