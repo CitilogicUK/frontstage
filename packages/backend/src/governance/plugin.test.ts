@@ -6498,6 +6498,7 @@ describe('governance record access', () => {
         .send({ model: 'test-model', prompt: 'Synthetic prompt' });
     await call(sandbox.body.key)
       .expect(200)
+      .expect('Server-Timing', /^frontstage;dur=\d+$/)
       .expect(({ body }) => {
         expect(body.simulated).toBe(true);
       });
@@ -6525,6 +6526,7 @@ describe('governance record access', () => {
     );
     const providerDeadline = jest.spyOn(AbortSignal, 'timeout');
     const unavailable = await call().expect(503);
+    expect(unavailable.headers['server-timing']).toBeUndefined();
     expect(providerDeadline).toHaveBeenCalledWith(12_000);
     providerDeadline.mockRestore();
     expect(unavailable.body.error.message).toBe(
@@ -6561,11 +6563,13 @@ describe('governance record access', () => {
       upstreamStatus: undefined,
       elapsedMs: expect.any(Number),
     });
-    await call().expect(200, {
-      output: 'Synthetic completion',
-      model: 'test-model',
-      simulated: false,
-    });
+    await call()
+      .expect('Server-Timing', /^frontstage;dur=\d+, provider;dur=\d+$/)
+      .expect(200, {
+        output: 'Synthetic completion',
+        model: 'test-model',
+        simulated: false,
+      });
     expect((await scorecard()).body.checks).toContainEqual(
       expect.objectContaining({
         name: 'Monthly gateway spend',
