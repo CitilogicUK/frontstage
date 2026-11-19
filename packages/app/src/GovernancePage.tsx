@@ -281,6 +281,7 @@ export function GovernancePage() {
   const [reportError, setReportError] = useState('');
   const [discoveries, setDiscoveries] = useState<DiscoveryResult>();
   const [discoveryError, setDiscoveryError] = useState('');
+  const [discoveryLoadAttempt, setDiscoveryLoadAttempt] = useState(0);
   const candidate = discoveries?.repositories.find(
     item => item.id === repositoryId && !item.appId && !item.dismissed,
   );
@@ -518,7 +519,7 @@ export function GovernancePage() {
     return () => {
       current = false;
     };
-  }, [api, repositoryId, view]);
+  }, [api, discoveryLoadAttempt, repositoryId, view]);
 
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
@@ -2115,9 +2116,15 @@ export function GovernancePage() {
       )}
       {view === 'Discovery' &&
         (discoveryError ? (
-          <p role="alert" className="gov-notice">
-            {discoveryError}
-          </p>
+          <div className="gov-notice">
+            <p role="alert">{discoveryError}</p>
+            <button
+              type="button"
+              onClick={() => setDiscoveryLoadAttempt(attempt => attempt + 1)}
+            >
+              Retry loading Discovery
+            </button>
+          </div>
         ) : (
           <DiscoveryQueue
             result={discoveries}
