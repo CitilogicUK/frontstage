@@ -3103,6 +3103,13 @@ test('Builder guide shows connector approval limits and registry states', async 
   });
 
   await page.goto('/?view=guide');
+  const guidance = page.getByRole('region', { name: 'Guidance for builders' });
+  await expect(
+    guidance.getByRole('link', { name: 'registration', exact: true }),
+  ).toHaveAttribute('href', '/?view=register');
+  await expect(
+    guidance.getByRole('link', { name: 'Check my apps for reassessment' }),
+  ).toHaveAttribute('href', '/?owner=me&review=reassess');
   const registry = page.getByRole('region', { name: 'Approved connectors' });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await expect(registry.or(guest)).toBeVisible();
