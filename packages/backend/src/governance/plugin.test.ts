@@ -239,7 +239,7 @@ describe('governance record access', () => {
           metadata: {
             name: ref.split('/')[1],
             annotations: inactive.has(ref)
-              ? { 'governance.backstage.io/active': 'false' }
+              ? { 'governance.backstage.io/active': ' FALSE ' }
               : undefined,
           },
         })),

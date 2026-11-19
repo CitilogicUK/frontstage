@@ -1,3 +1,4 @@
+import { isActiveCatalogEntity } from '../catalogIdentity';
 import {
   issueRegistrationFeedbackToken,
   recordRegistrationFeedback,
@@ -693,13 +694,6 @@ export const governancePlugin = createBackendPlugin({
 
         function ownershipRefs(app: AppInput) {
           return ownershipAssignments(app).map(({ ref }) => ref);
-        }
-
-        function isActiveCatalogEntity(entity: Entity) {
-          return (
-            entity.metadata.annotations?.['governance.backstage.io/active'] !==
-            'false'
-          );
         }
 
         async function catalogEntities(
