@@ -228,7 +228,12 @@ export type GovernanceRecord = AppInput & {
   reviewStatus: ReviewStatus;
   lastReview: string | null;
   nextReview: string | null;
-  discoverySource: 'registered' | 'git' | 'bulk import' | 'hosted snapshot';
+  discoverySource:
+    | 'registered'
+    | 'git'
+    | 'bulk import'
+    | 'hosted snapshot'
+    | 'outside-gateway usage';
   updatedAt: string;
   activeSince?: string;
   reviewNotes?: string;
@@ -2042,8 +2047,9 @@ export const governancePlugin = createBackendPlugin({
             allow: ['user', 'service'],
           });
           const fromHostedSnapshot = req.query.source === 'hosted-snapshot';
+          const fromOutsideGateway = req.query.source === 'outside-gateway';
           if (
-            fromHostedSnapshot &&
+            (fromHostedSnapshot || fromOutsideGateway) &&
             (principal.type !== 'user' ||
               !reviewers.includes(principal.userEntityRef))
           ) {
@@ -2068,11 +2074,18 @@ export const governancePlugin = createBackendPlugin({
               'Hosted snapshot registration requires a provider-hosted app with an HTTPS source URL without credentials.',
             );
           }
+          if (
+            fromOutsideGateway &&
+            !isHttpsUrlWithoutCredentials(app.sourceUrl)
+          )
+            throw new InputError(
+              'Outside-gateway usage registration requires an HTTPS source URL without credentials.',
+            );
           await validateOwners(app);
-          const record = buildRecord(
-            app,
-            fromHostedSnapshot ? 'hosted snapshot' : 'registered',
-          );
+          let source: GovernanceRecord['discoverySource'] = 'registered';
+          if (fromHostedSnapshot) source = 'hosted snapshot';
+          if (fromOutsideGateway) source = 'outside-gateway usage';
+          const record = buildRecord(app, source);
           await insert([record], principal);
           res
             .status(201)

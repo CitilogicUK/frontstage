@@ -651,6 +651,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   const draft = {
     ...app,
     id: 'registered-assistant',
+    discoverySource: 'outside-gateway usage',
     name: 'Registered assistant',
     sourceUrl: snapshot.rows[1].sourceUrl,
     owner: reviewer,
@@ -660,9 +661,10 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   };
   let registered = false;
   let previewCalls = 0;
-  await page.route('**/api/governance/apps', route => {
+  await page.route(/\/api\/governance\/apps(?:\?|$)/, route => {
     const request = route.request();
     if (request.method() === 'POST') {
+      expect(new URL(request.url()).search).toBe('?source=outside-gateway');
       expect(request.postDataJSON()).toMatchObject({
         name: draft.name,
         sourceUrl: draft.sourceUrl,
@@ -793,6 +795,17 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
   await expect(startRegistration).toHaveCount(0);
   expect(previewCalls).toBe(3);
+
+  await page.getByRole('link', { name: 'Inventory', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Registration source' })
+    .selectOption({ label: 'Outside-gateway usage' });
+  await expect(
+    page.getByRole('button', { name: draft.name, exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: app.name, exact: true }),
+  ).toHaveCount(0);
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
