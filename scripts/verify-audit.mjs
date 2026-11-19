@@ -12,7 +12,12 @@ function parseJson(text, message) {
 
 function verifyKeyEvents(audit, expectedHead, checkpoint) {
   const checkpointDigest = checkpoint?.toLowerCase();
-  const entries = audit.keyEvents ?? [];
+  if (audit.keyAuditVersion !== undefined && audit.keyAuditVersion !== 1)
+    throw new Error('Unsupported gateway key audit version.');
+  const entries =
+    audit.keyAuditVersion === undefined && audit.keyEvents === undefined
+      ? []
+      : audit.keyEvents;
   if (!Array.isArray(entries))
     throw new Error('Invalid gateway key event list.');
   const chained =
@@ -24,8 +29,7 @@ function verifyKeyEvents(audit, expectedHead, checkpoint) {
         typeof entry?.digest === 'string' || typeof entry?.event === 'string',
     );
   if (!chained) {
-    if (entries.length)
-      console.log('Legacy gateway key events have no digest chain.');
+    console.log('Legacy export has no verifiable gateway key audit chain.');
     return;
   }
 
@@ -62,8 +66,8 @@ function verifyKeyEvents(audit, expectedHead, checkpoint) {
     );
   if (checkpointDigest && checkpointRevision === undefined)
     throw new Error('The saved key checkpoint is absent from this export.');
+  console.log(`Verified ${entries.length} gateway key events.`);
   if (head) {
-    console.log(`Verified ${entries.length} gateway key events.`);
     if (checkpointRevision !== undefined)
       console.log(
         `Saved key checkpoint matched revision ${checkpointRevision}.`,
