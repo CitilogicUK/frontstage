@@ -23,8 +23,9 @@ export function ReviewTicketContext({ app }: { app: ReviewTicketApp }) {
 
   async function copy() {
     const due = scheduledReviewDate(app);
+    const name = app.name.replace(/\s+/gu, ' ').trim();
     const context = [
-      `Tier 3 review — ${app.name}`,
+      `Tier 3 review — ${name}`,
       '',
       `Frontstage record: ${appRecordUrl(window.location.href, app.id).href}`,
       `Owner: ${app.owner}`,
