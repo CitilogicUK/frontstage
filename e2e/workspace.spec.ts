@@ -2502,6 +2502,12 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
     },
     {
       ...base,
+      id: 'backup-conflict',
+      name: 'Matching backup owner conflict',
+      backupOwner: reviewer,
+    },
+    {
+      ...base,
       id: 'engineering-conflict',
       name: 'Matching engineering conflict',
       graduation: { nominee: reviewer, status: 'accepted' },
@@ -2514,7 +2520,7 @@ test('pending sign-offs CSV follows assigned tracks, review independence, and fi
         actor: canReview ? reviewer : 'user:default/viewer',
         canReview,
         reviewTracks: ['security', 'dataProtection'],
-        reviewerTracks: canReview ? ['security'] : [],
+        reviewerTracks: ['security'],
         apps,
       },
     }),
