@@ -138,3 +138,28 @@ test('verifies earlier checkpoints and final digests together', async () => {
   assert.equal(invalid.status, 1);
   assert.match(invalid.stderr, /Usage: yarn audit:verify/);
 });
+
+test('checks a recorded empty key chain without accepting a legacy or nonempty export', async () => {
+  const flags = ['--expect-no-key-events'];
+  const current = { keyAuditVersion: 1, keyEvents: [] };
+  const valid = await verify(current, events[0].digest, ...flags);
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.match(valid.stdout, /Verified 0 gateway key events/);
+
+  for (const invalid of [
+    { keyEvents: [] },
+    { ...current, keyEvents: [issued] },
+  ]) {
+    const result = await verify(invalid, ...flags);
+    assert.equal(result.status, 1);
+    assert.match(
+      result.stderr,
+      /Expected a versioned gateway key audit chain with zero events/,
+    );
+  }
+  for (const option of ['--key-head', '--key-checkpoint']) {
+    const conflict = await verify(current, ...flags, option, issued.digest);
+    assert.equal(conflict.status, 1);
+    assert.match(conflict.stderr, /Usage: yarn audit:verify/);
+  }
+});
