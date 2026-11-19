@@ -3972,7 +3972,9 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   const record = page.getByRole('dialog', { name: 'Registered sample app' });
   await expect(record).toBeVisible();
   await record.getByRole('button', { name: 'Close app details' }).click();
-  await expect(page).toHaveURL(/view=discovery&discoveryStatus=registered$/);
+  await expect(page).toHaveURL(
+    /view=discovery&discoveryStatus=registered&discoveryQuery=Sample$/,
+  );
   await expect(
     page.getByRole('searchbox', { name: 'Search discoveries' }),
   ).toHaveValue('Sample');
@@ -4070,7 +4072,9 @@ test('Discovery paginates search results and preserves the page when reopening a
   await queue
     .getByRole('searchbox', { name: 'Search discoveries' })
     .fill('Repository 26');
-  await expect(page).toHaveURL(/view=discovery&discoveryStatus=all$/);
+  await expect(page).toHaveURL(
+    /view=discovery&discoveryStatus=all&discoveryQuery=Repository\+26$/,
+  );
   await expect(queue.getByRole('row')).toHaveCount(2);
   await expect(pages).toHaveCount(0);
   const pendingFilteredExport = page.waitForEvent('download');
@@ -4080,9 +4084,13 @@ test('Discovery paginates search results and preserves the page when reopening a
   expect(filteredCsv.trimEnd().split(/\r?\n/)).toHaveLength(2);
   expect(filteredCsv).toContain('"Repository 26",');
   await page.reload();
-  await expect(
-    queue.getByRole('searchbox', { name: 'Search discoveries' }),
-  ).toHaveValue('');
+  const discoverySearch = queue.getByRole('searchbox', {
+    name: 'Search discoveries',
+  });
+  await expect(discoverySearch).toHaveValue('Repository 26');
+  await expect(queue.getByRole('row')).toHaveCount(2);
+  await discoverySearch.clear();
+  await expect(page).toHaveURL(/view=discovery&discoveryStatus=all$/);
   await expect(queue.getByRole('row')).toHaveCount(26);
 });
 
