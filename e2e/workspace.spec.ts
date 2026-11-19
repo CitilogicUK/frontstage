@@ -4376,6 +4376,14 @@ test('the playground clears a revealed key after environment or ownership change
   const productionKey = 'synthetic-production-key';
   const issued = { sandbox: false, production: false };
   let statusReads = 0;
+  const now = new Date();
+  await page.clock.setFixedTime(now);
+  const monthlySpend = {
+    monthStart: `${now.toISOString().slice(0, 7)}-01T00:00:00.000Z`,
+    liveEstimatedCostUsd: 2,
+    thresholdUsd: 2,
+    stopAtThreshold: true,
+  };
   let app = {
     id: 'key-transfer',
     name: 'Key transfer assistant',
@@ -4437,6 +4445,21 @@ test('the playground clears a revealed key after environment or ownership change
     statusReads += 1;
     return route.fulfill({ json: { issued: issued[environment] } });
   });
+  await page.route('**/api/governance/apps/key-transfer/usage', route =>
+    route.fulfill({
+      json: {
+        liveCalls: 1,
+        simulatedCalls: 0,
+        unclassifiedCalls: 0,
+        liveEstimatedCostUsd: 2,
+        liveTokens: { calls: 1, input: 10, output: 5 },
+        requestsPerMinute: null,
+        monthlySpend,
+        blockedCalls: 0,
+        blocks: [],
+      },
+    }),
+  );
   await page.route('**/api/governance/gateway/chat', route => {
     const request = route.request();
     const production =
@@ -4532,6 +4555,8 @@ test('the playground clears a revealed key after environment or ownership change
   const prompt = playground.getByRole('textbox', { name: 'Prompt' });
   const send = playground.getByRole('button', { name: 'Send prompt' });
   await prompt.fill('Synthetic playground prompt');
+  await expect(playground.getByText(/Threshold reached/)).toBeVisible();
+  await expect(send).toBeEnabled();
   await send.click();
   await expect(
     playground.getByText('Sandbox reply', { exact: true }),
@@ -4551,6 +4576,18 @@ test('the playground clears a revealed key after environment or ownership change
 
   await expect(prompt).toHaveValue('');
   await prompt.fill('Synthetic playground prompt');
+  const pause = playground.getByText(
+    'Production prompts are paused at the monthly spend threshold.',
+    { exact: true },
+  );
+  await expect(pause).toBeVisible();
+  await expect(send).toBeDisabled();
+
+  monthlySpend.stopAtThreshold = false;
+  await playground.getByRole('button', { name: 'Refresh usage' }).click();
+  await expect(pause).toHaveCount(0);
+  await expect(playground.getByText(/Threshold reached/)).toBeVisible();
+  await expect(send).toBeEnabled();
   await send.click();
   await expect(
     playground.getByText('Synthetic production reply', { exact: true }),

@@ -147,8 +147,14 @@ function GatewayEnvironmentPanel({
   const [reply, setReply] = useState<GatewayResponse>();
   const [error, setError] = useState('');
   const [pendingAction, setPendingAction] = useState<
-    'issue' | 'send' | 'revoke'
+    'issue' | 'send' | 'revoke' | 'refresh'
   >();
+  const spend = usageError ? undefined : usage?.monthlySpend;
+  const spendPaused =
+    environment === 'production' &&
+    spend?.stopAtThreshold === true &&
+    spend.monthStart.slice(0, 7) === new Date().toISOString().slice(0, 7) &&
+    spend.liveEstimatedCostUsd >= spend.thresholdUsd;
 
   const readUsage = useCallback(
     async (signal?: AbortSignal) => {
@@ -243,7 +249,7 @@ function GatewayEnvironmentPanel({
 
   async function sendPrompt(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!key) return;
+    if (!key || spendPaused) return;
     const data = new FormData(event.currentTarget);
     const prompt = String(data.get('prompt') ?? '').trim();
     if (!prompt) {
@@ -312,6 +318,26 @@ function GatewayEnvironmentPanel({
           attestation.
         </p>
       )}
+      {spendPaused && (
+        <>
+          <p className="gov-notice" role="status">
+            Production prompts are paused at the monthly spend threshold.
+          </p>
+          <button
+            type="button"
+            disabled={Boolean(pendingAction)}
+            onClick={async () => {
+              setPendingAction('refresh');
+              await readUsage();
+              setPendingAction(undefined);
+            }}
+          >
+            {pendingAction === 'refresh'
+              ? 'Refreshing usage…'
+              : 'Refresh usage'}
+          </button>
+        </>
+      )}
       <div className="gov-gateway-key">
         <button
           type="button"
@@ -366,7 +392,10 @@ function GatewayEnvironmentPanel({
         </label>
         <button
           disabled={
-            !key || Boolean(pendingAction) || approvedModels.length === 0
+            !key ||
+            Boolean(pendingAction) ||
+            approvedModels.length === 0 ||
+            spendPaused
           }
         >
           {pendingAction === 'send' ? 'Sending…' : 'Send prompt'}
