@@ -2721,6 +2721,12 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('no longer available');
   await expect(page.getByRole('button', { name: 'Unowned 0' })).toBeVisible();
   await page.getByRole('button', { name: 'Registered 1' }).click();
+  await discoveryRow
+    .getByRole('button', { name: 'Check AI SDK dependencies' })
+    .click();
+  await expect(
+    discoveryRow.getByText('anthropic', { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'Open app record' }),
   ).toHaveAttribute(

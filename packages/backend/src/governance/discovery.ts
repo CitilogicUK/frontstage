@@ -208,7 +208,11 @@ export function githubDiscovery(
     config && `${config.organization.toLowerCase()}:${config.topic}`;
   let activeScan: Promise<ScanResult> | undefined;
 
-  async function findContentCandidate(id: string, includePrivate: boolean) {
+  async function findContentCandidate(
+    id: string,
+    includePrivate: boolean,
+    includeRegistered = false,
+  ) {
     if (!scope || !config) return undefined;
     const candidate = await db(`${discoveryTable} as repository`)
       .leftJoin(
@@ -222,10 +226,20 @@ export function githubDiscovery(
       .where('repository.is_stale', false)
       .modify(query => {
         if (!includePrivate) query.where('repository.is_public', true);
+        if (includeRegistered) {
+          query.where(eligible =>
+            eligible
+              .whereNull('repository.dismissal_reason')
+              .orWhereNotNull('repository.app_id')
+              .orWhereNotNull('app.id'),
+          );
+        } else {
+          query
+            .whereNull('repository.app_id')
+            .whereNull('repository.dismissal_reason')
+            .whereNull('app.id');
+        }
       })
-      .whereNull('repository.app_id')
-      .whereNull('repository.dismissal_reason')
-      .whereNull('app.id')
       .first<{ name: string; sourceUrl: string }>(
         'repository.name',
         'repository.source_url as sourceUrl',
@@ -349,7 +363,7 @@ export function githubDiscovery(
         : undefined;
     },
     async sdkEvidence(id: string, includePrivate: boolean) {
-      const candidate = await findContentCandidate(id, includePrivate);
+      const candidate = await findContentCandidate(id, includePrivate, true);
       if (!candidate) return undefined;
       const manifests = await Promise.all(
         sdkManifestPaths.map(async path => {
@@ -366,7 +380,7 @@ export function githubDiscovery(
             : { path, status: 'unavailable' as const, packages: [] };
         }),
       );
-      const current = await findContentCandidate(id, includePrivate);
+      const current = await findContentCandidate(id, includePrivate, true);
       if (
         current?.name !== candidate.name ||
         current.sourceUrl !== candidate.sourceUrl

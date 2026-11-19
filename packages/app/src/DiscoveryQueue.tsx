@@ -347,19 +347,19 @@ export function DiscoveryQueue({
                       </Link>
                     )}
                     {!repository.appId && !repository.dismissed && (
-                      <>
-                        <Link
-                          className="gov-button"
-                          to={`/?view=register&repository=${encodeURIComponent(
-                            repository.id,
-                          )}`}
-                        >
-                          Claim repository
-                        </Link>
-                        <RepositorySdkEvidence
-                          load={() => onCheckSdkEvidence(repository.id)}
-                        />
-                      </>
+                      <Link
+                        className="gov-button"
+                        to={`/?view=register&repository=${encodeURIComponent(
+                          repository.id,
+                        )}`}
+                      >
+                        Claim repository
+                      </Link>
+                    )}
+                    {(repository.appId || !repository.dismissed) && (
+                      <RepositorySdkEvidence
+                        load={() => onCheckSdkEvidence(repository.id)}
+                      />
                     )}
                     {!repository.appId &&
                       canReview &&
