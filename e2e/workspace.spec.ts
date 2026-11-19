@@ -3340,6 +3340,11 @@ test('a directory access request receives a recorded owner decision', async ({
             ...listing,
             requestStatus: actor === requester ? status : undefined,
           },
+          {
+            id: 'unrequested-app',
+            name: 'Shipping labels',
+            ...listing,
+          },
         ],
       },
     }),
@@ -3389,14 +3394,27 @@ test('a directory access request receives a recorded owner decision', async ({
   await page.goto('/?view=directory');
   await expect(directory.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  const myRequests = directory.getByRole('button', { name: /My requests/ });
+  const allApps = directory.getByRole('button', { name: /All apps/ });
+  await myRequests.click();
+  await expect(
+    directory.getByText('No access requests for listed apps'),
+  ).toBeVisible();
+  await allApps.click();
   await directory
-    .locator('td[data-label="Access"]')
+    .getByRole('row', { name: /Inventory reconciliation/ })
     .getByText('Request access', { exact: true })
     .click();
   await directory
     .getByRole('textbox', { name: 'Why do you need access?' })
     .fill(message);
   await directory.getByRole('button', { name: 'Send access request' }).click();
+  await expect(
+    directory.getByText('Access request pending', { exact: true }),
+  ).toBeVisible();
+  await myRequests.click();
+  await expect(page).toHaveURL(/directoryAccess=mine/);
+  await expect(directory.getByText('Shipping labels')).toHaveCount(0);
   await expect(
     directory.getByText('Access request pending', { exact: true }),
   ).toBeVisible();
@@ -3458,7 +3476,7 @@ test('a directory access request receives a recorded owner decision', async ({
   await expect(page.getByRole('button', { name: app.name })).toHaveCount(0);
 
   actor = requester;
-  await page.goto('/?view=directory');
+  await page.goto('/?view=directory&directoryAccess=mine');
   await expect(directory.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await expect(
