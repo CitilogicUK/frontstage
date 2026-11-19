@@ -2158,7 +2158,10 @@ describe('governance record access', () => {
     await db('governance_apps').insert({
       id: 'known',
       source_key: known.sourceUrl,
-      payload: '{}',
+      payload: JSON.stringify({
+        type: 'provider-hosted app',
+        hosted: { provider: known.provider, workspace: known.workspace },
+      }),
       revision: 0,
     });
     await preview('user:default/builder')
@@ -2192,6 +2195,20 @@ describe('governance record access', () => {
           ),
         });
     }
+    const moved = { ...known, workspace: 'Different workspace' };
+    await preview(reviewer)
+      .send({ apps: [moved] })
+      .expect(200, {
+        apps: [{ ...moved, appId: 'known', mismatch: 'workspace' }],
+      });
+    await db('governance_apps')
+      .where({ id: 'known' })
+      .update({ payload: JSON.stringify({ type: 'app' }) });
+    await preview(reviewer)
+      .send({ apps: [known] })
+      .expect(200, {
+        apps: [{ ...known, appId: 'known', mismatch: 'app-type' }],
+      });
     expect(await db('governance_apps').pluck('id')).toEqual(['known']);
   });
 

@@ -2675,7 +2675,12 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await page.route('**/api/governance/discovery/hosted/preview', route => {
     expect(route.request().postDataJSON()).toEqual(snapshot);
     return route.fulfill({
-      json: { apps: [{ ...known, appId: 'known-hosted-app' }, candidate] },
+      json: {
+        apps: [
+          { ...known, appId: 'known-hosted-app', mismatch: 'workspace' },
+          candidate,
+        ],
+      },
     });
   });
   await page.route('**/api/governance/tier-preview', route =>
@@ -2694,6 +2699,13 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(
     page.getByRole('link', { name: 'View app record' }),
   ).toHaveAttribute('href', /app=known-hosted-app/);
+  const knownRow = page.getByRole('row', { name: /Hosted review/ });
+  await expect(
+    knownRow.getByText('Provider or workspace mismatch'),
+  ).toBeVisible();
+  await expect(
+    knownRow.getByRole('button', { name: 'Register app' }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: 'Register app', exact: true }).click();
 
   const form = page.getByRole('region', { name: 'App registration' });

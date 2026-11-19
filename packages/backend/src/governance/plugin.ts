@@ -1617,15 +1617,36 @@ export const governancePlugin = createBackendPlugin({
 
           const matches = await db(table)
             .whereIn('source_key', sources)
-            .select<{ id: string; source_key: string }[]>('id', 'source_key');
+            .select<{ id: string; source_key: string; payload: string }[]>(
+              'id',
+              'source_key',
+              'payload',
+            );
           const registered = new Map(
-            matches.map(app => [app.source_key, app.id]),
+            matches.map(row => [
+              row.source_key,
+              {
+                id: row.id,
+                record: JSON.parse(row.payload) as GovernanceRecord,
+              },
+            ]),
           );
           res.set('Cache-Control', 'no-store').json({
-            apps: input.data.apps.map((app, index) => ({
-              ...app,
-              appId: registered.get(sources[index]),
-            })),
+            apps: input.data.apps.map((app, index) => {
+              const match = registered.get(sources[index]);
+              if (!match) return app;
+              const { record } = match;
+              let mismatch;
+              if (record.type !== 'provider-hosted app' || !record.hosted) {
+                mismatch = 'app-type';
+              } else if (
+                record.hosted.provider !== app.provider ||
+                record.hosted.workspace !== app.workspace
+              ) {
+                mismatch = 'workspace';
+              }
+              return { ...app, appId: match.id, mismatch };
+            }),
           });
         });
 

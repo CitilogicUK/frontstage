@@ -8,6 +8,7 @@ export type HostedSnapshotApp = {
   workspace: string;
   sourceUrl: string;
   appId?: string;
+  mismatch?: 'app-type' | 'workspace';
 };
 
 export function HostedSnapshotPreview({
@@ -108,9 +109,15 @@ export function HostedSnapshotPreview({
                   <td data-label="Status">
                     <span
                       className="gov-status"
-                      data-status={app.appId ? 'approved' : 'pending'}
+                      data-status={
+                        app.appId && !app.mismatch ? 'approved' : 'pending'
+                      }
                     >
-                      {app.appId ? 'Registered' : 'Unregistered'}
+                      {app.mismatch === 'app-type' && 'App type mismatch'}
+                      {app.mismatch === 'workspace' &&
+                        'Provider or workspace mismatch'}
+                      {!app.mismatch &&
+                        (app.appId ? 'Registered' : 'Unregistered')}
                     </span>
                   </td>
                   <td data-label="Action">
