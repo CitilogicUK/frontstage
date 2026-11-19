@@ -4,7 +4,10 @@ import {
   fetchApiRef,
   useApi,
 } from '@backstage/core-plugin-api';
-import { gatewayBlockReason } from './gatewayBlockReasons';
+import {
+  gatewayBlockNextStep,
+  gatewayBlockReason,
+} from './gatewayBlockReasons';
 import { useGatewayModelPolicy } from './GatewayModelGuide';
 
 type Usage = {
@@ -346,11 +349,15 @@ export function GatewayPlayground({
         <details>
           <summary>Blocked requests by reason</summary>
           <ul>
-            {usage.blocks.map(block => (
-              <li key={block.reason}>
-                {gatewayBlockReason(block.reason)} · {block.calls}
-              </li>
-            ))}
+            {usage.blocks.map(block => {
+              const nextStep = gatewayBlockNextStep(block.reason);
+              return (
+                <li key={block.reason}>
+                  {gatewayBlockReason(block.reason)} · {block.calls}
+                  {nextStep && <p>{nextStep}</p>}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}

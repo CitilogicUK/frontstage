@@ -1940,6 +1940,11 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(page).toHaveURL(/blockReason=review/);
   await page.reload();
   await expect(blockReason).toHaveValue('review');
+  await expect(
+    blockReport.getByText(
+      'Open the app record and resolve any outstanding review requirements.',
+    ),
+  ).toBeVisible();
   await expect(missingAppRow).toHaveCount(0);
   await expect(
     blockReport.getByRole('link', { name: renewal.name }),
@@ -1959,6 +1964,11 @@ test('audit history shows production review and ownership handoff', async ({
   expect(blockCsv).toContain('"simulation","","review",0,4,0');
   expect(blockCsv).not.toContain('missing-app');
   await blockReason.selectOption('tier-drift');
+  await expect(
+    blockReport.getByText(
+      'Ask the app owner to reassess the app against the current risk policy.',
+    ),
+  ).toBeVisible();
   await expect(missingAppRow).toBeVisible();
   await expect(
     blockReport.getByRole('link', { name: renewal.name }),

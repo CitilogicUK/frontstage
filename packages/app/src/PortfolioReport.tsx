@@ -23,7 +23,10 @@ import {
   portfolioCsv,
   type PortfolioExportRow,
 } from './portfolioExport';
-import { gatewayBlockReason } from './gatewayBlockReasons';
+import {
+  gatewayBlockNextStep,
+  gatewayBlockReason,
+} from './gatewayBlockReasons';
 import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 
@@ -256,6 +259,7 @@ export function PortfolioReport({
   const [params, setParams] = useSearchParams();
   const selectedTeam = params.get('usageTeam') ?? '';
   const selectedBlockReason = params.get('blockReason') ?? '';
+  const blockNextStep = gatewayBlockNextStep(selectedBlockReason);
   const groupByModel = params.get('usageGroup') === 'model';
   const inventoryGroups = {
     lifecycle: {
@@ -1437,6 +1441,7 @@ export function PortfolioReport({
               </label>
             )}
           </WorkspaceSearch>
+          {blockNextStep && <p>{blockNextStep}</p>}
           {blocks.length === 0 && (
             <WorkspaceEmptyState
               icon={<AssessmentOutlinedIcon aria-hidden="true" />}
