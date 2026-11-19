@@ -5708,6 +5708,20 @@ test('the focused review ticket form saves and removes the link without reopenin
   await expect(details.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
   await details.getByText('Edit review ticket', { exact: true }).click();
+  const createTicket = details.getByRole('link', {
+    name: 'Open ticket creation page (new tab)',
+  });
+  const createTicketUrl = process.env.APP_CONFIG_app_reviewTicketCreateUrl;
+  if (createTicketUrl) {
+    await expect(createTicket).toHaveAttribute('href', createTicketUrl);
+    await expect(createTicket).toHaveAttribute('target', '_blank');
+    await expect(createTicket).toHaveAttribute(
+      'rel',
+      /(?:^|\s)noreferrer(?:\s|$)/,
+    );
+  } else {
+    await expect(createTicket).toHaveCount(0);
+  }
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const copyContext = details.getByRole('button', {
     name: 'Copy review ticket context',

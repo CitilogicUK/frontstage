@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { configApiRef, useApi } from '@backstage/core-plugin-api';
 import { appRecordUrl, scheduledReviewDate } from './reviewDue';
 
 type ReviewTicketApp = Parameters<typeof scheduledReviewDate>[0] & {
@@ -9,7 +10,23 @@ type ReviewTicketApp = Parameters<typeof scheduledReviewDate>[0] & {
   reviewStatus: string;
 };
 
+function httpsTicketDestination(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:' && !url.username && !url.password)
+      return url.href;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function ReviewTicketContext({ app }: { app: ReviewTicketApp }) {
+  const config = useApi(configApiRef);
+  const ticketCreateUrl = httpsTicketDestination(
+    config.getOptionalString('app.reviewTicketCreateUrl'),
+  );
   const [copied, setCopied] = useState(false);
   const [manualCopy, setManualCopy] = useState('');
   const copyField = useRef<HTMLTextAreaElement>(null);
@@ -50,6 +67,13 @@ export function ReviewTicketContext({ app }: { app: ReviewTicketApp }) {
       <button type="button" onClick={copy}>
         Copy review ticket context
       </button>
+      {ticketCreateUrl && (
+        <p>
+          <a href={ticketCreateUrl} target="_blank" rel="noreferrer">
+            Open ticket creation page (new tab)
+          </a>
+        </p>
+      )}
       {copied && <p role="status">Review ticket context copied.</p>}
       {manualCopy && (
         <label>
