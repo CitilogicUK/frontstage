@@ -698,6 +698,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(snapshot)),
   });
+  await expect(match).toBeHidden();
   const uploadedPreview = page.waitForResponse(
     response =>
       response.url().endsWith('/reports/outside-gateway/preview') &&

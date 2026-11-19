@@ -27,6 +27,12 @@ export function OutsideGatewayUsage({
   const fileInput = useRef<HTMLInputElement>(null);
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
 
+  function selectFile(nextFile: File | undefined) {
+    setFile(nextFile);
+    setPreview(undefined);
+    setError(undefined);
+  }
+
   async function loadPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPreview(undefined);
@@ -102,7 +108,7 @@ export function OutsideGatewayUsage({
             accept=".json,application/json"
             aria-describedby="outside-gateway-usage-help"
             disabled={busy}
-            onChange={event => setFile(event.target.files?.[0])}
+            onChange={event => selectFile(event.target.files?.[0])}
           />
         </label>
         {file && (
@@ -114,7 +120,7 @@ export function OutsideGatewayUsage({
                 fileInput.current.value = '';
                 fileInput.current.focus();
               }
-              setFile(undefined);
+              selectFile(undefined);
             }}
           >
             Clear selected file
