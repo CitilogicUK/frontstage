@@ -673,7 +673,15 @@ export function GovernancePage() {
     setAppInUrl(app.id, edit);
   }
 
+  const reviewStatusSelect = useRef<HTMLSelectElement>(null);
+  const restoreReviewFilterFocus = useRef(false);
+  const ticketEditorRequested =
+    view === 'Reviews' && reviewFilter === 'missing-ticket' && canReview;
+
   function closeApp() {
+    restoreReviewFilterFocus.current = Boolean(
+      ticketEditorRequested && selected?.reviewTicketUrl,
+    );
     setReviewDecision(undefined);
     setRegistrationFeedback(undefined);
     setAppEditorToggle(undefined);
@@ -693,8 +701,6 @@ export function GovernancePage() {
   const ticketEditor = useRef<HTMLDetailsElement>(null);
   const selectedAppId = selected?.id;
   const appEditorRequested = params.get('edit') === '1';
-  const ticketEditorRequested =
-    view === 'Reviews' && reviewFilter === 'missing-ticket' && canReview;
 
   useEffect(() => {
     if (selectedAppId) {
@@ -706,6 +712,10 @@ export function GovernancePage() {
       }
     } else {
       dialog.current?.close();
+      if (restoreReviewFilterFocus.current) {
+        restoreReviewFilterFocus.current = false;
+        reviewStatusSelect.current?.focus();
+      }
     }
   }, [selectedAppId, appEditorRequested, ticketEditorRequested]);
 
@@ -1918,6 +1928,7 @@ export function GovernancePage() {
                 <label>
                   <span className="gov-visually-hidden">Review status</span>
                   <select
+                    ref={reviewStatusSelect}
                     value={reviewFilter}
                     onChange={event =>
                       setAppListFilter(
