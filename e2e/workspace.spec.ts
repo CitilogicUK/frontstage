@@ -1507,6 +1507,8 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
     ...app,
     id: 'overdue-hosted-app',
     name: 'Overdue hosted app',
+    tier: 2,
+    nextReview: '2025-05-01T00:00:00.000Z',
     hostedAttestation: {
       at: '2025-01-01T00:00:00.000Z',
       nextDue: '2025-04-01T00:00:00.000Z',
@@ -1663,6 +1665,23 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
     'Workspace confirmation missing',
   );
   await expect(inventory.getByRole('row')).toHaveCount(3);
+  const combinedDownload = page.waitForEvent('download');
+  await inventory
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const combined = await readFile(
+    await (await combinedDownload).path(),
+    'utf8',
+  );
+  expect(combined.match(/BEGIN:VEVENT/g)).toHaveLength(2);
+  expect(combined).toContain('UID:overdue-hosted-app-review@');
+  expect(combined).toContain('SUMMARY:App attestation: Overdue hosted app');
+  expect(combined).toContain('DTSTART;VALUE=DATE:20250501');
+  expect(combined).toContain('UID:overdue-hosted-app-hosted-attestation@');
+  expect(combined).toContain(
+    'SUMMARY:Hosted workspace attestation: Overdue hosted app',
+  );
+  expect(combined).toContain('DTSTART;VALUE=DATE:20250401');
   const ownership = inventory.getByRole('combobox', {
     name: 'Ownership',
     exact: true,

@@ -34,6 +34,7 @@ import {
   reviewCalendar,
   reviewDaysOverdue,
   scheduledReviewDate,
+  scheduledWorkspaceAttestationDate,
 } from './reviewDue';
 import {
   downloadCsv,
@@ -202,8 +203,8 @@ function ownerCanDecideRetirement(app: App, actor: string) {
 
 function workspaceAttestationIssue(app: App, now: number) {
   if (!app.hosted || app.lifecycle === 'retired') return undefined;
-  const due = Date.parse(app.hostedAttestation?.nextDue ?? '');
-  if (!Number.isFinite(due))
+  const due = scheduledWorkspaceAttestationDate(app)?.getTime();
+  if (due === undefined)
     return {
       due: Number.POSITIVE_INFINITY,
       label: 'Workspace confirmation missing',
@@ -482,7 +483,8 @@ export function GovernancePage() {
   const canDownloadReminders =
     selected &&
     (actor === selected.owner || actor === selected.backupOwner || canReview);
-  const hostedAttestationDue = selected?.hostedAttestation?.nextDue;
+  const hostedAttestationDue =
+    selected && scheduledWorkspaceAttestationDate(selected);
 
   function downloadReviewReminders(
     reminders: Parameters<typeof reviewCalendar>[0],
@@ -1138,9 +1140,18 @@ export function GovernancePage() {
 
   const reminderEntries =
     ownershipScope !== 'all'
-      ? matching.flatMap(app => {
-          const due = scheduledReviewDate(app);
-          return due ? [{ app, due }] : [];
+      ? matching.flatMap((app): Parameters<typeof reviewCalendar>[0] => {
+          const entries: Parameters<typeof reviewCalendar>[0] = [];
+          const reviewDue = scheduledReviewDate(app);
+          const workspaceDue = scheduledWorkspaceAttestationDate(app);
+          if (reviewDue) entries.push({ app, due: reviewDue });
+          if (workspaceDue)
+            entries.push({
+              app,
+              due: workspaceDue,
+              kind: 'hosted-attestation',
+            });
+          return entries;
         })
       : [];
 
@@ -1866,27 +1877,25 @@ export function GovernancePage() {
                 ) : (
                   <p>Workspace settings have not been confirmed.</p>
                 )}
-                {canDownloadReminders &&
-                  hostedAttestationDue &&
-                  Number.isFinite(Date.parse(hostedAttestationDue)) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        downloadReviewReminders(
-                          [
-                            {
-                              app: selected,
-                              due: new Date(hostedAttestationDue),
-                              kind: 'hosted-attestation',
-                            },
-                          ],
-                          'frontstage-workspace-attestation.ics',
-                        )
-                      }
-                    >
-                      Download workspace reminder
-                    </button>
-                  )}
+                {canDownloadReminders && hostedAttestationDue && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadReviewReminders(
+                        [
+                          {
+                            app: selected,
+                            due: hostedAttestationDue,
+                            kind: 'hosted-attestation',
+                          },
+                        ],
+                        'frontstage-workspace-attestation.ics',
+                      )
+                    }
+                  >
+                    Download workspace reminder
+                  </button>
+                )}
                 {actor === selected.owner &&
                   selected.hostedWorkspaceAllowed === false && (
                     <p>
