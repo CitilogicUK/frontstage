@@ -132,6 +132,15 @@ export function AppAuditHistory({ appId }: { appId: string }) {
       ) {
         details.push(`Lifecycle changed to ${record.lifecycle}`);
       }
+      if (
+        previous?.tier !== undefined &&
+        record.tier !== undefined &&
+        previous.tier !== record.tier
+      ) {
+        details.push(
+          `Risk tier changed from Tier ${previous.tier} to Tier ${record.tier}`,
+        );
+      }
       if (previous && (previous.hosted || record.hosted)) {
         for (const field of Object.keys(hostedFields) as Array<
           keyof typeof hostedFields
