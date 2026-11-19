@@ -1377,6 +1377,15 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
   await expect(
     details.getByRole('button', { name: 'Save app details' }),
   ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await page
+    .getByRole('combobox', { name: 'Ownership', exact: true })
+    .selectOption('backup');
+  await expect(page).toHaveURL(/owner=backup$/);
+  await expect(rows.first()).toContainText('Tier decrease');
+  await expect(
+    page.getByRole('button', { name: 'Reassess Tier decrease' }),
+  ).toHaveCount(0);
 });
 
 test('audit history shows production review and ownership handoff', async ({

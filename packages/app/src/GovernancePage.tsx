@@ -386,7 +386,12 @@ export function GovernancePage() {
       if (value === 'me' || value === 'backup') next.set('owner', value);
       else next.delete('owner');
       const review = next.get('review');
-      if (value !== 'me' && (review === 'workspace' || review === 'scorecard'))
+      if (
+        value !== 'me' &&
+        (review === 'workspace' ||
+          review === 'scorecard' ||
+          (review === 'reassess' && !canReview))
+      )
         next.delete('review');
       return next;
     });
