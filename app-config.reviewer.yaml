@@ -3,6 +3,7 @@ auth:
     guest:
       userEntityRef: user:default/reviewer
 governance:
+  requireHumanApprovalEvidence: true
   graduationGroups: [group:default/engineering]
   approvedHostedWorkspaces:
     - provider: Example AI

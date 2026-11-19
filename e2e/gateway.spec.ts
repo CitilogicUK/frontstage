@@ -1000,6 +1000,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       models: [],
       deliveryStage: 'pilot',
       tier: 3,
+      humanApprovalEvidenceRequired: true,
       reviewStatus: 'pending',
     });
     const pilotPath = `${api}/apps/${pilotApp.id}`;
@@ -1013,15 +1014,39 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       400,
       'Require review before activating the pilot',
     );
-    const pilotReview = await request.post(`${pilotPath}/reviews`, {
-      headers,
-      data: {
-        status: 'approved',
-        notes: 'Reviewed sandbox scope and permissions.',
-        expectedUpdatedAt: pilotApp.updatedAt,
-      },
+    const reviewPilot = (proof: Record<string, unknown> = {}) =>
+      request.post(`${pilotPath}/reviews`, {
+        headers,
+        data: {
+          status: 'approved',
+          notes: 'Reviewed sandbox scope and permissions.',
+          expectedUpdatedAt: pilotApp.updatedAt,
+          ...proof,
+        },
+      });
+    await expectStatus(
+      await reviewPilot(),
+      400,
+      'Require human approval evidence before approving the sandbox pilot',
+    );
+    const humanApprovalEvidenceUrl =
+      'https://example.com/evidence/purchase-order-approval';
+    const pilotReview = await reviewPilot({
+      humanApprovalVerified: true,
+      humanApprovalEvidenceUrl,
     });
     await expectStatus(pilotReview, 200, 'Approve the sandbox pilot');
+    const pilotAudit = await request.get(`${pilotPath}/history`, { headers });
+    await expectStatus(pilotAudit, 200, 'Read the sandbox pilot audit history');
+    const { events: pilotEvents } = await pilotAudit.json();
+    expect(
+      pilotEvents.map(({ event }: { event: string }) => JSON.parse(event)),
+    ).toContainEqual(
+      expect.objectContaining({
+        action: 'reviewed',
+        humanApprovalEvidenceUrl,
+      }),
+    );
     const activatedPilot = await activatePilot();
     await expectStatus(activatedPilot, 200, 'Activate the approved pilot');
     const activePilot = await activatedPilot.json();
