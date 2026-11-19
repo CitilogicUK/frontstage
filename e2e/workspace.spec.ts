@@ -1643,6 +1643,28 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   ]);
   await expect(attestationQueue).toContainText('Confirmation missing');
   await expect(attestationQueue).toContainText('Overdue since 2025-04-01 UTC');
+  await page.getByRole('link', { name: 'Inventory', exact: true }).click();
+  const workspaceQueue = page.getByRole('link', {
+    name: /of your apps need.*workspace confirmation/,
+  });
+  await expect(workspaceQueue).toHaveText(
+    '2 of your apps need workspace confirmations',
+  );
+  await workspaceQueue.click();
+  await expect(page).toHaveURL(/owner=me&review=workspace/);
+  const inventory = page.getByRole('region', { name: 'AI app inventory' });
+  await expect(inventory.getByRole('row').nth(1)).toContainText(
+    overdueApp.name,
+  );
+  await expect(inventory.getByRole('row').nth(1)).toContainText(
+    'Workspace confirmation overdue',
+  );
+  await expect(inventory.getByRole('row').nth(2)).toContainText(
+    'Workspace confirmation missing',
+  );
+  await expect(inventory.getByRole('row')).toHaveCount(3);
+
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await missing.click();
   await expect(details).toBeVisible();
   await details.getByRole('button', { name: 'Close app details' }).click();
@@ -1735,8 +1757,18 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   await expect(
     attestationQueue.getByRole('link', { name: overdueApp.name }),
   ).toBeVisible();
+  await page.getByRole('link', { name: 'Inventory', exact: true }).click();
+  await expect(workspaceQueue).toHaveText(
+    '1 of your apps needs a workspace confirmation',
+  );
+  await workspaceQueue.click();
+  await expect(inventory.getByRole('row')).toHaveCount(2);
+  await expect(inventory.getByRole('row').nth(1)).toContainText(
+    overdueApp.name,
+  );
+
   canReviewHostedApps = false;
-  await page.reload();
+  await page.goto('/?view=reports');
   await expect(
     page.getByText('Non-retired apps', { exact: true }),
   ).toBeVisible();

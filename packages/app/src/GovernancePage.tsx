@@ -200,6 +200,18 @@ function ownerCanDecideRetirement(app: App, actor: string) {
   );
 }
 
+function workspaceAttestationIssue(app: App, now: number) {
+  if (!app.hosted || app.lifecycle === 'retired') return undefined;
+  const due = Date.parse(app.hostedAttestation?.nextDue ?? '');
+  if (!Number.isFinite(due))
+    return {
+      due: Number.POSITIVE_INFINITY,
+      label: 'Workspace confirmation missing',
+    };
+  if (due > now) return undefined;
+  return { due, label: 'Workspace confirmation overdue' };
+}
+
 function appReview(app: App, now: number) {
   if (app.lifecycle === 'retired' || app.tier === 1) {
     return { label: 'Not required', status: 'not required', priority: 3 };
@@ -914,6 +926,13 @@ export function GovernancePage() {
             app.owner === actor && appsWithPendingAccessRequests.has(app.id),
         ).length
       : 0;
+  const ownerWorkspaceIssues = new Map(
+    apps.flatMap(app => {
+      if (!actor || app.owner !== actor) return [];
+      const issue = workspaceAttestationIssue(app, now);
+      return issue ? [[app.id, issue] as const] : [];
+    }),
+  );
   const scopedApps =
     ownershipScope === 'all'
       ? apps
@@ -941,7 +960,8 @@ export function GovernancePage() {
       inventoryReview === 'attention' ||
       inventoryReview === 'upcoming' ||
       inventoryReview === 'retirement' ||
-      inventoryReview === 'access')
+      inventoryReview === 'access' ||
+      inventoryReview === 'workspace')
       ? inventoryReview
       : '';
 
@@ -995,6 +1015,8 @@ export function GovernancePage() {
         ownerCanDecideRetirement(app, actor)) &&
       (inventoryReviewFilter !== 'access' ||
         (app.owner === actor && appsWithPendingAccessRequests.has(app.id))) &&
+      (inventoryReviewFilter !== 'workspace' ||
+        ownerWorkspaceIssues.has(app.id)) &&
       (!lifecycleFilter || app.lifecycle === lifecycleFilter) &&
       (!classificationFilter ||
         (app.effectiveClassification ?? app.classification) ===
@@ -1077,6 +1099,13 @@ export function GovernancePage() {
       (a, b) =>
         (pendingFirstDecisions.get(a.id) ?? 0) -
         (pendingFirstDecisions.get(b.id) ?? 0),
+    );
+  } else if (inventoryReviewFilter === 'workspace') {
+    matching.sort(
+      (a, b) =>
+        (ownerWorkspaceIssues.get(a.id)?.due ?? Number.POSITIVE_INFINITY) -
+          (ownerWorkspaceIssues.get(b.id)?.due ?? Number.POSITIVE_INFINITY) ||
+        a.name.localeCompare(b.name),
     );
   } else if (
     view === 'Reviews' ||
@@ -1205,6 +1234,18 @@ export function GovernancePage() {
               </Link>
             </p>
           )}
+          {view === 'Inventory' &&
+            !loading &&
+            !error &&
+            ownerWorkspaceIssues.size > 0 && (
+              <p className="gov-notice">
+                <Link to="/?owner=me&review=workspace">
+                  {ownerWorkspaceIssues.size === 1
+                    ? '1 of your apps needs a workspace confirmation'
+                    : `${ownerWorkspaceIssues.size} of your apps need workspace confirmations`}
+                </Link>
+              </p>
+            )}
           <div className="gov-panel">
             <WorkspaceSearch
               label="Search apps"
@@ -1343,6 +1384,9 @@ export function GovernancePage() {
                         Overdue reviews and attestations
                       </option>
                       <option value="upcoming">Due in the next 30 days</option>
+                      <option value="workspace">
+                        My workspace confirmations
+                      </option>
                       <option value="access">My pending access requests</option>
                       <option value="retirement">
                         My retirement decisions
@@ -1629,6 +1673,12 @@ export function GovernancePage() {
                             >
                               {review.label}
                             </span>
+                            {view === 'Inventory' &&
+                              ownerWorkspaceIssues.has(app.id) && (
+                                <small>
+                                  {ownerWorkspaceIssues.get(app.id)?.label}
+                                </small>
+                              )}
                             {view === 'Inventory' &&
                               ownerCanDecideRetirement(app, actor) && (
                                 <small>Retirement decision requested</small>
