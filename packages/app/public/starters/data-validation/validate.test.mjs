@@ -65,7 +65,7 @@ test('rejects oversized files and directories', async t => {
   assert.equal(oversized.status, 2);
   assert.match(oversized.stderr, /exceeds 1 MiB/);
 
-  const directory = validate(new URL('.', import.meta.url).pathname);
+  const directory = validate(fileURLToPath(new URL('.', import.meta.url)));
   assert.equal(directory.status, 2);
   assert.match(directory.stderr, /regular JSON file|Could not read the input/);
 });
