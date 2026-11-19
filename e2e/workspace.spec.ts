@@ -2633,6 +2633,7 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   };
   const snapshot = { apps: [known, candidate] };
   let registered = false;
+  let previewCount = 0;
   await page.route(/\/api\/governance\/apps(?:\?|$)/, async route => {
     if (route.request().method() === 'POST') {
       expect(new URL(route.request().url()).searchParams.get('source')).toBe(
@@ -2678,18 +2679,21 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   );
   await page.route('**/api/governance/discovery/hosted/preview', route => {
     expect(route.request().postDataJSON()).toEqual(snapshot);
+    previewCount += 1;
+    const knownMatch = { ...known, appId: 'known-hosted-app' };
     return route.fulfill({
       json: {
         apps: [
-          {
-            ...known,
-            appId: 'known-hosted-app',
-            mismatch: 'workspace',
-            registeredWorkspace: {
-              provider: 'Example AI',
-              workspace: 'Previous workspace',
-            },
-          },
+          previewCount === 1
+            ? {
+                ...knownMatch,
+                mismatch: 'workspace',
+                registeredWorkspace: {
+                  provider: 'Example AI',
+                  workspace: 'Previous workspace',
+                },
+              }
+            : knownMatch,
           candidate,
         ],
       },
@@ -2741,6 +2745,10 @@ test('reviewers reconcile a hosted snapshot and register an unmatched app', asyn
   await expect(
     knownRow.getByRole('button', { name: 'Register app' }),
   ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Recheck snapshot' }).click();
+  await expect(knownRow.getByText('Registered', { exact: true })).toBeVisible();
+  await expect(knownRow.getByText('Previous workspace')).toHaveCount(0);
+  expect(previewCount).toBe(2);
   await page.getByRole('button', { name: 'Register app', exact: true }).click();
 
   const form = page.getByRole('region', { name: 'App registration' });
