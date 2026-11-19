@@ -39,7 +39,11 @@ export function projectBrief(
   stage: DeliveryStage,
   classification: string,
   model?: string,
+  codingToolPolicyUrl?: string,
 ) {
+  const codingPolicyNote = codingToolPolicyUrl
+    ? `\n\nCheck the workspace’s [Approved AI coding tools](<${codingToolPolicyUrl}>) before sharing code or data with a coding assistant.`
+    : '';
   return `# Project brief
 
 Delivery stage: ${deliveryStages[stage]}
@@ -52,7 +56,7 @@ Describe the problem, who will use the app, and what success looks like.
 
 Highest data classification: ${classification}
 
-Identify inputs, sensitive data, destinations, external services, and any actions that change records. Name the environment and permissions available for this stage.
+Identify inputs, sensitive data, destinations, external services, and any actions that change records. Name the environment and permissions available for this stage.${codingPolicyNote}
 
 ## Runtime AI
 
