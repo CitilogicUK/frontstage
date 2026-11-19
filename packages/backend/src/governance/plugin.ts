@@ -1770,6 +1770,60 @@ export const governancePlugin = createBackendPlugin({
           },
         );
 
+        function renewalReviewDue(record: GovernanceRecord, at: number) {
+          return record.tier === 3 && trackConfig
+            ? trackedReview(record.signoffs, trackConfig, at).nextReview
+            : record.nextReview;
+        }
+
+        router.get('/reports/manager-escalations', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          res.set('Cache-Control', 'no-store');
+          if (reviewManagerEscalationDays === undefined) {
+            res.json({ apps: [] });
+            return;
+          }
+          const rows = await db(table).select<{ payload: string }[]>('payload');
+          const now = Date.now();
+          const candidates = rows.flatMap(row => {
+            const record = JSON.parse(row.payload) as GovernanceRecord;
+            if (
+              record.lifecycle === 'retired' ||
+              record.tier < 2 ||
+              evaluateTier(record) !== record.tier
+            )
+              return [];
+            const due = Date.parse(renewalReviewDue(record, now) ?? '');
+            if (!Number.isFinite(due) || due >= now) return [];
+            return [
+              {
+                appId: record.id,
+                name: record.name,
+                owner: record.owner,
+                due: new Date(due).toISOString(),
+              },
+            ];
+          });
+          const sent = await findAppsWithSentManagerRenewalReminders(
+            db,
+            candidates,
+          );
+          res.json({
+            apps: candidates
+              .filter(app => sent.has(app.appId))
+              .sort(
+                (a, b) =>
+                  a.due.localeCompare(b.due) ||
+                  a.name.localeCompare(b.name) ||
+                  a.appId.localeCompare(b.appId),
+              ),
+          });
+        });
+
         router.get('/apps', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
@@ -3314,11 +3368,7 @@ export const governancePlugin = createBackendPlugin({
                 appsTable: table,
                 policy: {
                   evaluateTier,
-                  reviewDue: (record, at) =>
-                    record.tier === 3 && trackConfig
-                      ? trackedReview(record.signoffs, trackConfig, at)
-                          .nextReview
-                      : record.nextReview,
+                  reviewDue: renewalReviewDue,
                   hostedWorkspaceApproved,
                 },
                 load,

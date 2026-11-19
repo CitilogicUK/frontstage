@@ -32,6 +32,7 @@ import { WorkspaceEmptyState, WorkspaceSearch } from './WorkspaceLayout';
 import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 import { NoLiveCallsSinceActivation } from './AppRetirementReview';
 import { OutsideGatewayUsage } from './OutsideGatewayUsage';
+import { ManagerEscalations } from './ManagerEscalations';
 import { findStarter } from './AppTemplates';
 
 type AppSummary = {
@@ -1135,6 +1136,7 @@ export function PortfolioReport({
           </div>
         </section>
       )}
+      {canReview && <ManagerEscalations appLink={reportAppLink} />}
       {report?.monthlySpendAlerts && (
         <section
           className="gov-panel gov-stage-report"
