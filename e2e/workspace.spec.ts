@@ -4282,6 +4282,31 @@ test('Builder guide shows connector approval limits and registry states', async 
     };
     return route.fulfill({ json: current });
   });
+  await page.route('**/api/governance/apps/connector-review/history', route =>
+    route.fulfill({
+      json: {
+        events: [
+          {
+            event: JSON.stringify({
+              action: 'registered',
+              actor: app.owner,
+              record: app,
+            }),
+            digest: 'a'.repeat(64),
+          },
+          {
+            event: JSON.stringify({
+              action: 'updated',
+              actor: 'user:default/reviewer',
+              record: current,
+            }),
+            digest: 'b'.repeat(64),
+          },
+        ],
+        keyEvents: [],
+      },
+    }),
+  );
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -4465,6 +4490,19 @@ test('Builder guide shows connector approval limits and registry states', async 
   await expect(connections.getByRole('listitem')).toHaveCount(3);
   await expect(connections).toContainText(updatedConnections[2].name);
   await expect(connections).not.toContainText('Catalog search');
+  await details.getByText('Audit history', { exact: true }).click();
+  const updateEvent = details.getByRole('listitem').filter({
+    has: page.getByText('App updated', { exact: true }),
+  });
+  await expect(updateEvent).toContainText(
+    'Connected system removed · Catalog search (read)',
+  );
+  await expect(updateEvent).toContainText(
+    `Connected system added · ${updatedConnections[2].name} (read)`,
+  );
+  await expect(updateEvent).not.toContainText('Sandbox orders');
+  await expect(updateEvent).not.toContainText('Unlisted CRM');
+
   await details.getByRole('button', { name: 'Close app details' }).click();
 
   state = 'unconfigured';
