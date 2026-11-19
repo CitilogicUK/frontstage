@@ -3412,6 +3412,17 @@ describe('governance record access', () => {
     expect(await row.clone().first('payload')).toEqual({
       payload: legacyPayload,
     });
+    const driftScorecard = await api
+      .get(`${path}/scorecard`)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    expect(driftScorecard.body.checks).toContainEqual({
+      name: 'Review status',
+      status: 'attention',
+      detail:
+        'Current policy assigns Tier 3. Reassess this app to update its saved Tier 2.',
+    });
+
     const { body: reassessed } = await api
       .put(path)
       .set('Authorization', auth(owner))
