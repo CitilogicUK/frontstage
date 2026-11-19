@@ -1438,20 +1438,18 @@ export const governancePlugin = createBackendPlugin({
             .json(visibleRecord(updated, principal));
         });
 
-        async function notifyDirectoryAccess({
+        async function sendGovernanceNotification({
           recipient,
-          requestId,
           title,
           description,
           search,
-          kind,
+          scope,
         }: {
           recipient: string;
-          requestId: string;
           title: string;
           description: string;
           search: string;
-          kind: 'request' | 'decision';
+          scope: string;
         }) {
           try {
             const appBaseUrl = config.getOptionalString('app.baseUrl');
@@ -1465,14 +1463,11 @@ export const governancePlugin = createBackendPlugin({
                 description,
                 link,
                 topic: 'AI App Governance',
-                scope: `governance-directory-${kind}-${requestId}`,
+                scope,
               },
             });
           } catch {
-            logger.warn('Could not deliver directory access notification', {
-              requestId,
-              kind,
-            });
+            logger.warn('Could not deliver governance notification', { scope });
           }
         }
 
@@ -1527,14 +1522,13 @@ export const governancePlugin = createBackendPlugin({
               );
             return { created: row, owner: record.owner };
           });
-          await notifyDirectoryAccess({
+          await sendGovernanceNotification({
             recipient: owner,
-            requestId: created.id,
             title: 'New directory access request',
             description:
               'Review the request in Inventory → My pending access requests.',
             search: '?owner=me&review=access',
-            kind: 'request',
+            scope: `governance-directory-request-${created.id}`,
           });
           res.set('Cache-Control', 'no-store').status(201).json(created);
         });
@@ -1655,13 +1649,12 @@ export const governancePlugin = createBackendPlugin({
               );
               return updated;
             });
-            await notifyDirectoryAccess({
+            await sendGovernanceNotification({
               recipient: saved.requester,
-              requestId: saved.id,
               title: `Access request ${saved.status}`,
               description: 'View the decision in Directory → My requests.',
               search: '?view=directory&directoryAccess=mine',
-              kind: 'decision',
+              scope: `governance-directory-decision-${saved.id}`,
             });
             res
               .set('Cache-Control', 'no-store')
@@ -2202,6 +2195,14 @@ export const governancePlugin = createBackendPlugin({
               expectedRetirementActivity: lastLiveCall,
             },
           );
+          await sendGovernanceNotification({
+            recipient: record.owner,
+            title: 'Retirement review requested',
+            description:
+              'Review the app in Inventory → Retirement decision requested.',
+            search: '?owner=me&review=retirement',
+            scope: `governance-retirement-review-${record.id}-${updatedAt}`,
+          });
           return updated;
         }
 
