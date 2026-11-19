@@ -3239,3 +3239,116 @@ test('the focused review ticket form saves and removes the link without reopenin
     details.getByText('Review ticket link removed', { exact: true }),
   ).toBeVisible();
 });
+
+test('a backup owner can confirm handover when the app is eligible', async ({
+  page,
+}) => {
+  const actor = 'user:default/backup';
+  const replacement = 'user:default/replacement';
+  const app = {
+    id: 'backup-handover-app',
+    name: 'Shared fulfilment app',
+    owner: 'user:default/owner',
+    backupOwner: actor,
+    team: 'group:default/operations',
+    purpose: 'Support fulfilment decisions.',
+    platform: 'GitHub',
+    sourceUrl: 'https://example.com/source',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 2,
+    usesAiAtRuntime: false,
+    models: [],
+    reviewStatus: 'not required',
+    nextReview: '2099-01-01T00:00:00.000Z',
+    updatedAt: '2025-05-01T00:00:00.000Z',
+  };
+  let current = app;
+  let available = false;
+  let catalogUnavailable = true;
+
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({ json: { actor, canReview: false, apps: [current] } }),
+  );
+  await page.route(
+    '**/api/governance/apps/backup-handover-app/backup-handover',
+    route => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        if (catalogUnavailable) return route.fulfill({ status: 503 });
+        return route.fulfill({ json: { available, backupRequired: true } });
+      }
+      expect(available).toBe(true);
+      expect(request.method()).toBe('POST');
+      expect(request.postDataJSON()).toEqual({
+        backupOwner: replacement,
+        expectedUpdatedAt: app.updatedAt,
+      });
+      current = {
+        ...app,
+        owner: actor,
+        backupOwner: replacement,
+        updatedAt: '2025-05-02T00:00:00.000Z',
+        nextReview: '2025-05-02T00:00:00.000Z',
+      };
+      return route.fulfill({ json: current });
+    },
+  );
+
+  await page.goto('/?app=backup-handover-app');
+  const details = page.getByRole('dialog', { name: app.name });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const handover = details.getByText('Backup owner handover', { exact: true });
+  const take = details.getByRole('button', { name: 'Take ownership' });
+  const unavailable = details.getByText(
+    'Backup handover is unavailable for this app.',
+  );
+  await handover.click();
+  await expect(details.getByRole('alert')).toHaveText(
+    'Handover availability could not load.',
+  );
+  await expect(take).toHaveCount(0);
+  catalogUnavailable = false;
+  await details.getByRole('button', { name: 'Retry handover check' }).click();
+  await expect(unavailable).toBeVisible();
+  await expect(take).toHaveCount(0);
+  await handover.click();
+  await expect(unavailable).toHaveCount(0);
+  available = true;
+  await handover.click();
+
+  await expect(
+    details.getByText(/Any existing gateway key will be revoked/),
+  ).toBeVisible();
+  await expect(
+    details.getByText('Your first owner attestation will be due immediately.'),
+  ).toBeVisible();
+  await expect(take).toBeDisabled();
+  const backup = details.getByRole('textbox', {
+    name: /Replacement backup owner/,
+  });
+  await expect(backup).toHaveAttribute('required', '');
+  await backup.fill(replacement);
+  await details
+    .getByRole('checkbox', { name: 'I accept responsibility for this app.' })
+    .check();
+  await take.click();
+  await expect(
+    details.getByText('You are now the accountable owner.'),
+  ).toBeVisible();
+  await expect(handover).toHaveCount(0);
+  await expect(
+    details.getByText('Edit app details', { exact: true }),
+  ).toBeVisible();
+  await expect(details.getByText('Next review due 2025-05-02.')).toBeVisible();
+
+  await page.reload();
+  await expect(details.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  await expect(handover).toHaveCount(0);
+  await expect(
+    details.getByRole('button', { name: 'Record attestation' }),
+  ).toBeVisible();
+});

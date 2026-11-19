@@ -168,6 +168,8 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         record.reviewStatus === 'pending'
       )
         details.push('Approval reopened');
+      if (entry.action === 'ownership-handover')
+        action = 'Backup owner took ownership';
       if (entry.action === 'reviewed') {
         action = `Review: ${record.reviewStatus}`;
         for (const track of Object.keys(reviewTrackLabels) as ReviewTrack[]) {

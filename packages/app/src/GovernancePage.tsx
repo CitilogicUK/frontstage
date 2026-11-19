@@ -48,6 +48,7 @@ import {
   type DirectoryListing,
 } from './AppDirectory';
 import { DirectoryRequestQueue } from './DirectoryAccessRequests';
+import { AppBackupHandover } from './AppBackupHandover';
 import { AppGraduation, type Graduation } from './AppGraduation';
 import {
   AppRetirementReview,
@@ -2038,6 +2039,28 @@ export function GovernancePage() {
                   selected.lifecycle === 'active' &&
                   selected.directoryLaunchEligible !== false &&
                   !!selected.directoryListing
+                }
+              />
+            )}
+            {actor === selected.backupOwner && (
+              <AppBackupHandover
+                key={`backup-handover-${selected.id}`}
+                appId={selected.id}
+                updatedAt={selected.updatedAt}
+                tier={selected.tier}
+                busy={busy}
+                onTakeOwnership={event =>
+                  submit(event, async data => {
+                    applySavedApp(
+                      await api(`/apps/${selected.id}/backup-handover`, {
+                        backupOwner:
+                          String(data.get('backupOwner') ?? '').trim() ||
+                          undefined,
+                        expectedUpdatedAt: selected.updatedAt,
+                      }),
+                    );
+                    setMessage('You are now the accountable owner.');
+                  })
                 }
               />
             )}

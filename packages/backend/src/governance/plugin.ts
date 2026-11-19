@@ -120,12 +120,18 @@ type Graduation = {
   | { status: 'accepted' | 'declined'; decidedAt: string; reason?: string }
 );
 
+function isAcceptedCoOwner(record: GovernanceRecord, actor: string) {
+  return (
+    record.graduation?.status === 'accepted' &&
+    record.graduation.nominee === actor
+  );
+}
+
 function isIndependentReviewer(record: GovernanceRecord, reviewer: string) {
   return (
     reviewer !== record.owner &&
     reviewer !== record.backupOwner &&
-    (record.graduation?.status !== 'accepted' ||
-      reviewer !== record.graduation.nominee)
+    !isAcceptedCoOwner(record, reviewer)
   );
 }
 
@@ -153,7 +159,8 @@ type RecordAction =
   | 'graduation-ended'
   | 'directory-published'
   | 'directory-unpublished'
-  | 'review-ticket-updated';
+  | 'review-ticket-updated'
+  | 'ownership-handover';
 
 const retirementReviewWritesPerRun = 50;
 const retirementReviewOwnerBatchSize = 100;
@@ -453,7 +460,10 @@ export const governancePlugin = createBackendPlugin({
           ];
         }
 
-        async function activeCatalogEntities(entityRefs: string[]) {
+        async function activeCatalogEntities(
+          entityRefs: string[],
+          requireCompleteResponse = false,
+        ) {
           const active = new Map<string, Entity>();
           if (!entityRefs.length) return active;
           const { token } = await auth.getPluginRequestToken({
@@ -466,6 +476,19 @@ export const governancePlugin = createBackendPlugin({
               { entityRefs: batch },
               { token },
             );
+            if (
+              requireCompleteResponse &&
+              (items.length !== batch.length ||
+                items.some(
+                  (entity, index) =>
+                    entity !== null &&
+                    entity !== undefined &&
+                    stringifyEntityRef(entity) !== batch[index],
+                ))
+            )
+              throw new ServiceUnavailableError(
+                'Catalog returned an incomplete ownership lookup.',
+              );
             batch.forEach((ref, index) => {
               const entity = items[index];
               if (
@@ -1813,29 +1836,11 @@ export const governancePlugin = createBackendPlugin({
           res.json(visibleRecord(updated, principal));
         });
 
-        router.put('/apps/:id', async (req, res) => {
-          const { principal } = await httpAuth.credentials(req, {
-            allow: ['user', 'service'],
-          });
-          const { record, revision } = await load(req.params.id);
-          assertCanEdit(record, principal);
-          const expectedUpdatedAt = req.body?.expectedUpdatedAt;
-          if (
-            expectedUpdatedAt !== undefined &&
-            expectedUpdatedAt !== record.updatedAt
-          ) {
-            throw new ConflictError(
-              'The app changed since you opened it. Reopen the current record before editing.',
-            );
-          }
-          const app = parseApp({
-            evidence: record.evidence,
-            reviewTicketUrl: record.reviewTicketUrl,
-            ...req.body,
-          });
-          if (app.sourceUrl !== record.sourceUrl)
-            throw new InputError('The registered source URL is fixed.');
-          await validateOwners(app);
+        function recordAfterAppEdit(
+          record: GovernanceRecord,
+          app: AppInput,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ) {
           const previousInput = appInput.parse(record);
           const tier = evaluateTier(app);
           const riskFields = [
@@ -1912,8 +1917,161 @@ export const governancePlugin = createBackendPlugin({
             updated.nextReview = updated.updatedAt;
           }
           assertCanLaunch(updated);
+          return updated;
+        }
+
+        router.put('/apps/:id', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user', 'service'],
+          });
+          const { record, revision } = await load(req.params.id);
+          assertCanEdit(record, principal);
+          const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+          if (
+            expectedUpdatedAt !== undefined &&
+            expectedUpdatedAt !== record.updatedAt
+          ) {
+            throw new ConflictError(
+              'The app changed since you opened it. Reopen the current record before editing.',
+            );
+          }
+          const app = parseApp({
+            evidence: record.evidence,
+            reviewTicketUrl: record.reviewTicketUrl,
+            ...req.body,
+          });
+          if (app.sourceUrl !== record.sourceUrl)
+            throw new InputError('The registered source URL is fixed.');
+          await validateOwners(app);
+          const updated = recordAfterAppEdit(record, app, principal);
+          const ownerChanged = record.owner !== updated.owner;
           await save(updated, revision, principal, 'updated', { ownerChanged });
           res.json(visibleRecord(updated, principal));
+        });
+
+        function assertRegisteredBackup(
+          record: GovernanceRecord,
+          actor: string,
+        ) {
+          if (record.backupOwner !== actor)
+            throw new NotAllowedError(
+              'Only this app’s registered backup owner can use handover.',
+            );
+        }
+
+        async function handoverCatalog(
+          record: GovernanceRecord,
+          actor: string,
+          replacement?: string,
+        ) {
+          const refs = [record.owner, actor, record.team];
+          if (replacement) refs.push(replacement);
+          try {
+            return await activeCatalogEntities([...new Set(refs)], true);
+          } catch {
+            throw new ServiceUnavailableError(
+              'Catalog ownership could not be verified. Retry when catalog is available.',
+            );
+          }
+        }
+
+        function backupCanTakeOwnership(
+          record: GovernanceRecord,
+          actor: string,
+          active: ReadonlyMap<string, Entity>,
+        ) {
+          const mustKeepActiveHostedWorkspace =
+            record.lifecycle === 'active' &&
+            record.type === 'provider-hosted app' &&
+            evaluateTier(record) < 3;
+          return (
+            (!mustKeepActiveHostedWorkspace ||
+              hostedWorkspaceApproved(record) !== false) &&
+            record.lifecycle !== 'retired' &&
+            !active.has(record.owner) &&
+            active.has(actor) &&
+            active.has(record.team)
+          );
+        }
+
+        router.get('/apps/:id/backup-handover', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const { record } = await load(req.params.id);
+          const actor = principal.userEntityRef;
+          assertRegisteredBackup(record, actor);
+          const backupRequired = evaluateTier(record) >= 2;
+          let available = false;
+          if (
+            record.lifecycle !== 'retired' &&
+            !isAcceptedCoOwner(record, actor)
+          ) {
+            const active = await handoverCatalog(record, actor);
+            available = backupCanTakeOwnership(record, actor, active);
+          }
+          res
+            .set('Cache-Control', 'no-store')
+            .json({ available, backupRequired });
+        });
+
+        router.post('/apps/:id/backup-handover', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const input = z
+            .object({
+              backupOwner: z
+                .string()
+                .regex(/^user:[a-z0-9_.-]+\/[a-z0-9_.-]+$/)
+                .optional(),
+              expectedUpdatedAt: z.string().datetime(),
+            })
+            .safeParse(req.body);
+          if (!input.success)
+            throw new InputError(
+              'Provide the current app timestamp and a valid replacement backup owner when required.',
+            );
+          const { record, revision } = await load(req.params.id);
+          const actor = principal.userEntityRef;
+          assertRegisteredBackup(record, actor);
+          if (record.updatedAt !== input.data.expectedUpdatedAt)
+            throw new ConflictError(
+              'The app changed. Reopen the current record before taking ownership.',
+            );
+          if (record.lifecycle === 'retired')
+            throw new ConflictError('Retired apps cannot be handed over.');
+          if (isAcceptedCoOwner(record, actor))
+            throw new NotAllowedError(
+              'An accepted engineering co-owner cannot end their own handoff.',
+            );
+
+          const replacement = input.data.backupOwner;
+          if (replacement === actor)
+            throw new InputError(
+              'Choose a backup owner other than the new owner.',
+            );
+          const app = parseApp({
+            ...record,
+            owner: actor,
+            backupOwner: replacement,
+          });
+          const active = await handoverCatalog(record, actor, replacement);
+          if (!backupCanTakeOwnership(record, actor, active))
+            throw new ConflictError(
+              'Handover requires an unavailable current owner, an active backup and team, and an eligible lifecycle.',
+            );
+          if (replacement && !active.has(replacement))
+            throw new InputError(
+              'Choose an active catalog user as the replacement backup owner.',
+            );
+          const updated = recordAfterAppEdit(record, app, principal);
+          await save(updated, revision, principal, 'ownership-handover', {
+            ownerChanged: true,
+          });
+          res
+            .set('Cache-Control', 'no-store')
+            .json(visibleRecord(updated, principal));
         });
 
         function assertGraduationAvailable(
