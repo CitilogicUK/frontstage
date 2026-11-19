@@ -2526,6 +2526,11 @@ test('audit history shows production review and ownership handoff', async ({
       },
     }),
   );
+  const uncovered = {
+    appId: 'uncovered-app',
+    name: 'App without an active backup',
+    owner: 'user:default/departed-owner',
+  };
   const reportedTeam = 'group:default/reassigned-team';
   let failOwnershipLookup = false;
   await page.route('**/api/governance/reports/ownership', route => {
@@ -2550,6 +2555,14 @@ test('audit history shows production review and ownership handoff', async ({
                     { role: 'team', ref: reportedTeam, reason: 'missing' },
                   ],
                   availableBackupOwner: pilot.owner,
+                },
+                {
+                  appId: uncovered.appId,
+                  name: uncovered.name,
+                  unavailable: [uncovered.owner],
+                  unavailableDetails: [
+                    { role: 'owner', ref: uncovered.owner, reason: 'missing' },
+                  ],
                 },
               ]
             : [],
@@ -3036,6 +3049,10 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(
     ownership.getByText(`Active backup owner: ${pilot.owner}`),
   ).toBeVisible();
+  const ownershipItems = ownership.getByRole('listitem');
+  await expect(ownershipItems.first()).toContainText(uncovered.name);
+  await expect(ownershipItems.first()).toContainText('No active backup owner');
+  await expect(ownershipItems.last()).toContainText(handoff.name);
   const ownershipDownloadPending = page.waitForEvent('download');
   await ownership
     .getByRole('button', { name: 'Download ownership issues CSV' })
