@@ -8264,6 +8264,49 @@ describe('governance record access', () => {
       upstreamStatus: undefined,
       elapsedMs: expect.any(Number),
     });
+    const bodyDeadline = new AbortController();
+    const bodyDeadlineSpy = jest
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(ms =>
+        ms === 12_000 ? bodyDeadline.signal : deadline(ms),
+      );
+    const readStalledBody = jest.fn();
+    provider.mockImplementationOnce(async (_url, init) => {
+      const signal = init?.signal;
+      expect(signal).toBe(bodyDeadline.signal);
+      return new Response(
+        new ReadableStream<Uint8Array>(
+          {
+            start(controller) {
+              signal?.addEventListener(
+                'abort',
+                () => controller.error(signal.reason),
+                { once: true },
+              );
+              controller.enqueue(new TextEncoder().encode('{"choices":'));
+            },
+            pull() {
+              readStalledBody();
+              bodyDeadline.abort();
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    const stalled = await call().expect(503);
+    bodyDeadlineSpy.mockRestore();
+    expect(readStalledBody).toHaveBeenCalledTimes(1);
+    expect(stalled.headers['server-timing']).toBeUndefined();
+    expect(warn).toHaveBeenLastCalledWith('Model provider request failed', {
+      requestId: stalled.headers['x-frontstage-request-id'],
+      appId: app.body.id,
+      model: 'test-model',
+      kind: 'timeout',
+      upstreamStatus: undefined,
+      elapsedMs: expect.any(Number),
+    });
     const retryDate = new Date(Date.now() + 30_000).toUTCString();
     for (const [status, retryAfter, expected] of [
       [429, '12', '12'],
@@ -8394,9 +8437,9 @@ describe('governance record access', () => {
     await keyStatus(sandboxPath).expect(200, { issued: true });
     await keyStatus(productionPath).expect(200, { issued: false });
     await call().expect(401);
-    expect(provider).toHaveBeenCalledTimes(9);
-    expect(warn).toHaveBeenCalledTimes(7);
-    expect(JSON.parse(String(provider.mock.calls[7][1]?.body))).toMatchObject({
+    expect(provider).toHaveBeenCalledTimes(10);
+    expect(warn).toHaveBeenCalledTimes(8);
+    expect(JSON.parse(String(provider.mock.calls[8][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
 
@@ -8449,7 +8492,7 @@ describe('governance record access', () => {
       appId: alertOnlyApp.id,
       checks: expect.arrayContaining(['Monthly gateway spend']),
     });
-    expect(provider).toHaveBeenCalledTimes(9);
+    expect(provider).toHaveBeenCalledTimes(10);
 
     await issue(productionPath).expect(201);
     await api
