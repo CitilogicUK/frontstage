@@ -6521,12 +6521,16 @@ describe('governance record access', () => {
     provider.mockResolvedValueOnce(
       new Response('Synthetic upstream details', {
         status: 307,
-        headers: { Location: 'https://example.com/unexpected-provider-target' },
+        headers: {
+          Location: 'https://example.com/unexpected-provider-target',
+          'Retry-After': '12',
+        },
       }),
     );
     const providerDeadline = jest.spyOn(AbortSignal, 'timeout');
     const unavailable = await call().expect(503);
     expect(unavailable.headers['server-timing']).toBeUndefined();
+    expect(unavailable.headers['retry-after']).toBeUndefined();
     expect(providerDeadline).toHaveBeenCalledWith(12_000);
     providerDeadline.mockRestore();
     expect(unavailable.body.error.message).toBe(
@@ -6563,6 +6567,24 @@ describe('governance record access', () => {
       upstreamStatus: undefined,
       elapsedMs: expect.any(Number),
     });
+    const retryDate = new Date(Date.now() + 30_000).toUTCString();
+    for (const [status, retryAfter, expected] of [
+      [429, '12', '12'],
+      [503, retryDate, retryDate],
+      [429, 'invalid', undefined],
+    ] as const) {
+      provider.mockResolvedValueOnce(
+        new Response('Synthetic upstream details', {
+          status,
+          headers: { 'Retry-After': retryAfter },
+        }),
+      );
+      const deferred = await call().expect(503);
+      expect(deferred.headers['retry-after']).toBe(expected);
+      expect(deferred.body.error.message).toBe(
+        'The configured model provider is temporarily unavailable.',
+      );
+    }
     await call()
       .expect('Server-Timing', /^frontstage;dur=\d+, provider;dur=\d+$/)
       .expect(200, {
@@ -6621,9 +6643,9 @@ describe('governance record access', () => {
     await keyStatus(sandboxPath).expect(200, { issued: true });
     await keyStatus(productionPath).expect(200, { issued: false });
     await call().expect(401);
-    expect(provider).toHaveBeenCalledTimes(4);
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(provider.mock.calls[2][1]?.body))).toMatchObject({
+    expect(provider).toHaveBeenCalledTimes(7);
+    expect(warn).toHaveBeenCalledTimes(5);
+    expect(JSON.parse(String(provider.mock.calls[5][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
 
@@ -6676,7 +6698,7 @@ describe('governance record access', () => {
       appId: alertOnlyApp.id,
       checks: expect.arrayContaining(['Monthly gateway spend']),
     });
-    expect(provider).toHaveBeenCalledTimes(4);
+    expect(provider).toHaveBeenCalledTimes(7);
 
     await issue(productionPath).expect(201);
     await api
