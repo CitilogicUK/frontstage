@@ -2325,6 +2325,14 @@ export function GovernancePage() {
                 : selected.models.join(', ')}{' '}
               · <a href={selected.sourceUrl}>Open source</a>
             </p>
+            <p>
+              Registration source ·{' '}
+              {
+                appRegistrationSources[
+                  registrationSource(selected.discoverySource)
+                ]
+              }
+            </p>
             {canRecordReview &&
               selected &&
               requiresCriticalReview(selected, now) && (
