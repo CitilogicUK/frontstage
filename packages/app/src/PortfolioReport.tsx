@@ -410,12 +410,21 @@ export function PortfolioReport({
       { replace: key === 'blockApp', preventScrollReset: true },
     );
   }
+  const now = Date.now();
+  const ownerObservationCutoff = now - 30 * 86_400_000;
   const requestedOwnershipRole = params.get('ownershipRole');
   const uncoveredOnly = requestedOwnershipRole === 'uncovered';
+  const longRunningOwnersOnly = requestedOwnershipRole === 'owner-over-30-days';
+  const requestedRole = longRunningOwnersOnly
+    ? 'owner'
+    : requestedOwnershipRole;
   const ownershipRole = Object.keys(ownershipRoles).find(
-    role => role === requestedOwnershipRole,
+    role => role === requestedRole,
   ) as keyof typeof ownershipRoles | undefined;
-  const ownershipFilter = uncoveredOnly ? 'uncovered' : ownershipRole ?? '';
+  const ownershipFilter =
+    uncoveredOnly || longRunningOwnersOnly
+      ? requestedOwnershipRole
+      : ownershipRole ?? '';
   const ownershipIssues =
     ownership?.issues
       .flatMap(issue => {
@@ -450,6 +459,15 @@ export function PortfolioReport({
           },
         );
         if (unavailable.length === 0) return [];
+        if (
+          longRunningOwnersOnly &&
+          !unavailable.some(
+            ({ observedSince }) =>
+              observedSince &&
+              Date.parse(observedSince) < ownerObservationCutoff,
+          )
+        )
+          return [];
         const lacksOwnerCoverage =
           !issue.availableBackupOwner &&
           unavailable.some(({ role }) => role === ownershipRoles.owner);
@@ -477,7 +495,6 @@ export function PortfolioReport({
       else stage.withAi += 1;
     }
   }
-  const now = Date.now();
   const hostedAttestationsNeedingAttention = canReview
     ? apps
         .filter(app => {
@@ -1004,12 +1021,15 @@ export function PortfolioReport({
               <label>
                 Ownership filter
                 <select
-                  value={ownershipFilter}
+                  value={ownershipFilter ?? ''}
                   onChange={event =>
                     setReportFilter('ownershipRole', event.target.value)
                   }
                 >
                   <option value="">All ownership issues</option>
+                  <option value="owner-over-30-days">
+                    Owner unavailable over 30 days
+                  </option>
                   <option value="uncovered">No active owner or backup</option>
                   {Object.entries(ownershipRoles).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -1018,6 +1038,11 @@ export function PortfolioReport({
                   ))}
                 </select>
               </label>
+            )}
+            {ownership && longRunningOwnersOnly && (
+              <p>
+                Based on when Frontstage first observed the owner unavailable.
+              </p>
             )}
             {ownership && ownershipIssues.length === 0 && (
               <p>
