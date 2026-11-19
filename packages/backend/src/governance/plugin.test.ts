@@ -209,7 +209,12 @@ describe('governance record access', () => {
     expect((await readQueue()).body.canApprove).toBe(true);
 
     const unavailableRequests = [
-      { id: app.id, name: app.name, requestStatus: 'pending' },
+      {
+        id: app.id,
+        name: app.name,
+        requestId: submitted.id,
+        requestStatus: 'pending',
+      },
     ];
     const clock = jest
       .spyOn(Date, 'now')
@@ -1752,7 +1757,9 @@ describe('governance record access', () => {
     const entry = { ...unavailableEntry, ...listing };
     await feed(requester)
       .expect('Cache-Control', 'no-store')
-      .expect(200, { apps: [{ ...entry, requestStatus: 'pending' }] });
+      .expect(200, {
+        apps: [{ ...entry, requestId: created.id, requestStatus: 'pending' }],
+      });
     await feed(reviewer).expect(200, { apps: [entry] });
     await api.get(queue).set('Authorization', auth(requester)).expect(403);
     const { body: reviewerQueue } = await api
@@ -1821,7 +1828,11 @@ describe('governance record access', () => {
       .expect(200, {
         apps: [],
         unavailableRequests: [
-          { ...unavailableEntry, requestStatus: 'pending' },
+          {
+            ...unavailableEntry,
+            requestId: created.id,
+            requestStatus: 'pending',
+          },
         ],
       });
     await feed(reviewer).expect(200, { apps: [] });
@@ -1833,7 +1844,7 @@ describe('governance record access', () => {
     await decide(reviewer, created.id, 'approved').expect(409);
     inactive.delete(owner);
     await feed(requester).expect(200, {
-      apps: [{ ...entry, requestStatus: 'pending' }],
+      apps: [{ ...entry, requestId: created.id, requestStatus: 'pending' }],
     });
     await api
       .get(queue)
@@ -1854,7 +1865,7 @@ describe('governance record access', () => {
     });
     await decide(owner, created.id, 'approved').expect(409);
     await feed(requester).expect(200, {
-      apps: [{ ...entry, requestStatus: 'pending' }],
+      apps: [{ ...entry, requestId: created.id, requestStatus: 'pending' }],
     });
 
     expect(notifications.send).toHaveBeenCalledTimes(2);
@@ -1895,10 +1906,10 @@ describe('governance record access', () => {
       app.id,
     ]);
     await feed(requester).expect(200, {
-      apps: [{ ...entry, requestStatus: 'approved' }],
+      apps: [{ ...entry, requestId: created.id, requestStatus: 'approved' }],
     });
     await feed(otherRequester).expect(200, {
-      apps: [{ ...entry, requestStatus: 'pending' }],
+      apps: [{ ...entry, requestId: pending.id, requestStatus: 'pending' }],
     });
 
     const { body: unpublished } = await api
@@ -1908,11 +1919,23 @@ describe('governance record access', () => {
       .expect(200);
     await feed(requester).expect(200, {
       apps: [],
-      unavailableRequests: [{ ...unavailableEntry, requestStatus: 'approved' }],
+      unavailableRequests: [
+        {
+          ...unavailableEntry,
+          requestId: created.id,
+          requestStatus: 'approved',
+        },
+      ],
     });
     await feed(otherRequester).expect(200, {
       apps: [],
-      unavailableRequests: [{ ...unavailableEntry, requestStatus: 'pending' }],
+      unavailableRequests: [
+        {
+          ...unavailableEntry,
+          requestId: pending.id,
+          requestStatus: 'pending',
+        },
+      ],
     });
     await feed(reviewer).expect(200, { apps: [] });
     await decide(reviewer, pending.id, 'approved').expect(409);
@@ -1939,7 +1962,13 @@ describe('governance record access', () => {
     });
     await feed(otherRequester).expect(200, {
       apps: [],
-      unavailableRequests: [{ ...unavailableEntry, requestStatus: 'declined' }],
+      unavailableRequests: [
+        {
+          ...unavailableEntry,
+          requestId: pending.id,
+          requestStatus: 'declined',
+        },
+      ],
     });
     const { body: audit } = await api
       .get(`${path}/history`)
@@ -2004,16 +2033,86 @@ describe('governance record access', () => {
         expect(body.canApprove).toBe(false);
       });
 
-    await publish(unpublished.updatedAt);
+    const { body: republished } = await publish(unpublished.updatedAt);
     await createRequest(requester).expect(409);
     await createRequest(otherRequester).expect(409);
     expect(notifications.send).toHaveBeenCalledTimes(4);
     await feed(requester).expect(200, {
-      apps: [{ ...entry, requestStatus: 'approved' }],
+      apps: [{ ...entry, requestId: created.id, requestStatus: 'approved' }],
     });
     await feed(otherRequester).expect(200, {
-      apps: [{ ...entry, requestStatus: 'declined' }],
+      apps: [{ ...entry, requestId: pending.id, requestStatus: 'declined' }],
     });
+
+    const withdrawingUser = 'user:default/withdrawing-user';
+    const { body: withdrawable } = await createRequest(withdrawingUser).expect(
+      201,
+    );
+    const withdraw = (actor: string, requestId: string) =>
+      api.delete(`${queue}/${requestId}`).set('Authorization', auth(actor));
+    await withdraw(requester, created.id).expect(409);
+    await withdraw(owner, withdrawable.id).expect(404);
+    await withdraw(reviewer, withdrawable.id).expect(404);
+    await api
+      .delete(`${queue}/${withdrawable.id}`)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
+    await api
+      .delete(`${queue}/${withdrawable.id}`)
+      .set('Authorization', mockCredentials.none.header())
+      .expect(401);
+
+    const { body: withdrawnListing } = await api
+      .delete(`${path}/directory`)
+      .set('Authorization', auth(owner))
+      .send({ expectedUpdatedAt: republished.updatedAt })
+      .expect(200);
+    await feed(withdrawingUser).expect(200, {
+      apps: [],
+      unavailableRequests: [
+        {
+          ...unavailableEntry,
+          requestId: withdrawable.id,
+          requestStatus: 'pending',
+        },
+      ],
+    });
+    await withdraw(withdrawingUser, withdrawable.id)
+      .expect('Cache-Control', 'no-store')
+      .expect(204);
+    await withdraw(withdrawingUser, withdrawable.id).expect(404);
+    await feed(withdrawingUser).expect(200, { apps: [] });
+    await decide(owner, withdrawable.id, 'declined').expect(404);
+    expect(notifications.send).toHaveBeenCalledTimes(5);
+
+    const { body: withdrawnAudit } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const lastEvent = withdrawnAudit.events.at(-1);
+    expect(lastEvent.digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.parse(lastEvent.event)).toMatchObject({
+      action: 'directory-access-withdrawn',
+      actor: withdrawingUser,
+      at: expect.any(String),
+      record: { id: app.id, updatedAt: withdrawnListing.updatedAt },
+    });
+    expect(lastEvent.event).not.toContain(withdrawable.id);
+    expect(lastEvent.event).not.toContain(requestMessage);
+
+    await publish(withdrawnListing.updatedAt);
+    const { body: resubmitted } = await createRequest(withdrawingUser).expect(
+      201,
+    );
+    expect(resubmitted.id).not.toBe(withdrawable.id);
+    const [withdrawal, decision] = await Promise.all([
+      withdraw(withdrawingUser, resubmitted.id),
+      decide(owner, resubmitted.id, 'declined'),
+    ]);
+    expect([
+      [204, 404],
+      [409, 200],
+    ]).toContainEqual([withdrawal.status, decision.status]);
   });
 
   it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {

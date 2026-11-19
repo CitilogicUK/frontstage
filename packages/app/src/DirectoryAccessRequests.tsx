@@ -57,15 +57,20 @@ function useDirectoryRequestApi(appId: string) {
 export function DirectoryRequestAction({
   appId,
   status,
+  withdrawRequestId,
   onSaved,
+  onWithdrawn,
 }: {
   appId: string;
   status?: DirectoryRequestStatus;
-  onSaved: (status: DirectoryRequestStatus) => void;
+  withdrawRequestId?: string;
+  onSaved: (request: { id: string; status: DirectoryRequestStatus }) => void;
+  onWithdrawn: () => void;
 }) {
   const api = useDirectoryRequestApi(appId);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [confirming, setConfirming] = useState(false);
 
   async function requestAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,12 +84,29 @@ export function DirectoryRequestAction({
     setSubmitting(true);
     setError('');
     try {
-      const saved = await api<{ status: DirectoryRequestStatus }>('', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-      });
-      onSaved(saved.status);
+      const saved = await api<{ id: string; status: DirectoryRequestStatus }>(
+        '',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message }),
+        },
+      );
+      onSaved(saved);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function withdraw(id: string) {
+    setSubmitting(true);
+    setError('');
+    try {
+      await api(`/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setConfirming(false);
+      onWithdrawn();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -94,10 +116,38 @@ export function DirectoryRequestAction({
 
   if (status) {
     return (
-      <div role="status">
-        <p>{statusLabels[status]}</p>
+      <div>
+        <p role="status">{statusLabels[status]}</p>
         {status === 'approved' && (
           <p>The app owner handles access in the destination app.</p>
+        )}
+        {status === 'pending' && withdrawRequestId && confirming && (
+          <div>
+            <p>Withdraw this access request?</p>
+            {error && <p role="alert">{error}</p>}
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void withdraw(withdrawRequestId)}
+            >
+              {submitting ? 'Withdrawing…' : 'Confirm withdrawal'}
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                setConfirming(false);
+                setError('');
+              }}
+            >
+              Cancel withdrawal
+            </button>
+          </div>
+        )}
+        {status === 'pending' && withdrawRequestId && !confirming && (
+          <button type="button" onClick={() => setConfirming(true)}>
+            Withdraw request
+          </button>
         )}
       </div>
     );

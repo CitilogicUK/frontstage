@@ -221,6 +221,7 @@ type RecordAction =
   | 'directory-unpublished'
   | 'directory-access-approved'
   | 'directory-access-declined'
+  | 'directory-access-withdrawn'
   | 'review-ticket-updated'
   | 'ownership-handover';
 
@@ -1570,10 +1571,13 @@ export const governancePlugin = createBackendPlugin({
             db(table).select('payload'),
             db<DirectoryRequestRow>(directoryRequestsTable)
               .where({ requester: principal.userEntityRef })
-              .select('app_id', 'status'),
+              .select('app_id', 'id', 'status'),
           ]);
-          const ownStatuses = new Map(
-            ownRequests.map(row => [row.app_id, row.status]),
+          const ownRequestByApp = new Map(
+            ownRequests.map(row => [
+              row.app_id,
+              { requestId: row.id, requestStatus: row.status },
+            ]),
           );
           const records = rows.map(
             row => JSON.parse(row.payload) as GovernanceRecord,
@@ -1598,7 +1602,7 @@ export const governancePlugin = createBackendPlugin({
                   name: record.name,
                   summary,
                   url,
-                  requestStatus: ownStatuses.get(record.id),
+                  ...ownRequestByApp.get(record.id),
                 },
               ];
             })
@@ -1609,9 +1613,9 @@ export const governancePlugin = createBackendPlugin({
           const visibleIds = new Set(apps.map(app => app.id));
           const unavailableRequests = records
             .flatMap(({ id, name }) => {
-              const requestStatus = ownStatuses.get(id);
-              return requestStatus && !visibleIds.has(id)
-                ? [{ id, name, requestStatus }]
+              const ownRequest = ownRequestByApp.get(id);
+              return ownRequest && !visibleIds.has(id)
+                ? [{ id, name, ...ownRequest }]
                 : [];
             })
             .sort(
@@ -1916,6 +1920,53 @@ export const governancePlugin = createBackendPlugin({
             res
               .set('Cache-Control', 'no-store')
               .json(directoryRequestView(saved));
+          },
+        );
+
+        router.delete(
+          '/apps/:id/directory-requests/:requestId',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            await db.transaction(async transaction => {
+              const { record, revision } = await load(
+                req.params.id,
+                transaction,
+              );
+              const request = transaction<DirectoryRequestRow>(
+                directoryRequestsTable,
+              ).where({
+                app_id: record.id,
+                id: req.params.requestId,
+                requester: principal.userEntityRef,
+              });
+              const current = await request.clone().first('status');
+              if (!current)
+                throw new NotFoundError(
+                  'This app has no matching access request.',
+                );
+              if (
+                current.status !== 'pending' ||
+                !(await request.where({ status: 'pending' }).del())
+              )
+                throw new ConflictError(
+                  'This access request has already been decided.',
+                );
+              // Keep the app edit timestamp unchanged for a queue withdrawal.
+              await transaction(table)
+                .where({ id: record.id })
+                .update({ revision: revision + 1 });
+              await logChange(
+                transaction,
+                record,
+                revision + 1,
+                principal,
+                'directory-access-withdrawn',
+                { at: new Date().toISOString() },
+              );
+            });
+            res.set('Cache-Control', 'no-store').status(204).end();
           },
         );
 

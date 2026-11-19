@@ -20,8 +20,9 @@ type DirectoryApp = DirectoryListing & {
   id: string;
   name: string;
   requestStatus?: DirectoryRequestStatus;
+  requestId?: string;
 };
-type UnavailableRequest = Pick<DirectoryApp, 'id' | 'name'> & {
+type UnavailableRequest = Pick<DirectoryApp, 'id' | 'name' | 'requestId'> & {
   requestStatus: DirectoryRequestStatus;
 };
 type DirectoryFeed = {
@@ -39,6 +40,7 @@ export function AppDirectory() {
   const requestView = params.get('directoryAccess') === 'mine';
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -107,6 +109,7 @@ export function AppDirectory() {
           ]}
         />
       )}
+      {notice && <p role="status">{notice}</p>}
       {failed && (
         <div className="gov-empty">
           <p role="alert">The app directory could not load.</p>
@@ -166,19 +169,49 @@ export function AppDirectory() {
                     <DirectoryRequestAction
                       appId={app.id}
                       status={app.requestStatus}
-                      onSaved={requestStatus =>
+                      withdrawRequestId={
+                        requestView ? app.requestId : undefined
+                      }
+                      onSaved={({ id, status }) => {
+                        setNotice('');
                         setFeed(
                           previous =>
                             previous && {
                               ...previous,
                               apps: previous.apps.map(item =>
                                 item.id === app.id
-                                  ? { ...item, requestStatus }
+                                  ? {
+                                      ...item,
+                                      requestId: id,
+                                      requestStatus: status,
+                                    }
                                   : item,
                               ),
                             },
-                        )
-                      }
+                        );
+                      }}
+                      onWithdrawn={() => {
+                        setFeed(
+                          previous =>
+                            previous && {
+                              ...previous,
+                              apps: previous.apps.map(item =>
+                                item.id === app.id
+                                  ? {
+                                      ...item,
+                                      requestStatus: undefined,
+                                      requestId: undefined,
+                                    }
+                                  : item,
+                              ),
+                              unavailableRequests:
+                                previous.unavailableRequests?.filter(
+                                  item => item.id !== app.id,
+                                ),
+                            },
+                        );
+                        setNotice(`Access request withdrawn for ${app.name}.`);
+                      }}
                     />
                   </td>
                 </tr>
