@@ -3285,7 +3285,11 @@ describe('governance record access', () => {
       })
       .expect(201);
 
-    expect(created.body.sourceUrl).toBe(legacySourceUrl);
+    const riskAssessment = { tier: 3, reasons: ['restricted-data'] };
+    expect(created.body).toMatchObject({
+      sourceUrl: legacySourceUrl,
+      riskAssessment,
+    });
     const path = `${apps}/${created.body.id}`;
     const notes = 'Approval covers the sandbox only.';
     await api
@@ -3316,6 +3320,7 @@ describe('governance record access', () => {
     expect(linked.body).toMatchObject({
       reviewStatus: 'approved',
       reviewTicketUrl,
+      riskAssessment,
     });
     for (const user of [owner, backup, reviewer]) {
       const response = await api
@@ -3326,6 +3331,7 @@ describe('governance record access', () => {
         evidence,
         reviewNotes: notes,
         reviewTicketUrl,
+        riskAssessment,
       });
     }
 
@@ -3340,6 +3346,17 @@ describe('governance record access', () => {
     expect(unrelated.body).not.toHaveProperty('evidence');
     expect(unrelated.body).not.toHaveProperty('reviewTicketUrl');
     expect(unrelated.body).not.toHaveProperty('reviewNotes');
+    expect(unrelated.body).not.toHaveProperty('riskAssessment');
+    const service = await api
+      .get(path)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(200);
+    expect(service.body).not.toHaveProperty('riskAssessment');
+    const ownerList = await api
+      .get(apps)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    expect(ownerList.body.apps).toMatchObject([{ riskAssessment }]);
     const list = await api
       .get(apps)
       .set('Authorization', auth(teammate))
@@ -3366,6 +3383,33 @@ describe('governance record access', () => {
         ({ event }: { event: string }) => JSON.parse(event).action,
       ),
     ).toEqual(['registered', 'reviewed', 'updated']);
+
+    for (const { event } of history.body.events) {
+      expect(JSON.parse(event).record).not.toHaveProperty('riskAssessment');
+    }
+
+    // Represent a record saved before the current risk policy was applied.
+    const row = db('governance_apps').where({ id: created.body.id });
+    const { payload: originalPayload } = await row.clone().first('payload');
+    const legacyPayload = JSON.stringify({
+      ...JSON.parse(originalPayload),
+      tier: 2,
+    });
+    await row.clone().update({ payload: legacyPayload });
+    const drift = await api
+      .get(path)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    expect(drift.body).toMatchObject({
+      tier: 2,
+      reviewStatus: 'approved',
+      updatedAt: linked.body.updatedAt,
+      riskAssessment,
+    });
+    expect(await row.clone().first('payload')).toEqual({
+      payload: legacyPayload,
+    });
+    await row.update({ payload: originalPayload });
 
     const current = await api
       .get(path)

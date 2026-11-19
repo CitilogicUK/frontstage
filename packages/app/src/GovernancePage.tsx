@@ -113,6 +113,7 @@ type App = {
   hostedAttestation?: { at: string; nextDue: string };
   deliveryStage?: string;
   tier: number;
+  riskAssessment?: { tier: number; reasons: string[] };
   reviewStatus: string;
   lifecycle: string;
   nextReview: string | null;
@@ -283,6 +284,17 @@ function RiskBadge({ tier }: { tier: number }) {
       T{tier} · {tierNames[tier - 1]}
     </span>
   );
+}
+
+function TierReasons({ codes }: { codes: string[] }) {
+  const reasons = codes.flatMap(code => riskReasons.get(code) ?? []);
+  return reasons.length > 0 ? (
+    <ul aria-label="Reasons for this tier">
+      {reasons.map(reason => (
+        <li key={reason}>{reason}</li>
+      ))}
+    </ul>
+  ) : null;
 }
 
 function options(values: string[]) {
@@ -976,8 +988,6 @@ export function GovernancePage() {
       : undefined,
   });
   const preview = riskPreview?.answers === answers ? riskPreview : undefined;
-  const tierReasons =
-    preview?.reasons?.flatMap(reason => riskReasons.get(reason) ?? []) ?? [];
 
   useEffect(() => {
     if (view !== 'Register') return undefined;
@@ -2070,6 +2080,24 @@ export function GovernancePage() {
                   : selected.deliveryStage}
               </p>
             )}
+            {selected.riskAssessment && (
+              <details className="gov-app-editor" key={selected.id}>
+                <summary>Current risk assessment</summary>
+                <p>
+                  Tier {selected.riskAssessment.tier} ·{' '}
+                  {tierNames[selected.riskAssessment.tier - 1]}
+                </p>
+                <TierReasons codes={selected.riskAssessment.reasons} />
+                {selected.riskAssessment.tier !== selected.tier && (
+                  <p>
+                    This record was saved as Tier {selected.tier}.{' '}
+                    {actor === selected.owner || canReview
+                      ? 'Complete any required fields and save the app details to apply the current policy.'
+                      : 'Ask the accountable owner or a reviewer to update this record.'}
+                  </p>
+                )}
+              </details>
+            )}
             {selected.nextReview && (
               <p>Next review due {selected.nextReview.slice(0, 10)}.</p>
             )}
@@ -2968,13 +2996,7 @@ export function GovernancePage() {
                 preview.effectiveClassification !== registrationClass &&
                 ` · Effective data classification: ${preview.effectiveClassification}`}
             </p>
-            {tierReasons.length > 0 && (
-              <ul aria-label="Reasons for this tier">
-                {tierReasons.map(reason => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
+            {preview?.reasons && <TierReasons codes={preview.reasons} />}
             {preview?.tier === 2 && (
               <p>Shared apps need a backup owner and a yearly attestation.</p>
             )}
