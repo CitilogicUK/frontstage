@@ -9,6 +9,10 @@ import { deliveryStages, parseDeliveryStage } from './deliveryStages';
 import AssessmentOutlinedIcon from '@material-ui/icons/AssessmentOutlined';
 import { isReviewOverdue, requiresCriticalReview } from './reviewDue';
 import {
+  renewalExceptionUtc,
+  type RenewalException,
+} from './AppRenewalException';
+import {
   downloadCsv,
   ownershipIssuesCsv,
   portfolioCsv,
@@ -36,6 +40,7 @@ type AppSummary = {
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
   reviewTicketUrl?: string;
+  renewalException?: RenewalException;
   nextReview: string | null;
 };
 
@@ -316,6 +321,23 @@ export function PortfolioReport({
             ) ||
             a.name.localeCompare(b.name) ||
             a.id.localeCompare(b.id),
+        )
+    : [];
+  const renewalExceptions = canReview
+    ? inventory
+        .flatMap(app => {
+          if (
+            app.lifecycle !== 'active' ||
+            app.tier !== 3 ||
+            !app.renewalException
+          )
+            return [];
+          const exception = app.renewalException;
+          const expiry = Date.parse(exception.expiresAt);
+          return Number.isFinite(expiry) ? [{ app, exception, expiry }] : [];
+        })
+        .sort(
+          (a, b) => a.expiry - b.expiry || a.app.name.localeCompare(b.app.name),
         )
     : [];
   const reviewable = inventory.filter(app => app.tier === 2 || app.tier === 3);
@@ -871,6 +893,35 @@ export function PortfolioReport({
                           )} UTC`
                         : 'Confirmation missing'}{' '}
                       · {app.owner}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+      {canReview && (
+        <section
+          className="gov-panel gov-stage-report"
+          aria-labelledby="portfolio-renewal-exceptions"
+        >
+          <div className="gov-report-heading">
+            <h2 id="portfolio-renewal-exceptions">Renewal exceptions</h2>
+            {renewalExceptions.length === 0 ? (
+              <p>No renewal exceptions on active Tier 3 apps.</p>
+            ) : (
+              <ul>
+                {renewalExceptions.map(({ app, exception, expiry }) => (
+                  <li key={app.id}>
+                    <Link to={reportAppLink(app.id)}>{app.name}</Link>
+                    <p>
+                      {expiry <= now ? 'Expired ' : 'Expires '}
+                      <time dateTime={exception.expiresAt}>
+                        {renewalExceptionUtc(exception.expiresAt)}
+                      </time>
+                      {' · '}
+                      {exception.owner}
                     </p>
                   </li>
                 ))}

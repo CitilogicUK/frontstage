@@ -121,7 +121,7 @@ With split reviews enabled, reviewers can select **My pending sign-offs** in Rev
 
 An independent reviewer can grant an already-active Tier 3 app a renewal exception before its current approval expires. Record the reason and choose an expiry no more than 30 days after the scheduled review date. The original due date stays visible. Calls using an existing gateway key can continue until the exception expires or is revoked, subject to the usual ownership, data and model checks.
 
-The app still needs fresh approval for first launch, reactivation after its approval has expired, or a material change. A new review decision or leaving the active lifecycle clears the exception. Grant and revoke actions appear in audit history. Separate critical sign-off tracks require their normal renewals.
+The app still needs fresh approval for first launch, reactivation after its approval has expired, or a material change. A new review decision or leaving the active lifecycle clears the exception. Grant and revoke actions appear in audit history. Reviewers can open **Renewal exceptions** in Reports to see recorded exceptions on active Tier 3 apps, ordered by expiry. Separate critical sign-off tracks require their normal renewals.
 
 ## Engineering co-ownership
 

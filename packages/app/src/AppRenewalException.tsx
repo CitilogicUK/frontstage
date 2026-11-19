@@ -10,7 +10,7 @@ export type RenewalException = {
 
 const maxExtensionMs = 30 * 24 * 60 * 60 * 1000;
 
-function renewalExceptionUtc(value: string) {
+export function renewalExceptionUtc(value: string) {
   return `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 }
 
