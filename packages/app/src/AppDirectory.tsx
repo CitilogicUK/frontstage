@@ -15,9 +15,11 @@ export function AppDirectory() {
   const [apps, setApps] = useState<DirectoryApp[]>();
   const [query, setQuery] = useState('');
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
+    setFailed(false);
     discovery
       .getBaseUrl('governance')
       .then(base => fetch(`${base}/directory`, { signal: controller.signal }))
@@ -30,7 +32,7 @@ export function AppDirectory() {
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [discovery, fetch]);
+  }, [attempt, discovery, fetch]);
 
   const needle = query.trim().toLowerCase();
   const matches = apps?.filter(app =>
@@ -47,9 +49,12 @@ export function AppDirectory() {
         count={matches?.length}
       />
       {failed && (
-        <p className="gov-empty" role="alert">
-          The app directory could not load.
-        </p>
+        <div className="gov-empty">
+          <p role="alert">The app directory could not load.</p>
+          <button type="button" onClick={() => setAttempt(value => value + 1)}>
+            Retry loading Directory
+          </button>
+        </div>
       )}
       {!failed && !apps && (
         <p className="gov-empty" role="status">

@@ -2500,15 +2500,18 @@ test('an owner can publish a searchable directory listing and remove it', async 
       json: { actor: owner, canReview: false, apps: [current] },
     });
   });
-  await page.route('**/api/governance/directory', route =>
-    route.fulfill({
+  let directoryReads = 0;
+  await page.route('**/api/governance/directory', route => {
+    directoryReads += 1;
+    if (directoryReads === 1) return route.fulfill({ status: 503 });
+    return route.fulfill({
       json: {
         apps: current.directoryListing
           ? [{ id: app.id, name: app.name, ...current.directoryListing }]
           : [],
       },
-    }),
-  );
+    });
+  });
   await page.route('**/api/governance/apps/listed-app/directory', route => {
     const request = route.request();
     if (request.method() === 'PUT') {
@@ -2538,9 +2541,15 @@ test('an owner can publish a searchable directory listing and remove it', async 
   });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   await page.goto('/?view=directory');
-  await expect(empty.or(guest)).toBeVisible();
+  const directoryError = directory.getByRole('alert');
+  await expect(directoryError.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
+  await expect(directoryError).toHaveText('The app directory could not load.');
+  await directory
+    .getByRole('button', { name: 'Retry loading Directory' })
+    .click();
   await expect(empty).toBeVisible();
+  expect(directoryReads).toBe(2);
   expect(inventoryReads).toBe(0);
 
   await nav.getByRole('link', { name: 'Inventory', exact: true }).click();
