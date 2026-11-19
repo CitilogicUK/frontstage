@@ -455,15 +455,19 @@ export function GovernancePage() {
   const [hostedSnapshot, setHostedSnapshot] = useState<HostedSnapshotApp[]>();
   const [hostedSnapshotSelection, setHostedSnapshotSelection] =
     useState<HostedSnapshotApp>();
-  const [usageSourceSelection, setUsageSourceSelection] = useState<string>();
+  const [usageSelection, setUsageSelection] = useState<{
+    sourceUrl: string;
+    model: string;
+  }>();
   const [usagePreview, setUsagePreview] =
     useState<OutsideGatewayUsagePreview>();
-  const usageRegistrationSource =
+  const usageRegistration =
     view === 'Register' &&
     canReview &&
     params.get('source') === 'outside-gateway'
-      ? usageSourceSelection
+      ? usageSelection
       : undefined;
+  const usageRegistrationSource = usageRegistration?.sourceUrl;
   const usageRegistrationSession = useRef<AbortController>();
   useEffect(() => {
     if (!usageRegistrationSource) return undefined;
@@ -481,7 +485,7 @@ export function GovernancePage() {
       ? hostedSnapshotSelection
       : undefined;
   useEffect(() => {
-    if (view !== 'Register' || !canReview) setUsageSourceSelection(undefined);
+    if (view !== 'Register' || !canReview) setUsageSelection(undefined);
     if (view !== 'Register' || !canReview)
       setHostedSnapshotSelection(undefined);
     if ((view !== 'Discovery' && view !== 'Register') || !canReview)
@@ -1153,9 +1157,13 @@ export function GovernancePage() {
     '';
   const usesAiAtRuntime =
     hosted || (draft.usesAiAtRuntime ?? runtimeDefault) === 'yes';
+  const observedModel = usageRegistration?.model;
+  // Preserve the observed identifier only when the single-line, comma-separated field can represent it.
+  const observedModelDefault =
+    observedModel && !/[,\r\n]/.test(observedModel) ? observedModel : '';
   const initialModels = starter?.runtime
     ? params.get('model') ?? starterDefaults.model
-    : '';
+    : observedModelDefault;
   const registrationClass = draft.classification || initialClassification;
   const { policy: starterPolicy } = useGatewayModelPolicy(
     view === 'Register' &&
@@ -3387,9 +3395,9 @@ export function GovernancePage() {
           onRetryUsage={() => setUsageLoadAttempt(attempt => attempt + 1)}
           usagePreview={usagePreview}
           onUsagePreview={setUsagePreview}
-          onRegisterUsageSource={sourceUrl => {
+          onRegisterUsageSource={(sourceUrl, model) => {
             resetView();
-            setUsageSourceSelection(sourceUrl);
+            setUsageSelection({ sourceUrl, model });
             setParams({ view: 'register', source: 'outside-gateway' });
           }}
         />
