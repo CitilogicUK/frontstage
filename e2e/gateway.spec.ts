@@ -198,6 +198,7 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     await expectStatus(models, 200, 'Read the approved model policy');
     expect(await models.json()).toEqual({
       enabled: true,
+      productionAvailable: false,
       models: [
         {
           id: approvedModel,
