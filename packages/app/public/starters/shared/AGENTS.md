@@ -25,7 +25,7 @@ A trial that touches sensitive data, real users, or consequential actions still 
 
 ## Check Frontstage policy before registration
 
-Before sharing source code, prompts, or files with a coding tool, check **Approved AI coding tools** in the Builder guide for the workspace's allowed tools and data limits. Ask the project owner if policy is unavailable.
+Before sharing source code, prompts, or files with a coding tool, check the workspace policy under **Approved AI coding tools** in the Builder guide. If Frontstage MCP is available, use `list_approved_coding_tools` with the highest classification of any material you plan to share. Ask the project owner if policy is unavailable.
 
 When Frontstage MCP is configured, use the workspace policy to review the project brief and its `catalog-info.yaml`.
 

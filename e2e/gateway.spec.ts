@@ -1329,6 +1329,21 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         connectors: [],
       });
 
+      const codingTools = await catalogMcp.callTool({
+        name: 'list_approved_coding_tools',
+        arguments: { classification: 'internal' },
+      });
+      expect(codingTools.isError).not.toBe(true);
+      expect(codingTools.structuredContent).toMatchObject({
+        configured: true,
+        tools: [
+          {
+            id: 'synthetic-coding-sandbox',
+            maxClassification: 'internal',
+          },
+        ],
+      });
+
       const personalApp = { audience: 'personal', classification: 'internal' };
       const baselineRisk = await catalogMcp.callTool({
         name: 'preview_risk',
