@@ -52,7 +52,13 @@ async function readResponse<T>(response: Response): Promise<T> {
   );
 }
 
-export function GatewayPlayground({ app }: { app: GatewayApp }) {
+export function GatewayPlayground({
+  app,
+  onKeyChanged,
+}: {
+  app: GatewayApp;
+  onKeyChanged: () => void;
+}) {
   const discovery = useApi(discoveryApiRef);
   const { fetch: backstageFetch } = useApi(fetchApiRef);
   const [key, setKey] = useState<string>();
@@ -126,6 +132,7 @@ export function GatewayPlayground({ app }: { app: GatewayApp }) {
       const result = await readResponse<{ key: string }>(response);
       setKey(result.key);
       setIssued(true);
+      onKeyChanged();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -149,6 +156,7 @@ export function GatewayPlayground({ app }: { app: GatewayApp }) {
       setRevealed(false);
       setReply(undefined);
       setNotice('Gateway key revoked.');
+      onKeyChanged();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {

@@ -80,6 +80,11 @@ import {
   workspaceViews,
 } from './WorkspaceLayout';
 
+type OwnerScorecard = {
+  issues: Array<{ appId: string; checks: string[] }>;
+  catalogUnavailable: boolean;
+};
+
 type App = {
   id: string;
   name: string;
@@ -343,9 +348,9 @@ export function GovernancePage() {
       const next = new URLSearchParams(previous);
       if (value === 'me' || value === 'backup') next.set('owner', value);
       else next.delete('owner');
-      if (value !== 'me' && next.get('review') === 'workspace') {
+      const review = next.get('review');
+      if (value !== 'me' && (review === 'workspace' || review === 'scorecard'))
         next.delete('review');
-      }
       return next;
     });
   }
@@ -416,6 +421,13 @@ export function GovernancePage() {
         | 'effectiveClassification'
       >
     >;
+  }>();
+  const [scorecardLoadAttempt, setScorecardLoadAttempt] = useState(0);
+  const [scorecardResponse, setScorecardResponse] = useState<{
+    actor: string;
+    apps: App[];
+    attempt: number;
+    result?: OwnerScorecard | null;
   }>();
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -638,6 +650,24 @@ export function GovernancePage() {
       current = false;
     };
   }, [api, discoveryLoadAttempt, repositoryId, view]);
+
+  useEffect(() => {
+    if (view !== 'Inventory' || loading || !actor) return undefined;
+    let active = true;
+    const scope = { actor, apps, attempt: scorecardLoadAttempt };
+    setScorecardResponse(scope);
+    api('/owner-scorecard').then(
+      result => {
+        if (active) setScorecardResponse({ ...scope, result });
+      },
+      () => {
+        if (active) setScorecardResponse({ ...scope, result: null });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [actor, api, apps, loading, scorecardLoadAttempt, view]);
 
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
@@ -940,6 +970,28 @@ export function GovernancePage() {
             app.owner === actor && appsWithPendingAccessRequests.has(app.id),
         ).length
       : 0;
+  const ownerScorecard =
+    view === 'Inventory' &&
+    scorecardResponse?.actor === actor &&
+    scorecardResponse.apps === apps &&
+    scorecardResponse.attempt === scorecardLoadAttempt
+      ? scorecardResponse.result
+      : undefined;
+  const ownerActiveApps = new Set(
+    apps
+      .filter(app => app.owner === actor && app.lifecycle === 'active')
+      .map(app => app.id),
+  );
+  const ownerScorecardIssues = new Map(
+    ownerScorecard?.issues
+      .filter(
+        issue => ownerActiveApps.has(issue.appId) && issue.checks.length > 0,
+      )
+      .map(issue => [issue.appId, issue.checks]),
+  );
+  const scorecardQueueParams = new URLSearchParams(params);
+  scorecardQueueParams.set('owner', 'me');
+  scorecardQueueParams.set('review', 'scorecard');
   const ownerWorkspaceIssues = new Map(
     apps.flatMap(app => {
       if (!actor || app.owner !== actor) return [];
@@ -975,7 +1027,8 @@ export function GovernancePage() {
       inventoryReview === 'upcoming' ||
       inventoryReview === 'retirement' ||
       inventoryReview === 'access' ||
-      inventoryReview === 'workspace')
+      inventoryReview === 'workspace' ||
+      inventoryReview === 'scorecard')
       ? inventoryReview
       : '';
 
@@ -1031,6 +1084,8 @@ export function GovernancePage() {
         (app.owner === actor && appsWithPendingAccessRequests.has(app.id))) &&
       (inventoryReviewFilter !== 'workspace' ||
         ownerWorkspaceIssues.has(app.id)) &&
+      (inventoryReviewFilter !== 'scorecard' ||
+        ownerScorecardIssues.has(app.id)) &&
       (!lifecycleFilter || app.lifecycle === lifecycleFilter) &&
       (!classificationFilter ||
         (app.effectiveClassification ?? app.classification) ===
@@ -1059,7 +1114,8 @@ export function GovernancePage() {
       const next = new URLSearchParams(previous);
       if (value) next.set(key, value);
       else next.delete(key);
-      if (key === 'review' && value === 'workspace') next.set('owner', 'me');
+      if (key === 'review' && (value === 'workspace' || value === 'scorecard'))
+        next.set('owner', 'me');
       return next;
     });
   }
@@ -1270,6 +1326,40 @@ export function GovernancePage() {
                 </Link>
               </p>
             )}
+          {view === 'Inventory' && !loading && !error && actor && (
+            <>
+              {ownerScorecardIssues.size > 0 && (
+                <p className="gov-notice">
+                  <Link to={`/?${scorecardQueueParams}`}>
+                    {ownerScorecardIssues.size === 1
+                      ? '1 of your active apps needs scorecard attention'
+                      : `${ownerScorecardIssues.size} of your active apps need scorecard attention`}
+                  </Link>
+                </p>
+              )}
+              {(ownerScorecard === null ||
+                ownerScorecard?.catalogUnavailable) && (
+                <div className="gov-notice">
+                  {ownerScorecard === null ? (
+                    <p role="alert">Scorecard issues could not be loaded.</p>
+                  ) : (
+                    <p role="status">
+                      Catalog unavailable. Some scorecard checks could not be
+                      completed.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setScorecardLoadAttempt(attempt => attempt + 1)
+                    }
+                  >
+                    Retry loading scorecard issues
+                  </button>
+                </div>
+              )}
+            </>
+          )}
           <div className="gov-panel">
             <WorkspaceSearch
               label="Search apps"
@@ -1411,6 +1501,7 @@ export function GovernancePage() {
                       <option value="workspace">
                         My workspace confirmations
                       </option>
+                      <option value="scorecard">My scorecard issues</option>
                       <option value="access">My pending access requests</option>
                       <option value="retirement">
                         My retirement decisions
@@ -1583,7 +1674,17 @@ export function GovernancePage() {
               </p>
             )}
             {!loading &&
+              actor &&
+              inventoryReviewFilter === 'scorecard' &&
+              ownerScorecard === undefined && (
+                <p className="gov-empty" role="status">
+                  Loading scorecard issues…
+                </p>
+              )}
+            {!loading &&
               (!firstDecisionQueue || reviewTurnaround) &&
+              (inventoryReviewFilter !== 'scorecard' ||
+                (ownerScorecard && !ownerScorecard.catalogUnavailable)) &&
               matching.length === 0 && (
                 <WorkspaceEmptyState
                   icon={<AppsIcon aria-hidden="true" />}
@@ -1697,6 +1798,11 @@ export function GovernancePage() {
                             >
                               {review.label}
                             </span>
+                            {inventoryReviewFilter === 'scorecard' && (
+                              <small>
+                                {ownerScorecardIssues.get(app.id)?.join(' · ')}
+                              </small>
+                            )}
                             {view === 'Inventory' &&
                               ownerWorkspaceIssues.has(app.id) && (
                                 <small>
@@ -2630,6 +2736,9 @@ export function GovernancePage() {
                     selected.lifecycle === 'retired'
                   }`}
                   app={selected}
+                  onKeyChanged={() =>
+                    setScorecardLoadAttempt(attempt => attempt + 1)
+                  }
                 />
               )}
           </article>

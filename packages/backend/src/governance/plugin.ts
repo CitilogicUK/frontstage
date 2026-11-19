@@ -531,8 +531,14 @@ export const governancePlugin = createBackendPlugin({
           return entities;
         }
 
-        async function unavailableOwners(entityRefs: string[]) {
-          const active = await activeCatalogEntities(entityRefs);
+        async function unavailableOwners(
+          entityRefs: string[],
+          requireCompleteResponse = false,
+        ) {
+          const active = await activeCatalogEntities(
+            entityRefs,
+            requireCompleteResponse,
+          );
           return new Set(entityRefs.filter(ref => !active.has(ref)));
         }
 
@@ -2763,6 +2769,18 @@ export const governancePlugin = createBackendPlugin({
           meetsGatewayReviewRequirements,
           evaluateTier,
           ownersAreActive,
+          batchCatalogOwnership: async apps => {
+            const unavailable = await unavailableOwners(
+              [...new Set(apps.flatMap(ownershipRefs))],
+              true,
+            );
+            return new Map(
+              apps.map(app => [
+                app.id,
+                ownershipRefs(app).every(ref => !unavailable.has(ref)),
+              ]),
+            );
+          },
           isReviewer: principal => reviewers.includes(principal.userEntityRef),
         });
         httpRouter.use(gatewayRouter);

@@ -154,7 +154,7 @@ A handover revokes the old gateway key and appears in Audit history. Tier 2 apps
 
 ## App scorecards
 
-Owners, backup owners, and reviewers can open **App scorecard** in an app’s details. It checks catalog ownership, review status, and, for gateway apps, activation and model policy. The activity check uses live calls recorded in the last 90 days and identifies simulation-only activity separately. For provider-hosted apps, set `governance.approvedHostedWorkspaces` to a list of `provider` and `workspace` pairs. The scorecard checks the app’s declared pair against that list. When configured, the list also prevents activation of apps whose declared workspace is unlisted. Actual provider settings still require separate verification.
+Owners, backup owners, and reviewers can open **App scorecard** in an app’s details. In Inventory, **My scorecard issues** lists active apps you own with failed checks and shows what needs attention. It checks catalog ownership, review status, and, for gateway apps, activation and model policy. The activity check uses live calls recorded in the last 90 days and identifies simulation-only activity separately. For provider-hosted apps, set `governance.approvedHostedWorkspaces` to a list of `provider` and `workspace` pairs. The scorecard checks the app’s declared pair against that list. When configured, the list also prevents activation of apps whose declared workspace is unlisted. Actual provider settings still require separate verification.
 
 ## Portfolio reports
 

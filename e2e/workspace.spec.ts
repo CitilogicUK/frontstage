@@ -841,6 +841,144 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows.last()).toContainText('Overdue app');
 });
 
+test('owners can find active apps with failed scorecard checks', async ({
+  page,
+}) => {
+  const actor = 'user:default/owner';
+  const app = {
+    id: 'needs-scorecard',
+    name: 'Needs scorecard attention',
+    purpose: 'Synthetic owner queue fixture',
+    owner: actor,
+    team: 'group:default/platform',
+    platform: 'GitHub',
+    classification: 'internal',
+    lifecycle: 'active',
+    tier: 1,
+    models: ['fixture'],
+    usesAiAtRuntime: true,
+    reviewStatus: 'not required',
+    nextReview: null,
+    updatedAt: '2025-01-01T00:00:00.000Z',
+  };
+  await page.route('**/api/governance/apps', route =>
+    route.fulfill({
+      json: {
+        actor,
+        canReview: false,
+        gatewayEnabled: true,
+        apps: [
+          app,
+          { ...app, id: 'clear-scorecard', name: 'Current scorecard' },
+          {
+            ...app,
+            id: 'other-scorecard',
+            name: 'Another owner scorecard',
+            owner: 'user:default/other',
+          },
+          {
+            ...app,
+            id: 'inactive-scorecard',
+            name: 'Inactive scorecard',
+            lifecycle: 'retired',
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/governance/gateway/models', route =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        models: [{ id: 'fixture', allowedClassifications: ['internal'] }],
+      },
+    }),
+  );
+  let unavailable = true;
+  let keyIssued = false;
+  await page.route('**/api/governance/owner-scorecard', route => {
+    if (unavailable)
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Unavailable' } },
+      });
+    return route.fulfill({
+      json: {
+        issues: keyIssued ? [] : [{ appId: app.id, checks: ['Gateway key'] }],
+        catalogUnavailable: true,
+      },
+    });
+  });
+  await page.route(
+    '**/api/governance/apps/needs-scorecard/gateway-key',
+    route => {
+      if (route.request().method() === 'POST') {
+        keyIssued = true;
+        return route.fulfill({
+          status: 201,
+          json: { key: 'synthetic-gateway-key' },
+        });
+      }
+      return route.fulfill({ json: { issued: keyIssued } });
+    },
+  );
+  await page.route('**/api/governance/apps/needs-scorecard/scorecard', route =>
+    route.fulfill({
+      json: {
+        checks: [
+          {
+            name: 'Gateway key',
+            status: 'attention',
+            detail: 'Issue a key to enable eligible calls.',
+          },
+        ],
+      },
+    }),
+  );
+
+  await page.goto('/?owner=me&review=scorecard');
+  const inventory = page.getByRole('region', { name: 'AI app inventory' });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(inventory.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+  const retry = inventory.getByRole('button', { name: /Retry.*scorecard/i });
+  await expect(retry).toBeVisible();
+  unavailable = false;
+  await retry.click();
+  await expect(
+    inventory.getByText(/Catalog unavailable.*scorecard checks/i),
+  ).toBeVisible();
+  const rows = inventory.getByRole('row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.last()).toContainText('Gateway key');
+  await expect(rows.last()).toContainText(app.name);
+  await rows
+    .last()
+    .getByRole('button', { name: /Needs scorecard attention/ })
+    .click();
+  const details = page.getByRole('dialog', { name: app.name });
+  await details.getByText('App scorecard', { exact: true }).click();
+  await expect(
+    details.getByText('Issue a key to enable eligible calls.'),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Issue gateway key' }).click();
+  await expect(
+    details.getByRole('button', { name: 'Rotate key' }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/owner=me&review=scorecard$/);
+  await expect(
+    inventory.getByText(/Catalog unavailable.*scorecard checks/i),
+  ).toBeVisible();
+  await expect(inventory.getByText(app.name, { exact: true })).toHaveCount(0);
+  await inventory
+    .getByRole('combobox', { name: 'Ownership', exact: true })
+    .selectOption('backup');
+  await expect(
+    inventory.getByRole('combobox', { name: 'Review status' }),
+  ).toHaveValue('');
+});
+
 test('reviewers can download the spreadsheet import sample', async ({
   page,
 }) => {
