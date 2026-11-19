@@ -3121,8 +3121,8 @@ describe('governance record access', () => {
           name: 'Purchase order pilot',
           unavailable: [backup, owner],
           unavailableDetails: [
-            { ref: backup, reason: 'inactive' },
-            { ref: owner, reason: 'missing' },
+            { role: 'owner', ref: backup, reason: 'inactive' },
+            { role: 'backup', ref: owner, reason: 'missing' },
           ],
         },
       ],
@@ -3152,7 +3152,7 @@ describe('governance record access', () => {
         appId: created.body.id,
         name: 'Purchase order pilot',
         unavailable: [backup],
-        unavailableDetails: [{ ref: backup, reason: 'missing' }],
+        unavailableDetails: [{ role: 'owner', ref: backup, reason: 'missing' }],
         availableBackupOwner: owner,
       },
     ]);

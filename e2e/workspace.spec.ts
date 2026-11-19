@@ -1131,6 +1131,7 @@ test('audit history shows production review and ownership handoff', async ({
       },
     }),
   );
+  const reportedTeam = 'group:default/reassigned-team';
   await page.route('**/api/governance/reports/ownership', route =>
     route.fulfill({
       json: {
@@ -1140,10 +1141,10 @@ test('audit history shows production review and ownership handoff', async ({
                 {
                   appId: handoff.id,
                   name: handoff.name,
-                  unavailable: [handoff.owner, handoff.team],
+                  unavailable: [handoff.owner, reportedTeam],
                   unavailableDetails: [
-                    { ref: handoff.owner, reason: 'inactive' },
-                    { ref: handoff.team, reason: 'missing' },
+                    { role: 'owner', ref: handoff.owner, reason: 'inactive' },
+                    { role: 'team', ref: reportedTeam, reason: 'missing' },
                   ],
                   availableBackupOwner: pilot.owner,
                 },
@@ -1389,7 +1390,7 @@ test('audit history shows production review and ownership handoff', async ({
   );
   const decisionsCsv = await readFile(await decisionsExport.path(), 'utf8');
   expect(decisionsCsv).toContain(
-    `"${handoff.id}","${handoff.name}","${handoff.owner}","${handoff.team}",3.5,3`,
+    `"${handoff.id}","${handoff.name}","${handoff.owner}","${reportedTeam}",3.5,3`,
   );
   expect(decisionsCsv).not.toContain(renewal.name);
 
@@ -1420,7 +1421,7 @@ test('audit history shows production review and ownership handoff', async ({
   const ownership = page.getByRole('region', { name: 'Ownership issues' });
   await expect(
     ownership.getByText(
-      `Accountable owner: ${handoff.owner} (inactive) · Team: ${handoff.team} (missing)`,
+      `Accountable owner: ${handoff.owner} (inactive) · Team: ${reportedTeam} (missing)`,
     ),
   ).toBeVisible();
   await expect(
@@ -1439,7 +1440,7 @@ test('audit history shows production review and ownership handoff', async ({
     `"Accountable owner","${handoff.owner}","${pilot.owner}","inactive"`,
   );
   expect(ownershipCsv).toContain(
-    `"Team","${handoff.team}","${pilot.owner}","missing"`,
+    `"Team","${reportedTeam}","${pilot.owner}","missing"`,
   );
   const ownershipRole = ownership.getByRole('combobox', {
     name: 'Affected ownership role',
@@ -1459,7 +1460,7 @@ test('audit history shows production review and ownership handoff', async ({
     ownership.getByText(`Accountable owner: ${handoff.owner} (inactive)`),
   ).toBeVisible();
   await expect(
-    ownership.getByText(`Team: ${handoff.team} (missing)`),
+    ownership.getByText(`Team: ${reportedTeam} (missing)`),
   ).toHaveCount(0);
   const filteredDownload = page.waitForEvent('download');
   await ownership
@@ -1470,7 +1471,7 @@ test('audit history shows production review and ownership handoff', async ({
     'utf8',
   );
   expect(filteredCsv).toContain(`"Accountable owner","${handoff.owner}"`);
-  expect(filteredCsv).not.toContain(`"Team","${handoff.team}"`);
+  expect(filteredCsv).not.toContain(`"Team","${reportedTeam}"`);
   await ownership.getByRole('link', { name: handoff.name }).click();
   await expect(dialog).toBeVisible();
   await dialog

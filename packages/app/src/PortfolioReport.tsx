@@ -50,7 +50,11 @@ export type OwnershipReport = {
     appId: string;
     name: string;
     unavailable: string[];
-    unavailableDetails?: Array<{ ref: string; reason: 'missing' | 'inactive' }>;
+    unavailableDetails?: Array<{
+      ref: string;
+      role?: keyof typeof ownershipRoles;
+      reason: 'missing' | 'inactive';
+    }>;
     availableBackupOwner?: string;
   }>;
 };
@@ -259,14 +263,15 @@ export function PortfolioReport({
     ownership?.issues.flatMap(issue => {
       const app = byId.get(issue.appId);
       const unavailable = issue.unavailable.flatMap(ref => {
-        let role;
-        if (ref === app?.owner) role = 'owner';
-        else if (ref === app?.backupOwner) role = 'backup';
-        else if (ref === app?.team) role = 'team';
+        const detail = issue.unavailableDetails?.find(item => item.ref === ref);
+        let role = detail?.role;
+        if (!role) {
+          if (ref === app?.owner) role = 'owner';
+          else if (ref === app?.backupOwner) role = 'backup';
+          else if (ref === app?.team) role = 'team';
+        }
         if (ownershipRole && role !== ownershipRole) return [];
-        const reason = issue.unavailableDetails?.find(
-          item => item.ref === ref,
-        )?.reason;
+        const reason = detail?.reason;
         return [{ role: role ? ownershipRoles[role] : '', ref, reason }];
       });
       return unavailable.length ? [{ ...issue, unavailable }] : [];
