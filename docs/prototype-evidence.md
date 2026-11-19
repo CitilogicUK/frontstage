@@ -44,6 +44,17 @@ For an audit restore drill, save the record and key head digests separately from
 
 The mocked live-provider integration test also verifies that a malformed provider reply returns a generic error and leaves synthetic prompts, upstream content, and credentials out of the response and failure log. [Gateway integration test](../packages/backend/src/governance/plugin.test.ts)
 
+### Run the pilot identity checks
+
+Use managed test accounts and a synthetic Tier 3 app owned by the builder. Keep the deciding reviewer independent of the app. Record expected and observed results, including the delay between an identity change and its effect in Frontstage.
+
+| Scenario                      | Pass condition                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Managed sign-in and Inventory | Sign in as the builder and reviewer in separate browser sessions. Each session resolves to the expected Catalog user. The role probe confirms that both can read Inventory and only the reviewer can read registration feedback. [Role probe](../README.md#check-pilot-builder-and-reviewer-access)                                                                                       |
+| Review permissions            | Submit the synthetic Tier 3 app. As the builder, verify that you cannot record a review decision for it. Verify that the independent reviewer can record a decision with the required evidence. [Critical review demo](../README.md#require-evidence-for-a-critical-review)                                                                                                               |
+| Review privacy                | Open the same app as an unrelated builder and confirm that review notes and evidence links are absent. The owner and independent reviewer can read them.                                                                                                                                                                                                                                  |
+| Disabled user and ownership   | Disable the builder in the managed identity source. Wait for the Catalog update. Confirm that a fresh sign-in and the next session refresh are refused, and that the reviewer sees the inactive owner in **Ownership issues**. Record any difference between fresh sign-in, refresh and the lifetime of an already-issued credential. [Ownership reports](../README.md#portfolio-reports) |
+
 ## Metric scope
 
 | Spec metric          | What the prototype measures                                                                                                                                                                                                                                                    |
