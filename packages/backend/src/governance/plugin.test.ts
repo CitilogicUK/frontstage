@@ -2136,6 +2136,56 @@ describe('governance record access', () => {
     },
   );
 
+  const approvedTool = {
+    id: 'sandbox-assistant',
+    name: 'Sandbox assistant',
+    description: 'Help write code in a managed workspace.',
+    maxClassification: 'internal',
+    docsUrl: 'https://docs.example.com/sandbox-assistant',
+  };
+
+  it.each([
+    { state: 'unconfigured', config: {}, tools: [], configured: false },
+    {
+      state: 'configured but empty',
+      config: { approvedCodingTools: [] },
+      tools: [],
+      configured: true,
+    },
+    {
+      state: 'configured with approved tools',
+      config: { approvedCodingTools: [approvedTool] },
+      tools: [approvedTool],
+      configured: true,
+    },
+  ])(
+    'serves the $state coding tool registry to signed-in users',
+    async ({ config, configured, tools }) => {
+      const db = await databases.init('SQLITE_3');
+      const { server } = await startTestBackend({
+        features: [
+          governancePlugin,
+          mockServices.database.factory({ knex: db }),
+          mockServices.rootConfig.factory({ data: { governance: config } }),
+        ],
+      });
+      const path = '/api/governance/approved-coding-tools';
+      await request(server)
+        .get(path)
+        .set('Authorization', mockCredentials.none.header())
+        .expect(401);
+      await request(server)
+        .get(path)
+        .set('Authorization', mockCredentials.service.header())
+        .expect(403);
+      await request(server)
+        .get(path)
+        .set('Authorization', mockCredentials.user.header())
+        .expect('Cache-Control', 'no-store')
+        .expect(200, { configured, tools });
+    },
+  );
+
   it.each([undefined, []])(
     'disables engineering handoffs when groups are %j',
     async groups => {

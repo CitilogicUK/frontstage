@@ -1,4 +1,7 @@
-import { approvedConnectorsInput } from './approvedConnectors';
+import {
+  approvedCodingToolsInput,
+  approvedConnectorsInput,
+} from './approvedConnectors';
 
 const connector = {
   id: 'approved-provider',
@@ -41,6 +44,38 @@ describe('approved connector configuration', () => {
   ])('rejects values outside the metadata contract (%#)', fields => {
     expect(
       approvedConnectorsInput.safeParse([{ ...connector, ...fields }]).success,
+    ).toBe(false);
+  });
+});
+
+describe('approved coding tool configuration', () => {
+  const tool = {
+    id: 'sandbox-assistant',
+    name: 'Sandbox assistant',
+    description: 'Help write code in a managed workspace.',
+    maxClassification: 'internal',
+  };
+
+  it('accepts display metadata and rejects duplicate normalized IDs', () => {
+    expect(approvedCodingToolsInput.parse([tool])).toEqual([tool]);
+    expect(() =>
+      approvedCodingToolsInput.parse([
+        tool,
+        { ...tool, id: ` ${tool.id} `, name: 'Different name' },
+      ]),
+    ).toThrow('Coding tool IDs must be unique.');
+  });
+
+  it.each([
+    { docsUrl: 'http://docs.example.com' },
+    { docsUrl: 'https://user:pass@docs.example.com' },
+    { access: 'read' },
+    { maxClassification: 'top-secret' },
+    { description: ' ' },
+    { token: 'private' },
+  ])('rejects values outside the coding tool contract (%#)', fields => {
+    expect(
+      approvedCodingToolsInput.safeParse([{ ...tool, ...fields }]).success,
     ).toBe(false);
   });
 });

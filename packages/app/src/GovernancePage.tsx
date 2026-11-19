@@ -82,6 +82,7 @@ import {
   HostedSnapshotPreview,
   type HostedSnapshotApp,
 } from './HostedSnapshotPreview';
+import { ApprovedCodingToolsGuide } from './ApprovedCodingToolsGuide';
 import { GatewayModelGuide, useGatewayModelPolicy } from './GatewayModelGuide';
 import { GatewayPlayground } from './GatewayPlayground';
 import {
@@ -4317,6 +4318,7 @@ export function GovernancePage() {
               Import an app descriptor
             </Link>
           </section>
+          <ApprovedCodingToolsGuide />
           <GatewayModelGuide />
           <ApprovedConnectorsGuide />
           <HostedWorkspaceGuide />

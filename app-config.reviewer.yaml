@@ -10,6 +10,12 @@ governance:
       workspace: Company sandbox
       allowedSharing: [private, named people]
       allowedDataAccess: ['none']
+  approvedCodingTools:
+    - id: synthetic-coding-sandbox
+      name: Example coding sandbox
+      description: Use this fictional entry to demonstrate coding tool policy.
+      maxClassification: internal
+      docsUrl: https://example.com/frontstage-demo/coding-tools
   approvedConnectors:
     - id: catalog-sandbox
       name: Catalog sandbox

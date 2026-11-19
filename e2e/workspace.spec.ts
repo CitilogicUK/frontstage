@@ -265,6 +265,22 @@ test('workspace screens share navigation and fit the viewport', async ({
     page.getByRole('button', { name: 'Dismissed 1', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
 
+  await page.route('**/api/governance/approved-coding-tools', route =>
+    route.fulfill({
+      json: {
+        configured: true,
+        tools: [
+          {
+            id: 'synthetic-coding-sandbox',
+            name: 'Example coding sandbox',
+            description: 'Use for synthetic development work.',
+            maxClassification: 'internal',
+            docsUrl: 'https://example.com/frontstage-demo/coding-tools',
+          },
+        ],
+      },
+    }),
+  );
   await page.route('**/api/governance/hosted-workspaces', route =>
     route.fulfill({
       json: {
@@ -287,6 +303,17 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(
     page.getByText(/if AI only helps write the code/i),
   ).toBeVisible();
+  const codingTools = page.getByRole('region', {
+    name: 'Approved AI coding tools',
+  });
+  const codingTool = codingTools.getByRole('row').filter({
+    hasText: 'Example coding sandbox',
+  });
+  await expect(codingTool).toContainText(/internal/i);
+  await expect(codingTool.getByRole('link')).toHaveAttribute(
+    'href',
+    'https://example.com/frontstage-demo/coding-tools',
+  );
   const guide = page.getByRole('region', { name: 'Approved gateway models' });
   await expect(guide.getByText('1,024 tokens', { exact: true })).toHaveCount(2);
   const workspaces = page.getByRole('region', {
@@ -350,6 +377,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(ignore.slice(1)).toEqual(['.env', '.env.*', '!.env.example']);
     expect(strFromU8(files[`${id}/CLAUDE.md`]).trim()).toBe('@AGENTS.md');
     const agentGuide = strFromU8(files[`${id}/AGENTS.md`]);
+    expect(agentGuide).toContain('Approved AI coding tools');
     expect(agentGuide).toContain('Proof of concept');
     for (const tool of [
       'search_apps',
