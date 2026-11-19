@@ -246,7 +246,7 @@ async function logGatewayKeyChange(
   appId: string,
   actor: string,
   action: 'issued' | 'rotated' | 'revoked',
-  environment?: KeyEnvironment,
+  environment: KeyEnvironment,
 ) {
   const previous = await transaction(keyEventsTable)
     .where({ app_id: appId })
@@ -1008,8 +1008,8 @@ export function registerGatewayRoutes(options: {
 
   router.delete('/apps/:id/gateway-key', async (req, res) => {
     const { principal } = await httpAuth.credentials(req, { allow: ['user'] });
-    const requestedEnvironment = requestedKeyEnvironment(req.query.environment);
-    const environment = requestedEnvironment ?? 'sandbox';
+    const environment =
+      requestedKeyEnvironment(req.query.environment) ?? 'sandbox';
     await db.transaction(async transaction => {
       const { record } = await load(req.params.id, transaction);
       assertCanEdit(record, principal);
@@ -1022,7 +1022,7 @@ export function registerGatewayRoutes(options: {
           record.id,
           principal.userEntityRef,
           'revoked',
-          requestedEnvironment,
+          environment,
         );
     });
     res.set('Cache-Control', 'no-store').status(204).end();
@@ -1034,8 +1034,8 @@ export function registerGatewayRoutes(options: {
     const { record, revision } = await load(req.params.id);
     assertCanEdit(record, principal);
     assertGatewayAppType(record);
-    const requestedEnvironment = requestedKeyEnvironment(req.query.environment);
-    const environment = requestedEnvironment ?? 'sandbox';
+    const environment =
+      requestedKeyEnvironment(req.query.environment) ?? 'sandbox';
     if (environment === 'production' && config.mode !== 'openai')
       throw new NotAllowedError(
         'Production gateway keys require a live gateway deployment.',
@@ -1091,7 +1091,7 @@ export function registerGatewayRoutes(options: {
         record.id,
         principal.userEntityRef,
         inserted.length ? 'issued' : 'rotated',
-        requestedEnvironment,
+        environment,
       );
     });
     res.set('Cache-Control', 'no-store').status(201).json({ key });

@@ -53,9 +53,22 @@ type Audit = {
     actor: string;
     at: string | number;
     digest?: string;
+    event?: string;
   }>;
   keyAuditVersion?: number;
 };
+
+function keyEnvironmentLabel(event?: string) {
+  if (!event) return undefined;
+  try {
+    const environment = JSON.parse(event)?.environment;
+    if (environment === 'sandbox') return 'Sandbox gateway key';
+    if (environment === 'production') return 'Production gateway key';
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
 
 export function AppAuditHistory({ appId }: { appId: string }) {
   const discovery = useApi(discoveryApiRef);
@@ -281,13 +294,16 @@ export function AppAuditHistory({ appId }: { appId: string }) {
       };
     }) ?? [];
   const keyEvents =
-    audit?.keyEvents.map((event, index) => ({
-      id: `key-${index}`,
-      action: `Key ${event.action}`,
-      actor: event.actor,
-      details: [],
-      at: new Date(event.at),
-    })) ?? [];
+    audit?.keyEvents.map((event, index) => {
+      const environment = keyEnvironmentLabel(event.event);
+      return {
+        id: `key-${index}`,
+        action: `Key ${event.action}`,
+        actor: event.actor,
+        details: environment ? [environment] : [],
+        at: new Date(event.at),
+      };
+    }) ?? [];
   const events = [...recordEvents, ...keyEvents].sort((a, b) => +b.at - +a.at);
   const headDigest = audit?.events.at(-1)?.digest;
   const keyHeadDigest = audit?.keyEvents.at(-1)?.digest;

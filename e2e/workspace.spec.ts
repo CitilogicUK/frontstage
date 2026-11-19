@@ -1606,6 +1606,13 @@ test('audit history shows production review and ownership handoff', async ({
       json: {
         keyEvents: [
           {
+            action: 'issued',
+            actor: pilot.owner,
+            at: pilot.updatedAt,
+            digest: 'b'.repeat(64),
+            event: JSON.stringify({ environment: 'production' }),
+          },
+          {
             action: 'revoked',
             actor: pilot.owner,
             at: handoff.updatedAt,
@@ -1754,6 +1761,9 @@ test('audit history shows production review and ownership handoff', async ({
     dialog.getByRole('textbox', { name: 'Final key event digest (SHA-256)' }),
   ).toHaveValue('a'.repeat(64));
   await expect(dialog.getByText('Key revoked', { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText('Production gateway key', { exact: true }),
+  ).toBeVisible();
   await expect(dialog.getByText('Security: approved')).toBeVisible();
   await expect(
     dialog.getByText('Lifecycle changed to experimental', { exact: false }),
