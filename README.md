@@ -441,6 +441,18 @@ The image uses the PostgreSQL and GitHub pilot profiles by default. Docker healt
 
 Run `yarn test:pilot-image` after building `frontstage:pilot`. Pass an image tag as an argument to check another local build. The check uses a disposable PostgreSQL 17 container and placeholder OAuth credentials, and verifies readiness, the packaged UI, Catalog import of the synthetic identity mappings, PostgreSQL tables for governance and registration metrics, anonymous API denial, and the GitHub redirect without contacting GitHub. It also restarts the app, waits for readiness, and checks that a synthetic registration timing row survives in PostgreSQL. It then restores a logical backup to a fresh database in the disposable PostgreSQL instance and checks that the Catalog mappings are in the restored database before starting Frontstage. It then verifies the new container becomes ready and the timing row is present.
 
+### Run the pilot stack locally with Docker Compose
+
+Build the pilot image as above and prepare the two local identity files. Configure the GitHub OAuth callback for `http://localhost:7007/api/auth/github/handler/frame` or use the value of `FRONTSTAGE_PILOT_PORT` in place of 7007. Supply the two OAuth variables and independent database passwords in your shell or in a local environment file passed to Compose. Generate URL-safe passwords with a command such as `openssl rand -hex 24`.
+
+```sh
+export FRONTSTAGE_PILOT_POSTGRES_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+export FRONTSTAGE_PILOT_DB_PASSWORD="$(openssl rand -hex 24)"
+docker compose -f compose.pilot.yaml up -d --wait
+```
+
+Only Frontstage is published, on loopback. PostgreSQL retains data in a named volume and creates the non-superuser Frontstage role during first initialization. Keep the configured credentials across restarts. Changing them in the environment after initialization does not rotate database passwords. Use `docker compose -f compose.pilot.yaml down` to stop the stack and retain its database.
+
 ## Verify changes in a worktree
 
 Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, unit tests, the starter projects’ offline tests, and the audit verifier tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing. If Playwright's Chromium build is unavailable on your development host, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium executable.
