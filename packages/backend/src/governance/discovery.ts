@@ -1,6 +1,11 @@
 import type { DatabaseService } from '@backstage/backend-plugin-api';
 import { ConflictError, ServiceUnavailableError } from '@backstage/errors';
 import { z } from 'zod';
+import {
+  sdkManifestPaths,
+  sdkPackages,
+  type SdkManifestPath,
+} from './sdkEvidence';
 
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
 const scanStateTable = 'governance_discovery_scan_state';
@@ -45,14 +50,14 @@ function repositoryPublicFlag(
   return null;
 }
 
-const descriptorByteLimit = 100_000;
+const rootFileByteLimit = 100_000;
 
-async function readDescriptor(response: Response) {
-  if (!response.body) return undefined;
-  if (Number(response.headers.get('content-length')) > descriptorByteLimit) {
-    await response.body.cancel();
+async function readRootFile(response: Response) {
+  if (Number(response.headers.get('content-length')) > rootFileByteLimit) {
+    await response.body?.cancel();
     return undefined;
   }
+  if (!response.body) return '';
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -62,7 +67,7 @@ async function readDescriptor(response: Response) {
     let chunk = await reader.read();
     while (!chunk.done) {
       bytes += chunk.value.byteLength;
-      if (bytes > descriptorByteLimit) return undefined;
+      if (bytes > rootFileByteLimit) return undefined;
       content += decoder.decode(chunk.value, { stream: true });
       chunk = await reader.read();
     }
@@ -200,6 +205,83 @@ export function githubDiscovery(
     config && `${config.organization.toLowerCase()}:${config.topic}`;
   let activeScan: Promise<ScanResult> | undefined;
 
+  async function findContentCandidate(id: string, includePrivate: boolean) {
+    if (!scope || !config) return undefined;
+    const candidate = await db(`${discoveryTable} as repository`)
+      .leftJoin(
+        `${appsTable} as app`,
+        'repository.source_url',
+        'app.source_key',
+      )
+      .where('repository.id', id)
+      .where('repository.topic', config.topic)
+      .where('repository.name', 'like', scope)
+      .where('repository.is_stale', false)
+      .modify(query => {
+        if (!includePrivate) query.where('repository.is_public', true);
+      })
+      .whereNull('repository.app_id')
+      .whereNull('repository.dismissal_reason')
+      .whereNull('app.id')
+      .first<{ name: string; sourceUrl: string }>(
+        'repository.name',
+        'repository.source_url as sourceUrl',
+      );
+    if (!candidate || !/^[a-z\d-]+\/(?!\.+$)[a-z\d._-]+$/.test(candidate.name))
+      return undefined;
+    return candidate;
+  }
+
+  async function githubRootFile(
+    name: string,
+    path: 'catalog-info.yaml' | SdkManifestPath,
+    includePrivate: boolean,
+  ): Promise<
+    | { status: 'checked'; content: string }
+    | { status: 'missing' | 'unavailable' }
+  > {
+    const url = new URL(
+      `https://api.github.com/repos/${name}/contents/${path}`,
+    );
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github.raw+json',
+          'User-Agent': 'Frontstage',
+          ...(includePrivate &&
+            config?.token && { Authorization: `Bearer ${config.token}` }),
+        },
+        signal: AbortSignal.timeout(10_000),
+        redirect: 'error',
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return { status: response.status === 404 ? 'missing' : 'unavailable' };
+      }
+      const mediaType = response.headers
+        .get('content-type')
+        ?.split(';', 1)[0]
+        .trim()
+        .toLowerCase();
+      // A GitHub JSON object or directory listing is not requirements text.
+      if (
+        path === 'requirements.txt' &&
+        mediaType !== 'application/vnd.github.raw+json' &&
+        (mediaType === 'application/json' ||
+          mediaType === 'text/json' ||
+          mediaType?.endsWith('+json'))
+      ) {
+        await response.body?.cancel();
+        return { status: 'unavailable' };
+      }
+      const content = await readRootFile(response);
+      if (content !== undefined) return { status: 'checked', content };
+    } catch {
+      return { status: 'unavailable' };
+    }
+    return { status: 'unavailable' };
+  }
+
   const source = {
     source: config && {
       organization: config.organization,
@@ -252,54 +334,42 @@ export function githubDiscovery(
         .first('source_url');
     },
     async descriptor(id: string, includePrivate: boolean) {
-      if (!scope || !config) return undefined;
-      const candidate = await db(`${discoveryTable} as repository`)
-        .leftJoin(
-          `${appsTable} as app`,
-          'repository.source_url',
-          'app.source_key',
-        )
-        .where('repository.id', id)
-        .where('repository.topic', config.topic)
-        .where('repository.name', 'like', scope)
-        .where('repository.is_stale', false)
-        .modify(query => {
-          if (!includePrivate) query.where('repository.is_public', true);
-        })
-        .whereNull('repository.app_id')
-        .whereNull('repository.dismissal_reason')
-        .whereNull('app.id')
-        .first('repository.name', 'repository.source_url as sourceUrl');
+      const candidate = await findContentCandidate(id, includePrivate);
       if (!candidate) return undefined;
-      const { name, sourceUrl } = candidate as {
-        name: string;
-        sourceUrl: string;
-      };
-      if (!/^[a-z\d-]+\/(?!\.+$)[a-z\d._-]+$/.test(name)) return undefined;
-      const url = new URL(
-        `https://api.github.com/repos/${name}/contents/catalog-info.yaml`,
+      const file = await githubRootFile(
+        candidate.name,
+        'catalog-info.yaml',
+        includePrivate,
       );
-      try {
-        const response = await fetch(url, {
-          headers: {
-            Accept: 'application/vnd.github.raw+json',
-            'User-Agent': 'Frontstage',
-            ...(includePrivate &&
-              config.token && { Authorization: `Bearer ${config.token}` }),
-          },
-          signal: AbortSignal.timeout(10_000),
-          redirect: 'error',
-        });
-        if (!response.ok) {
-          await response.body?.cancel();
-          return undefined;
-        }
-        const content = await readDescriptor(response);
-        if (content) return { content, sourceUrl };
-      } catch {
+      return file.status === 'checked' && file.content
+        ? { content: file.content, sourceUrl: candidate.sourceUrl }
+        : undefined;
+    },
+    async sdkEvidence(id: string, includePrivate: boolean) {
+      const candidate = await findContentCandidate(id, includePrivate);
+      if (!candidate) return undefined;
+      const manifests = await Promise.all(
+        sdkManifestPaths.map(async path => {
+          const file = await githubRootFile(
+            candidate.name,
+            path,
+            includePrivate,
+          );
+          if (file.status !== 'checked')
+            return { path, status: file.status, packages: [] };
+          const packages = sdkPackages(path, file.content);
+          return packages
+            ? { path, status: 'checked' as const, packages }
+            : { path, status: 'unavailable' as const, packages: [] };
+        }),
+      );
+      const current = await findContentCandidate(id, includePrivate);
+      if (
+        current?.name !== candidate.name ||
+        current.sourceUrl !== candidate.sourceUrl
+      )
         return undefined;
-      }
-      return undefined;
+      return { manifests };
     },
     async linkRegistered(
       transaction: Database,

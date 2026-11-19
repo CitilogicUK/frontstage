@@ -30,6 +30,78 @@ export type DiscoveryResult = {
   }>;
 };
 
+type SdkEvidenceResult = {
+  manifests: Array<{
+    path: 'package.json' | 'requirements.txt';
+    status: 'checked' | 'missing' | 'unavailable';
+    packages: string[];
+  }>;
+};
+
+function manifestSummary(manifest: SdkEvidenceResult['manifests'][number]) {
+  if (manifest.status === 'missing') return 'Manifest missing.';
+  if (manifest.status === 'unavailable') return 'Manifest unavailable.';
+  return manifest.packages.length
+    ? manifest.packages.join(', ')
+    : 'No recognized AI SDK dependencies.';
+}
+
+function RepositorySdkEvidence({
+  load,
+}: {
+  load: () => Promise<SdkEvidenceResult>;
+}) {
+  const [check, setCheck] = useState<
+    | { status: 'loading' | 'error' }
+    | { status: 'checked'; result: SdkEvidenceResult }
+  >();
+
+  async function checkDependencies() {
+    setCheck({ status: 'loading' });
+    try {
+      setCheck({ status: 'checked', result: await load() });
+    } catch {
+      setCheck({ status: 'error' });
+    }
+  }
+
+  return (
+    <section
+      className="gov-discovery-sdk"
+      aria-label="AI SDK dependency evidence"
+    >
+      <button
+        type="button"
+        onClick={checkDependencies}
+        disabled={check?.status === 'loading'}
+      >
+        Check AI SDK dependencies
+      </button>
+      {check?.status === 'loading' && (
+        <p role="status">Checking AI SDK dependencies…</p>
+      )}
+      {check?.status === 'error' && (
+        <p role="alert">
+          The AI SDK dependency check could not be completed. Try again.
+        </p>
+      )}
+      {check?.status === 'checked' && (
+        <div role="status">
+          <dl>
+            {check.result.manifests.map(manifest => (
+              <div key={manifest.path}>
+                <dt>{manifest.path}</dt>
+                <dd>{manifestSummary(manifest)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>Dependency evidence does not establish runtime AI use.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function repositoryStatus(repository: DiscoveryResult['repositories'][number]) {
   if (repository.appId) return 'registered';
   return repository.dismissed ? 'dismissed' : 'unowned';
@@ -48,12 +120,14 @@ export function DiscoveryQueue({
   busy,
   onScan,
   onDecision,
+  onCheckSdkEvidence,
 }: {
   result?: DiscoveryResult;
   canReview: boolean;
   busy: boolean;
   onScan: () => void;
   onDecision: (id: string, reason: string | null) => void;
+  onCheckSdkEvidence: (id: string) => Promise<SdkEvidenceResult>;
 }) {
   const [query, setQuery] = useState('');
   const [params, setParams] = useSearchParams();
@@ -218,14 +292,19 @@ export function DiscoveryQueue({
                       </Link>
                     )}
                     {!repository.appId && !repository.dismissed && (
-                      <Link
-                        className="gov-button"
-                        to={`/?view=register&repository=${encodeURIComponent(
-                          repository.id,
-                        )}`}
-                      >
-                        Claim repository
-                      </Link>
+                      <>
+                        <Link
+                          className="gov-button"
+                          to={`/?view=register&repository=${encodeURIComponent(
+                            repository.id,
+                          )}`}
+                        >
+                          Claim repository
+                        </Link>
+                        <RepositorySdkEvidence
+                          load={() => onCheckSdkEvidence(repository.id)}
+                        />
+                      </>
                     )}
                     {!repository.appId &&
                       canReview &&

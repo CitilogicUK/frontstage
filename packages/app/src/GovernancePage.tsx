@@ -2673,6 +2673,9 @@ export function GovernancePage() {
             busy={busy}
             onScan={scanGithub}
             onDecision={decideDiscovery}
+            onCheckSdkEvidence={id =>
+              api(`/discovery/github/${encodeURIComponent(id)}/sdk-evidence`)
+            }
           />
         ))}
       {view === 'Register' && repositoryId && !candidate && (
