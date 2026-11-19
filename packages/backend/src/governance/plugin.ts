@@ -2129,13 +2129,27 @@ export const governancePlugin = createBackendPlugin({
                   .filter(app => app.owner === principal.userEntityRef)
                   .map(app => app.id)
               : [];
-          const pendingRequests =
+          const openRequests =
             ownedIds.length > 0
               ? await db<DirectoryRequestRow>(directoryRequestsTable)
                   .where({ status: 'pending' })
-                  .distinct('app_id')
+                  .orWhere(query =>
+                    query
+                      .where({ status: 'approved' })
+                      .whereNull('provisioned_at'),
+                  )
+                  .distinct('app_id', 'status')
               : [];
-          const pendingAppIds = new Set(pendingRequests.map(row => row.app_id));
+          const pendingAppIds = new Set(
+            openRequests.flatMap(row =>
+              row.status === 'pending' ? [row.app_id] : [],
+            ),
+          );
+          const awaitingFulfillment = new Set(
+            openRequests.flatMap(row =>
+              row.status === 'approved' ? [row.app_id] : [],
+            ),
+          );
           const ownedPendingAppIds = ownedIds.filter(id =>
             pendingAppIds.has(id),
           );
@@ -2145,6 +2159,11 @@ export const governancePlugin = createBackendPlugin({
               .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
             ...(ownedPendingAppIds.length > 0 && {
               appsWithPendingAccessRequests: ownedPendingAppIds,
+            }),
+            ...(principal.type === 'user' && {
+              appsAwaitingAccessFulfillment: ownedIds.filter(id =>
+                awaitingFulfillment.has(id),
+              ),
             }),
             graduationEnabled,
             reviewTracks: trackConfig ? reviewTrack.options : [],
