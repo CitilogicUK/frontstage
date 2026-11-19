@@ -56,8 +56,9 @@ export function ManagerEscalations({
         <h2 id="manager-escalations">Manager escalations</h2>
         {report?.escalationDays != null && (
           <p>
-            Manager notifications are scheduled after {report.escalationDays}{' '}
-            overdue calendar {report.escalationDays === 1 ? 'day' : 'days'}.
+            Renewals become eligible for manager notification after{' '}
+            {report.escalationDays}{' '}
+            {report.escalationDays === 1 ? 'day' : 'days'} overdue.
           </p>
         )}
       </div>

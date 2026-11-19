@@ -2370,7 +2370,7 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(escalations).toContainText(renewal.nextReview.slice(0, 10));
   await expect(
     escalations.getByText(
-      'Manager notifications are scheduled after 14 overdue calendar days.',
+      'Renewals become eligible for manager notification after 14 days overdue.',
     ),
   ).toBeVisible();
   await expect(
