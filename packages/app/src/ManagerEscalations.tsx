@@ -54,7 +54,7 @@ export function ManagerEscalations({
     >
       <div className="gov-report-heading">
         <h2 id="manager-escalations">Manager escalations</h2>
-        {report?.escalationDays != null && (
+        {report && report.escalationDays !== null && (
           <p>
             Renewals become eligible for manager notification after{' '}
             {report.escalationDays}{' '}
@@ -82,7 +82,7 @@ export function ManagerEscalations({
       {report?.escalationDays === null && (
         <p>Scheduled manager escalations are disabled.</p>
       )}
-      {report?.escalationDays != null && report.apps.length === 0 && (
+      {report && report.escalationDays !== null && report.apps.length === 0 && (
         <p>No current manager escalations.</p>
       )}
       {!!report?.apps.length && (
