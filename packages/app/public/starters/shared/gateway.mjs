@@ -1,4 +1,11 @@
 export async function runModel(prompt) {
+  const expectedEnvironment =
+    process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT ?? 'sandbox';
+  if (expectedEnvironment !== 'sandbox' && expectedEnvironment !== 'production')
+    throw new Error(
+      'Set FRONTSTAGE_GATEWAY_ENVIRONMENT to sandbox or production.',
+    );
+
   const key = process.env.FRONTSTAGE_GATEWAY_KEY?.trim();
   if (!key)
     throw new Error('Set FRONTSTAGE_GATEWAY_KEY to your app’s issued key.');
@@ -35,6 +42,7 @@ export async function runModel(prompt) {
     body: JSON.stringify({
       model: process.env.FRONTSTAGE_MODEL ?? 'gpt-4.1-mini',
       prompt,
+      expectedEnvironment,
     }),
   });
   const result = await response.json().catch(() => null);

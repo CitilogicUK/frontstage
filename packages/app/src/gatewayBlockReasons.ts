@@ -8,6 +8,7 @@ const blockReasons: Record<string, string> = {
   'spend-threshold': 'Monthly spend threshold reached',
   'rate-limit': 'Rate limit reached',
   environment: 'Production gateway unavailable',
+  'key-environment': 'Gateway key environment mismatch',
 };
 
 export function gatewayBlockReason(reason: string) {
@@ -15,6 +16,8 @@ export function gatewayBlockReason(reason: string) {
 }
 
 const nextSteps: Record<string, string> = {
+  'key-environment':
+    'Use a gateway key issued for the environment requested by the app.',
   environment:
     'Use a sandbox key for simulation or retry once the production gateway is available.',
   'provider-hosted':

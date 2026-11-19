@@ -191,6 +191,7 @@ const chatInput = z
   .object({
     model: z.string().min(1).max(128),
     prompt: z.string().min(1).max(16_000),
+    expectedEnvironment: keyEnvironmentInput.optional(),
   })
   .strict();
 const openaiResult = z.object({
@@ -1144,9 +1145,18 @@ export function registerGatewayRoutes(options: {
       const parsed = chatInput.safeParse(req.body);
       if (!parsed.success)
         throw new InputError(
-          'Supply a model and a prompt of up to 16,000 characters.',
+          'Supply a model and a prompt of up to 16,000 characters. If set, expectedEnvironment must be sandbox or production.',
         );
-      const { model, prompt } = parsed.data;
+      const { model, prompt, expectedEnvironment } = parsed.data;
+      if (
+        expectedEnvironment &&
+        expectedEnvironment !== credential.environment
+      ) {
+        await recordBlock(record.id, 'key-environment', mode);
+        throw new NotAllowedError(
+          'The gateway key does not match the requested environment.',
+        );
+      }
       const policy = modelPolicy(record, model);
       const block = launchBlock(record);
       if (block || !policy) {
