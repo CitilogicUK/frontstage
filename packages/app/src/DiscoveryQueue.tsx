@@ -15,7 +15,7 @@ export type DiscoveryResult = {
   source: { organization: string; topic: string } | null;
   intervalMinutes: number | null;
   recordCoverage?:
-    | { complete: number; eligible: number }
+    | { complete: number; eligible: number; incompleteRepositoryIds?: string[] }
     | { eligible: number; unavailable: true };
   lastScan: {
     at: string;
@@ -157,7 +157,8 @@ export function DiscoveryQueue({
   const filter =
     requestedFilter === 'registered' ||
     requestedFilter === 'dismissed' ||
-    requestedFilter === 'all'
+    requestedFilter === 'all' ||
+    (requestedFilter === 'incomplete' && canReview)
       ? requestedFilter
       : 'unowned';
   function setFilter(value: string) {
@@ -171,11 +172,21 @@ export function DiscoveryQueue({
   }
   const counts = discoveryCounts(result?.repositories ?? []);
   const recordCoverage = canReview ? result?.recordCoverage : undefined;
+  const incompleteIds =
+    recordCoverage &&
+    'complete' in recordCoverage &&
+    recordCoverage.incompleteRepositoryIds !== undefined
+      ? new Set(recordCoverage.incompleteRepositoryIds)
+      : undefined;
+  const incompleteUnavailable =
+    result?.source && filter === 'incomplete' && !incompleteIds;
   const search = query.trim().toLowerCase();
   const matches = result?.repositories.filter(repository => {
     const status = repositoryStatus(repository);
     return (
-      (filter === 'all' || filter === status) &&
+      (filter === 'all' ||
+        filter === status ||
+        (filter === 'incomplete' && incompleteIds?.has(repository.id))) &&
       [repository.name, repository.description].some(value =>
         value.toLowerCase().includes(search),
       )
@@ -306,6 +317,15 @@ export function DiscoveryQueue({
               label: 'Registered',
               count: counts.registered,
             },
+            ...(incompleteIds || filter === 'incomplete'
+              ? [
+                  {
+                    value: 'incomplete',
+                    label: 'Incomplete records',
+                    count: incompleteIds?.size,
+                  },
+                ]
+              : []),
             {
               value: 'all',
               label: 'All repositories',
@@ -326,7 +346,14 @@ export function DiscoveryQueue({
           description="No GitHub source is configured for this workspace."
         />
       )}
-      {result?.source && matches?.length === 0 && (
+      {incompleteUnavailable && (
+        <WorkspaceEmptyState
+          icon={<SearchIcon aria-hidden="true" />}
+          title="Incomplete records unavailable"
+          description="Try another status or recheck discovery coverage."
+        />
+      )}
+      {!incompleteUnavailable && result?.source && matches?.length === 0 && (
         <WorkspaceEmptyState
           icon={<SearchIcon aria-hidden="true" />}
           title="No matching repositories"

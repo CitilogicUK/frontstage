@@ -2144,6 +2144,7 @@ export const governancePlugin = createBackendPlugin({
 
         async function githubRecordCoverage(
           repositories: Array<{
+            id: string;
             appId: string | null;
             sourceUrl: string;
             dismissed: boolean | number;
@@ -2182,26 +2183,45 @@ export const governancePlugin = createBackendPlugin({
               apps.set(row.id, app);
             }
           }
-          const linked = tracked.flatMap(repo => {
-            const app = repo.appId ? apps.get(repo.appId) : undefined;
-            return app &&
-              appSourceKey(app.sourceUrl) === appSourceKey(repo.sourceUrl)
-              ? [app]
-              : [];
+          const registered = tracked.flatMap(repo => {
+            if (!repo.appId) return [];
+            const app = apps.get(repo.appId);
+            return [
+              {
+                id: repo.id,
+                app:
+                  app &&
+                  appSourceKey(app.sourceUrl) === appSourceKey(repo.sourceUrl)
+                    ? app
+                    : undefined,
+              },
+            ];
           });
           let unavailable: Set<string>;
           try {
             unavailable = await unavailableOwners(
-              [...new Set(linked.flatMap(ownershipRefs))],
+              [
+                ...new Set(
+                  registered.flatMap(({ app }) =>
+                    app ? ownershipRefs(app) : [],
+                  ),
+                ),
+              ],
               true,
             );
           } catch {
             return { eligible, unavailable: true as const };
           }
-          const complete = linked.filter(app =>
-            ownershipRefs(app).every(ref => !unavailable.has(ref)),
-          ).length;
-          return { eligible, complete };
+          const incompleteRepositoryIds = registered.flatMap(({ id, app }) =>
+            app && ownershipRefs(app).every(ref => !unavailable.has(ref))
+              ? []
+              : [id],
+          );
+          return {
+            eligible,
+            complete: registered.length - incompleteRepositoryIds.length,
+            incompleteRepositoryIds,
+          };
         }
 
         router.get('/discovery/github', async (req, res) => {

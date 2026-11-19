@@ -774,6 +774,13 @@ export function PortfolioReport({
                 {completeRecordShare && `${completeRecordShare} · `}
                 {completeRecords.complete} of {completeRecords.eligible} tracked
                 repositories
+                {!!completeRecords.incompleteRepositoryIds?.length && (
+                  <div>
+                    <Link to="/?view=discovery&discoveryStatus=incomplete">
+                      Review incomplete records
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
             {recordCoverage && 'unavailable' in recordCoverage && (
