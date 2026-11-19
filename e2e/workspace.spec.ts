@@ -75,26 +75,24 @@ test('Catalog opens a managed app in its governance record', async ({
   };
   await page.route(/\/api\/catalog\/entities(?:\?|$)/, route =>
     route.fulfill({
-      json: {
-        items: [
-          {
-            apiVersion: 'governance.backstage.io/v1alpha1',
-            kind: 'AIApp',
-            metadata: {
-              name: app.id,
-              title: app.name,
-              annotations: {
-                'backstage.io/managed-by-location': 'governance:inventory',
-              },
+      json: [
+        {
+          apiVersion: 'governance.backstage.io/v1alpha1',
+          kind: 'AIApp',
+          metadata: {
+            name: app.id,
+            title: app.name,
+            annotations: {
+              'backstage.io/managed-by-location': 'governance:inventory',
             },
           },
-          {
-            apiVersion: 'backstage.io/v1alpha1',
-            kind: 'Component',
-            metadata: { name: 'sample-service', title: 'Sample service' },
-          },
-        ],
-      },
+        },
+        {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: { name: 'sample-service', title: 'Sample service' },
+        },
+      ],
     }),
   );
   await page.route('**/api/governance/apps', route =>
