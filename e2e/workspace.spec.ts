@@ -439,6 +439,16 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     `${workspaceUrl}/?app=overdue`,
   );
 
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.reject(new Error('Clipboard permission denied')),
+    });
+  });
+  await page.getByRole('button', { name: 'Copy app link' }).click();
+  await expect(
+    page.getByRole('textbox', { name: 'Copy this app link' }),
+  ).toHaveValue(`${workspaceUrl}/?app=overdue`);
+
   const reminderPending = page.waitForEvent('download');
   await page
     .getByRole('button', { name: 'Download calendar reminder' })

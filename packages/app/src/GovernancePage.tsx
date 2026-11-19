@@ -227,6 +227,44 @@ function options(values: string[]) {
   return values.map(value => <option key={value}>{value}</option>);
 }
 
+function CopyAppLink({ appId }: { appId: string }) {
+  const [copied, setCopied] = useState(false);
+  const [manualLink, setManualLink] = useState('');
+
+  async function copy() {
+    const link = new URL(window.location.href);
+    link.search = new URLSearchParams({ app: appId }).toString();
+    link.hash = '';
+    try {
+      await navigator.clipboard.writeText(link.href);
+      setCopied(true);
+      setManualLink('');
+    } catch {
+      setCopied(false);
+      setManualLink(link.href);
+    }
+  }
+
+  return (
+    <div>
+      <button type="button" onClick={copy}>
+        Copy app link
+      </button>
+      {copied && <p role="status">App link copied.</p>}
+      {manualLink && (
+        <label>
+          Copy this app link
+          <input
+            value={manualLink}
+            readOnly
+            onFocus={event => event.currentTarget.select()}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 export function GovernancePage() {
   const analytics = useAnalytics();
   const config = useApi(configApiRef);
@@ -404,18 +442,6 @@ export function GovernancePage() {
       },
       { replace: !id },
     );
-  }
-
-  async function copyAppLink(appId: string) {
-    const link = new URL(window.location.href);
-    link.search = new URLSearchParams({ app: appId }).toString();
-    link.hash = '';
-    try {
-      await navigator.clipboard.writeText(link.href);
-      setMessage('App link copied.');
-    } catch {
-      setMessage('Copy the app URL from your address bar.');
-    }
   }
 
   function closeApp() {
@@ -1518,9 +1544,10 @@ export function GovernancePage() {
             </div>
             <h2 id="gov-detail-title">{selected.name}</h2>
             <p>{selected.purpose}</p>
-            <button type="button" onClick={() => copyAppLink(selected.id)}>
-              Copy app link
-            </button>
+            <CopyAppLink
+              key={`copy-app-link-${selected.id}`}
+              appId={selected.id}
+            />
             {error && (
               <p className="gov-notice" role="alert">
                 {error}
