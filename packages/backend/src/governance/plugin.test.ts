@@ -5800,7 +5800,7 @@ describe('governance record access', () => {
         scope: `governance-retirement-review-${id}-${requestedAt}`,
       },
     });
-    expect(notifications.send).toHaveBeenCalledTimes(1);
+    expect(notifications.send).toHaveBeenCalledTimes(2);
     expect(notifications.send).toHaveBeenCalledWith(
       notice(kept.id, pending.body.retirementReview.requestedAt),
     );
@@ -5897,6 +5897,53 @@ describe('governance record access', () => {
         }),
       ]),
     );
+    const eligiblePath = `/api/governance/apps/${eligible.id}`;
+    const { body: scheduledRecord } = await api
+      .get(eligiblePath)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    await api
+      .patch(`${eligiblePath}/retirement-review`)
+      .set('Authorization', auth(owner))
+      .send({
+        expectedUpdatedAt: scheduledRecord.updatedAt,
+        decision: 'keep',
+        reason: 'The scheduled review confirmed ongoing operations.',
+      })
+      .expect(200);
+    expect(notifications.send).toHaveBeenCalledTimes(51);
+    const { body: selfOwned } = await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth(reviewer))
+      .send({
+        ...appInput,
+        name: 'Self-owned review candidate',
+        owner: reviewer,
+        sourceUrl: 'https://example.com/self-owned-retirement',
+      })
+      .expect(201);
+    const selfActivated = Date.parse(selfOwned.activeSince);
+    jest.mocked(Date.now).mockReturnValue(selfActivated + 91 * 86_400_000);
+    await db('governance_gateway_usage').insert(
+      usage(selfOwned, selfActivated),
+    );
+    const selfReviewPath = `/api/governance/apps/${selfOwned.id}/retirement-review`;
+    const { body: selfRequested } = await api
+      .post(selfReviewPath)
+      .set('Authorization', auth(reviewer))
+      .send({ expectedUpdatedAt: selfOwned.updatedAt })
+      .expect(200);
+    const beforeSelfDecision = notifications.send.mock.calls.length;
+    await api
+      .patch(selfReviewPath)
+      .set('Authorization', auth(reviewer))
+      .send({
+        expectedUpdatedAt: selfRequested.updatedAt,
+        decision: 'keep',
+        reason: 'Keep the self-owned app in operation.',
+      })
+      .expect(200);
+    expect(notifications.send).toHaveBeenCalledTimes(beforeSelfDecision);
   });
 
   it('requires owner confirmation and rechecks live traffic before retirement', async () => {
@@ -5904,6 +5951,10 @@ describe('governance record access', () => {
     const reviewer = 'user:default/reviewer';
     const teammate = 'user:default/teammate';
     const day = 86_400_000;
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
@@ -5922,10 +5973,12 @@ describe('governance record access', () => {
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        notifications.factory,
         mockServices.scheduler.mock({ scheduleTask }).factory,
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
           data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
             backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewers: [reviewer],
@@ -5988,6 +6041,22 @@ describe('governance record access', () => {
         expectedUpdatedAt,
         reason: 'Confirmed by app operations.',
       });
+    const decisions = () =>
+      notifications.send.mock.calls
+        .map(([options]) => options)
+        .filter(options =>
+          options.payload.scope?.startsWith('governance-retirement-decision-'),
+        );
+    const expectedNotice = (title: string, updatedAt: string) => ({
+      recipients: { type: 'entity', entityRef: reviewer },
+      payload: {
+        title,
+        description: 'Open the app in Inventory to view the decision.',
+        link: `https://portal.example.com/workspace?app=${app.body.id}`,
+        topic: 'AI App Governance',
+        scope: `governance-retirement-decision-${app.body.id}-${updatedAt}`,
+      },
+    });
     const usageReport = () =>
       api
         .get('/api/governance/reports/usage?days=1')
@@ -6035,10 +6104,19 @@ describe('governance record access', () => {
       liveActivityChangedAt: new Date(old + 1).toISOString(),
     });
     await decide('retire', zeroTrafficReview.body.updatedAt).expect(409);
+    expect(decisions()).toEqual([]);
     const keptAfterFirstCall = await decide(
       'keep',
       zeroTrafficReview.body.updatedAt,
     ).expect(200);
+    expect(decisions()).toEqual([
+      expectedNotice(
+        'App kept after retirement review',
+        keptAfterFirstCall.body.updatedAt,
+      ),
+    ]);
+    await decide('keep', zeroTrafficReview.body.updatedAt).expect(409);
+    expect(decisions()).toHaveLength(1);
     start = keptAfterFirstCall.body.updatedAt;
     clock.mockReturnValue(currentTime);
     await open(start).expect(400);
@@ -6073,7 +6151,13 @@ describe('governance record access', () => {
     await decide('retire', pending.body.updatedAt, reviewer).expect(403);
     catalog.mockResolvedValueOnce({ items: [undefined] });
     await decide('keep', pending.body.updatedAt).expect(403);
+    expect(decisions()).toHaveLength(1);
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notifications unavailable'),
+    );
     const kept = await decide('keep', pending.body.updatedAt).expect(200);
+    expect((await detail()).body.retirementReview.status).toBe('kept');
+    expect(decisions()).toHaveLength(2);
     expect(kept.body.retirementReview).toMatchObject({
       status: 'kept',
       reason: 'Confirmed by app operations.',
@@ -6167,6 +6251,15 @@ describe('governance record access', () => {
       },
     });
     expect(retired.body).not.toHaveProperty('activeSince');
+    expect(decisions()).toHaveLength(3);
+    expect(decisions()[2]).toEqual(
+      expectedNotice(
+        'App retired after retirement review',
+        retired.body.updatedAt,
+      ),
+    );
+    await decide('retire', finalPending.body.updatedAt).expect(409);
+    expect(decisions()).toHaveLength(3);
     await keyStatus().expect(200, { issued: false });
     const history = await api
       .get(`${path}/history`)
