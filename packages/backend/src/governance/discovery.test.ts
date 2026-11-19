@@ -257,33 +257,51 @@ test('reads a complete second page with stable ordering and prunes unseen candid
   await expect(discovery.get('101')).resolves.toBeUndefined();
 });
 
-test('records a failed second page as partial and preserves unseen candidates', async () => {
-  const discovery = githubDiscovery(db, table, configuration);
-  github.mockResolvedValueOnce(results('ExampleAI/unseen'));
-  await discovery.scan();
-  github.mockClear();
-  github
-    .mockResolvedValueOnce(searchResults(repositoryPage(1, 100), 102))
-    .mockResolvedValueOnce(new Response(null, { status: 503 }));
-  await expect(discovery.scan()).resolves.toEqual({
-    found: 100,
-    partial: true,
-  });
-  expect(github).toHaveBeenCalledTimes(2);
-  await expect(discovery.list()).resolves.toHaveLength(101);
-  await expect(discovery.get('1')).resolves.toMatchObject({
-    source_url: 'https://github.com/exampleai/tool-1',
-  });
-  await expect(discovery.get('101')).resolves.toMatchObject({
-    source_url: 'https://github.com/exampleai/unseen',
-  });
-  await expect(discovery.lastScan()).resolves.toMatchObject({
-    trigger: 'manual',
-    status: 'completed',
-    found: 100,
-    partial: true,
-  });
-});
+test.each([
+  {
+    failure: 'unavailable',
+    respond: () => new Response(null, { status: 503 }),
+  },
+  {
+    failure: 'oversized',
+    respond: () =>
+      Response.json({
+        total_count: 102,
+        incomplete_results: false,
+        items: repositoryPage(102, 1),
+        padding: 'x'.repeat(4 * 1024 * 1024),
+      }),
+  },
+])(
+  'preserves unseen candidates when the second page is $failure',
+  async ({ respond }) => {
+    const discovery = githubDiscovery(db, table, configuration);
+    github.mockResolvedValueOnce(results('ExampleAI/unseen'));
+    await discovery.scan();
+    github.mockClear();
+    github
+      .mockResolvedValueOnce(searchResults(repositoryPage(1, 100), 102))
+      .mockResolvedValueOnce(respond());
+    await expect(discovery.scan()).resolves.toEqual({
+      found: 100,
+      partial: true,
+    });
+    expect(github).toHaveBeenCalledTimes(2);
+    await expect(discovery.list()).resolves.toHaveLength(101);
+    await expect(discovery.get('1')).resolves.toMatchObject({
+      source_url: 'https://github.com/exampleai/tool-1',
+    });
+    await expect(discovery.get('101')).resolves.toMatchObject({
+      source_url: 'https://github.com/exampleai/unseen',
+    });
+    await expect(discovery.lastScan()).resolves.toMatchObject({
+      trigger: 'manual',
+      status: 'completed',
+      found: 100,
+      partial: true,
+    });
+  },
+);
 
 test('stops after three pages and records the capped scan as partial', async () => {
   const discovery = githubDiscovery(db, table, configuration);
