@@ -5,18 +5,11 @@ import {
   useApi,
 } from '@backstage/core-plugin-api';
 import { Link, type To } from 'react-router-dom';
-
-type UsagePreview = {
-  from: string;
-  to: string;
-  rows: Array<{
-    sourceUrl: string;
-    model: string;
-    calls: number;
-    appId?: string;
-    appName?: string;
-  }>;
-};
+import {
+  downloadCsv,
+  outsideGatewayUsageCsv,
+  type OutsideGatewayUsagePreview,
+} from './portfolioExport';
 
 export function OutsideGatewayUsage({
   appLink,
@@ -25,9 +18,10 @@ export function OutsideGatewayUsage({
 }) {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
-  const [preview, setPreview] = useState<UsagePreview>();
+  const [preview, setPreview] = useState<OutsideGatewayUsagePreview>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
 
   async function loadPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,6 +95,23 @@ export function OutsideGatewayUsage({
             {' to '}
             <time dateTime={preview.to}>{preview.to}</time>
           </p>
+          <p>
+            {callCount?.toLocaleString()} reported{' '}
+            {callCount === 1 ? 'call' : 'calls'} · {preview.rows.length}{' '}
+            {preview.rows.length === 1 ? 'row' : 'rows'} ·{' '}
+            {preview.rows.filter(row => !row.appId).length} unmatched
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              downloadCsv(
+                outsideGatewayUsageCsv(preview),
+                'frontstage-outside-gateway-usage.csv',
+              )
+            }
+          >
+            Download outside-gateway usage CSV
+          </button>
           {preview.rows.length ? (
             <div className="governance-table">
               <table>

@@ -687,6 +687,23 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(
     report.getByRole('row', { name: /Meeting summary/ }),
   ).toContainText('12');
+  await expect(
+    report.getByText('15 reported calls · 2 rows · 1 unmatched'),
+  ).toBeVisible();
+  const pendingCsv = page.waitForEvent('download');
+  await report
+    .getByRole('button', { name: 'Download outside-gateway usage CSV' })
+    .click();
+  const download = await pendingCsv;
+  expect(download.suggestedFilename()).toBe(
+    'frontstage-outside-gateway-usage.csv',
+  );
+  const csv = await readFile(await download.path(), 'utf8');
+  expect(csv.trimEnd().split(/\r?\n/)).toEqual([
+    'window_start_utc,window_end_utc,source_url,model,calls,app_id,app_name',
+    `"${snapshot.from}","${snapshot.to}","${app.sourceUrl}","fixture-model",12,"${app.id}","${app.name}"`,
+    `"${snapshot.from}","${snapshot.to}","${snapshot.rows[1].sourceUrl}","fixture-model",3,"",""`,
+  ]);
   await match.click();
   await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
 });
