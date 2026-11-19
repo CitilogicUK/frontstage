@@ -3871,6 +3871,26 @@ test('the playground clears a revealed key after environment or ownership change
     statusReads += 1;
     return route.fulfill({ json: { issued: issued[environment] } });
   });
+  await page.route('**/api/governance/gateway/chat', route => {
+    const request = route.request();
+    const production =
+      request.headers().authorization === `Bearer ${productionKey}`;
+    expect(request.headers().authorization).toBe(
+      `Bearer ${production ? productionKey : key}`,
+    );
+    expect(request.postDataJSON()).toEqual({
+      model: 'gpt-4.1-mini',
+      prompt: 'Synthetic playground prompt',
+      expectedEnvironment: production ? 'production' : 'sandbox',
+    });
+    return route.fulfill({
+      json: {
+        output: production ? 'Synthetic production reply' : 'Sandbox reply',
+        model: 'gpt-4.1-mini',
+        simulated: !production,
+      },
+    });
+  });
   await page.route('**/api/governance/apps/key-transfer/reviews', route => {
     expect(route.request().postDataJSON()).toMatchObject({
       status: 'approved',
@@ -3943,6 +3963,14 @@ test('the playground clears a revealed key after environment or ownership change
   await expect(details.getByText('Lifecycle updated.')).toBeVisible();
   await expect(revealed).toBeVisible();
 
+  const prompt = playground.getByRole('textbox', { name: 'Prompt' });
+  const send = playground.getByRole('button', { name: 'Send prompt' });
+  await prompt.fill('Synthetic playground prompt');
+  await send.click();
+  await expect(
+    playground.getByText('Sandbox reply', { exact: true }),
+  ).toBeVisible();
+
   const environment = playground.getByRole('combobox', {
     name: 'Gateway key environment',
   });
@@ -3954,6 +3982,13 @@ test('the playground clears a revealed key after environment or ownership change
     exact: true,
   });
   await expect(productionRevealed).toBeVisible();
+
+  await expect(prompt).toHaveValue('');
+  await prompt.fill('Synthetic playground prompt');
+  await send.click();
+  await expect(
+    playground.getByText('Synthetic production reply', { exact: true }),
+  ).toBeVisible();
 
   const readsBeforeTransfer = statusReads;
   await details.getByText('Edit app details', { exact: true }).click();
