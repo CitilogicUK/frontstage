@@ -2108,6 +2108,23 @@ test('audit history shows production review and ownership handoff', async ({
       },
     }),
   );
+  let escalationsCleared = false;
+  await page.route('**/api/governance/reports/manager-escalations', route =>
+    route.fulfill({
+      json: {
+        apps: escalationsCleared
+          ? []
+          : [
+              {
+                appId: renewal.id,
+                name: renewal.name,
+                owner: renewal.owner,
+                due: renewal.nextReview,
+              },
+            ],
+      },
+    }),
+  );
   let currentHandoff = handoff;
   let currentRenewal = renewal;
   await page.route('**/api/governance/apps/renewal/lifecycle', async route => {
@@ -2343,6 +2360,26 @@ test('audit history shows production review and ownership handoff', async ({
     { times: 1 },
   );
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const escalations = page.getByRole('region', { name: 'Manager escalations' });
+  await expect(
+    escalations.getByRole('heading', { name: 'Manager escalations' }),
+  ).toBeVisible();
+  await expect(escalations).toContainText(renewal.nextReview.slice(0, 10));
+  await expect(
+    escalations.getByText(handoff.name, { exact: true }),
+  ).toHaveCount(0);
+  await escalations.getByRole('link', { name: renewal.name }).click();
+  const escalatedApp = page.getByRole('dialog', { name: renewal.name });
+  await expect(escalatedApp).toBeVisible();
+  await escalatedApp.getByRole('button', { name: 'Close app details' }).click();
+  escalationsCleared = true;
+  await escalations
+    .getByRole('button', { name: 'Refresh manager escalations' })
+    .click();
+  await expect(
+    escalations.getByRole('link', { name: renewal.name }),
+  ).toHaveCount(0);
+
   await page
     .getByRole('button', { name: 'Retry loading review turnaround' })
     .click();

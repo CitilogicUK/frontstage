@@ -846,10 +846,25 @@ describe('governance record access', () => {
           ?.checks ?? []
       );
     };
+    const escalationReport = (
+      credentials = mockCredentials.user.header(reviewer),
+    ) =>
+      api
+        .get('/api/governance/reports/manager-escalations')
+        .set('Authorization', credentials);
+    const laterEscalation = async () => {
+      const { body } = await escalationReport()
+        .expect('Cache-Control', 'no-store')
+        .expect(200);
+      return body.apps.find(
+        ({ appId }: { appId: string }) => appId === later.id,
+      );
+    };
     const pauseAt = now + 38 * day;
     clock.mockReturnValue(pauseAt);
     await call().expect(200);
     expect(await gatewayAccess()).toBeUndefined();
+    expect(await laterEscalation()).toBeUndefined();
     const beforeEscalation = await ownerChecks();
     expect(beforeEscalation).toContain('Review status');
     expect(beforeEscalation).not.toContain('Gateway access');
@@ -862,6 +877,25 @@ describe('governance record access', () => {
         }),
       }),
     );
+    expect(await laterEscalation()).toEqual({
+      appId: later.id,
+      name: later.name,
+      owner,
+      due: dueAt(8),
+    });
+    await escalationReport(ownerAuth).expect(403);
+    await escalationReport(mockCredentials.service.header()).expect(403);
+    await savePayload(later, { owner: nextOwner });
+    expect(await laterEscalation()).toBeUndefined();
+    await savePayload(later, { owner, nextReview: dueAt(9) });
+    expect(await laterEscalation()).toBeUndefined();
+    await savePayload(later, { nextReview: dueAt(8) });
+    expect(await laterEscalation()).toEqual({
+      appId: later.id,
+      name: later.name,
+      owner,
+      due: dueAt(8),
+    });
     await call().expect(200);
     expect(await ownerChecks()).not.toContain('Gateway access');
     clock.mockReturnValue(pauseAt);
@@ -892,6 +926,7 @@ describe('governance record access', () => {
       .send({ confirmed: true, expectedUpdatedAt: active.updatedAt })
       .expect(200);
     await call().expect(200);
+    expect(await laterEscalation()).toBeUndefined();
     expect(await gatewayAccess()).toBeUndefined();
     expect(await ownerChecks()).not.toContain('Gateway access');
     await api
