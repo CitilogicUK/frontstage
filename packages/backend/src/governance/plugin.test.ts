@@ -245,6 +245,12 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ ...listing, expectedUpdatedAt: personalApp.updatedAt })
       .expect(200);
+    const personalQueue = `${personalPath}/directory-requests`;
+    const { body: pendingTransferRequest } = await api
+      .post(personalQueue)
+      .set('Authorization', auth(reviewer))
+      .send({ message: 'I need access for the review.' })
+      .expect(201);
     const transferred = await api
       .put(personalPath)
       .set('Authorization', auth(owner))
@@ -257,6 +263,27 @@ describe('governance record access', () => {
     expect(transferred.body.lifecycle).toBe('active');
     expect(transferred.body).not.toHaveProperty('directoryListing');
     await list().expect(200, { apps: [] });
+
+    await api.get(personalQueue).set('Authorization', auth(owner)).expect(403);
+    const { body: transferredQueue } = await api
+      .get(personalQueue)
+      .set('Authorization', auth(teammate))
+      .expect(200);
+    expect(transferredQueue).toMatchObject({
+      canApprove: false,
+      requests: [
+        {
+          id: pendingTransferRequest.id,
+          requester: reviewer,
+          status: 'pending',
+        },
+      ],
+    });
+    await api
+      .patch(`${personalQueue}/${pendingTransferRequest.id}`)
+      .set('Authorization', auth(teammate))
+      .send({ status: 'approved' })
+      .expect(409);
 
     const { body: hosted } = await api
       .post(collection)
