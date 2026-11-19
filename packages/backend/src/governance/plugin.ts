@@ -67,6 +67,7 @@ import {
   appInput,
   AppInput,
   calculateTier,
+  evaluateTierPolicy,
   effectiveClassification,
   nextReview,
   ReviewStatus,
@@ -1463,7 +1464,7 @@ export const governancePlugin = createBackendPlugin({
           if (!result.success)
             throw new InputError('Supply valid risk questionnaire answers.');
           res.json({
-            tier: evaluateTier(result.data),
+            ...evaluateTierPolicy(result.data, tierPolicy),
             effectiveClassification: effectiveClassification(result.data),
           });
         });

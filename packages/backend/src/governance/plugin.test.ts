@@ -3823,7 +3823,11 @@ describe('governance record access', () => {
         classification: 'internal',
         hosted: { sharing: 'private', dataClassification: 'restricted' },
       })
-      .expect(200, { tier: 3, effectiveClassification: 'restricted' });
+      .expect(200, {
+        tier: 3,
+        effectiveClassification: 'restricted',
+        reasons: ['restricted-data'],
+      });
     const hostedRecords = [];
     for (const workspace of ['Company', 'Personal']) {
       const hosted = await api

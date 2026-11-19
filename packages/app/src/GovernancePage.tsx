@@ -146,6 +146,27 @@ const evidenceFields = [
 const hostedWorkspaceGuidePath = '/?view=guide#hosted-workspaces-title';
 const audiences = ['personal', 'team', 'company', 'external'];
 const sharing = ['private', 'named people', 'company', 'public link'];
+const riskReasons = new Map([
+  ['external-audience', 'People outside the company can use the app.'],
+  ['public-hosted-sharing', 'The hosted workspace uses a public link.'],
+  ['restricted-data', 'The app or hosted workspace handles restricted data.'],
+  ['personal-data', 'The app handles personal data.'],
+  ['business-critical', 'The app is critical to a business process.'],
+  ['affects-people', 'The app affects decisions about people.'],
+  ['takes-actions', 'The app takes actions in other systems.'],
+  ['write-connection', 'The app has write access to a connected system.'],
+  ['shared-audience', 'The app is shared with other people.'],
+  ['shared-hosted-workspace', 'Other people can access the hosted workspace.'],
+  [
+    'confidential-data',
+    'The app or hosted workspace handles confidential data.',
+  ],
+  ['read-connection', 'The app has read access to a connected system.'],
+  [
+    'configured-minimum',
+    'A workspace policy rule requires at least this tier.',
+  ],
+]);
 const hostedAccessOptions = [
   'none',
   'stores input',
@@ -461,6 +482,7 @@ export function GovernancePage() {
     answers: string;
     tier?: number;
     effectiveClassification?: string;
+    reasons?: string[];
   }>();
   const detailId =
     view === 'Inventory' ||
@@ -954,6 +976,8 @@ export function GovernancePage() {
       : undefined,
   });
   const preview = riskPreview?.answers === answers ? riskPreview : undefined;
+  const tierReasons =
+    preview?.reasons?.flatMap(reason => riskReasons.get(reason) ?? []) ?? [];
 
   useEffect(() => {
     if (view !== 'Register') return undefined;
@@ -966,6 +990,7 @@ export function GovernancePage() {
               answers,
               tier: result.tier,
               effectiveClassification: result.effectiveClassification,
+              reasons: result.reasons,
             });
           }
         },
@@ -2943,6 +2968,13 @@ export function GovernancePage() {
                 preview.effectiveClassification !== registrationClass &&
                 ` · Effective data classification: ${preview.effectiveClassification}`}
             </p>
+            {tierReasons.length > 0 && (
+              <ul aria-label="Reasons for this tier">
+                {tierReasons.map(reason => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
             {preview?.tier === 2 && (
               <p>Shared apps need a backup owner and a yearly attestation.</p>
             )}

@@ -199,39 +199,57 @@ export function effectiveClassification(
   return app.classification;
 }
 
-export function calculateTier(app: RiskInput, policy: TierPolicy = {}): Tier {
+export function evaluateTierPolicy(app: RiskInput, policy: TierPolicy = {}) {
   const classes = [app.classification, app.hosted?.dataClassification];
-  if (
-    app.audience === 'external' ||
-    app.hosted?.sharing === 'public link' ||
-    classes.includes('restricted') ||
-    app.personalData ||
-    app.critical ||
-    app.affectsPeople ||
-    app.takesActions ||
-    app.connections.some(connection => connection.access === 'write')
-  )
-    return 3;
-  const base =
-    app.audience !== 'personal' ||
-    (app.hosted && app.hosted.sharing !== 'private') ||
-    classes.includes('confidential') ||
-    app.connections.length
-      ? 2
-      : 1;
-  const candidates = [
-    base,
+  const hostedSharing = app.hosted?.sharing;
+  const tier3Rules = [
+    ['external-audience', app.audience === 'external'],
+    ['public-hosted-sharing', hostedSharing === 'public link'],
+    ['restricted-data', classes.includes('restricted')],
+    ['personal-data', app.personalData],
+    ['business-critical', app.critical],
+    ['affects-people', app.affectsPeople],
+    ['takes-actions', app.takesActions],
+    [
+      'write-connection',
+      app.connections.some(connection => connection.access === 'write'),
+    ],
+  ] as const;
+  const tier2Rules = [
+    ['shared-audience', app.audience !== 'personal'],
+    [
+      'shared-hosted-workspace',
+      hostedSharing !== undefined && hostedSharing !== 'private',
+    ],
+    ['confidential-data', classes.includes('confidential')],
+    ['read-connection', app.connections.length > 0],
+  ] as const;
+  const configuredMinimums = [
     policy.audience?.[app.audience],
     policy.classification?.[app.classification],
     app.hosted?.dataClassification &&
       policy.classification?.[app.hosted.dataClassification],
-    app.hosted && policy.hostedSharing?.[app.hosted.sharing],
+    hostedSharing && policy.hostedSharing?.[hostedSharing],
     ...app.connections.map(
       connection => policy.connection?.[connection.access],
     ),
   ];
-  if (candidates.includes(3)) return 3;
-  return candidates.includes(2) ? 2 : 1;
+  for (const [tier, rules] of [
+    [3, tier3Rules],
+    [2, tier2Rules],
+  ] as const) {
+    const reasons: Array<(typeof rules)[number][0] | 'configured-minimum'> = [];
+    for (const [reason, matches] of rules) {
+      if (matches) reasons.push(reason);
+    }
+    if (configuredMinimums.includes(tier)) reasons.push('configured-minimum');
+    if (reasons.length) return { tier, reasons };
+  }
+  return { tier: 1 as const, reasons: [] };
+}
+
+export function calculateTier(app: RiskInput, policy: TierPolicy = {}): Tier {
+  return evaluateTierPolicy(app, policy).tier;
 }
 
 export function nextReview(tier: Tier, at: string) {
