@@ -283,9 +283,7 @@ export async function revokeGatewayKey(
       appId,
       actor,
       'revoked',
-      scopes.length === 1 && environment === 'sandbox'
-        ? undefined
-        : environment,
+      environment,
     );
   }
 }
