@@ -235,6 +235,8 @@ Set `governance.reviewGatewayPauseDays` to opt in to pausing Tier 2 gateway requ
 
 In an app’s details, the accountable owner can open **Planned owner handover** and nominate a different active Catalog user. Frontstage notifies the nominee privately. Nominees can also open **Inventory → My pending owner handovers**. The current owner remains responsible until the nominee accepts, and can cancel while the nomination is pending. The nominee can decline or accept and name a distinct active backup if the app’s tier requires one.
 
+Set `governance.requireOwnerHandoverAcceptance` to true to require this flow for routine owner changes. An independent reviewer can still recover an app with a direct edit when Catalog confirms its current owner is unavailable. The registered backup can also use the backup handover flow. The setting is off by default.
+
 Acceptance records who took ownership and when in Audit history. Frontstage applies the same ownership-change rules as a backup handover, including revoking gateway keys and reopening required reviews.
 
 ## Backup owner handover

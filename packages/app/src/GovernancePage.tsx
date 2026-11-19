@@ -147,6 +147,8 @@ type App = {
   retirementReview?: RetirementReview;
   graduation?: Graduation;
   ownerHandover?: OwnerHandover;
+  ownerHandoverRequired?: true;
+  ownerHandoverRecoveryReviewer?: true;
   requiresProductionEngineeringCoOwner?: true;
   directoryListing?: DirectoryListing;
   directoryLaunchEligible?: boolean;
@@ -2990,11 +2992,17 @@ export function GovernancePage() {
                       aria-labelledby="app-editor-owner-label"
                       required
                       name="owner"
-                      readOnly={actorIsAcceptedCoOwner}
+                      readOnly={
+                        actorIsAcceptedCoOwner ||
+                        (selected.ownerHandoverRequired &&
+                          !selected.ownerHandoverRecoveryReviewer)
+                      }
                       aria-describedby={
                         [
                           actorIsAcceptedCoOwner &&
                             'engineering-handoff-edit-help',
+                          selected.ownerHandoverRequired &&
+                            'planned-ownership-handoff-help',
                           selected.usesAiAtRuntime !== false &&
                             'ownership-handoff-help',
                         ]
@@ -3003,6 +3011,13 @@ export function GovernancePage() {
                       }
                       defaultValue={selected.owner}
                     />
+                    {selected.ownerHandoverRequired && (
+                      <small id="planned-ownership-handoff-help">
+                        {selected.ownerHandoverRecoveryReviewer
+                          ? 'Direct ownership changes require the current owner to be unavailable in Catalog.'
+                          : 'Use Planned owner handover to change the accountable owner.'}
+                      </small>
+                    )}
                     {selected.usesAiAtRuntime !== false && (
                       <small id="ownership-handoff-help">
                         Changing the owner revokes the current gateway key.

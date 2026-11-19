@@ -2255,8 +2255,10 @@ describe('governance record access', () => {
     const nominee = 'user:default/nominee';
     const backup = 'user:default/backup';
     const reviewer = 'user:default/reviewer';
+    const backupReviewer = 'user:default/backup-reviewer';
     let nomineeActive = true;
-    jest
+    let ownerActive = true;
+    const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
       .mockImplementation(async ({ entityRefs }) => ({
         items: entityRefs.map(ref => ({
@@ -2264,10 +2266,10 @@ describe('governance record access', () => {
           kind: ref.startsWith('group:') ? 'Group' : 'User',
           metadata: {
             name: ref.split('/')[1],
-            ...(ref === nominee &&
-              !nomineeActive && {
-                annotations: { 'governance.backstage.io/active': 'false' },
-              }),
+            ...(((ref === nominee && !nomineeActive) ||
+              (ref === owner && !ownerActive)) && {
+              annotations: { 'governance.backstage.io/active': 'false' },
+            }),
           },
         })),
       }));
@@ -2290,7 +2292,8 @@ describe('governance record access', () => {
             app: { baseUrl: 'https://portal.example.com/workspace' },
             backend: { listen: { host: '127.0.0.1' } },
             governance: {
-              reviewers: [reviewer],
+              reviewers: [reviewer, owner, backupReviewer],
+              requireOwnerHandoverAcceptance: true,
               gateway: {
                 enabled: true,
                 mode: 'simulation',
@@ -2351,6 +2354,36 @@ describe('governance record access', () => {
         .send({ expectedUpdatedAt });
     const read = (actor: string) =>
       api.get(path).set('Authorization', auth(actor)).expect(200);
+    expect(app.ownerHandoverRequired).toBe(true);
+    expect(app).not.toHaveProperty('ownerHandoverRecoveryReviewer');
+    expect((await read(reviewer)).body).toMatchObject({
+      ownerHandoverRequired: true,
+      ownerHandoverRecoveryReviewer: true,
+    });
+    expect((await read(backup)).body).not.toHaveProperty(
+      'ownerHandoverRequired',
+    );
+    const directEdit = (
+      record: { id: string; updatedAt: string },
+      credential: string,
+      changes: object,
+    ) =>
+      api
+        .put(`${apps}/${record.id}`)
+        .set('Authorization', credential)
+        .send({
+          ...record,
+          ...changes,
+          expectedUpdatedAt: record.updatedAt,
+        });
+    const blocked = await directEdit(app, auth(owner), {
+      owner: nominee,
+    }).expect(403);
+    expect(blocked.body.error.message).toContain('Planned owner handover');
+    await directEdit(app, auth(reviewer), { owner: nominee }).expect(403);
+    await directEdit(app, mockCredentials.service.header(), {
+      owner: nominee,
+    }).expect(403);
     const key = await api
       .post(`${path}/gateway-key`)
       .set('Authorization', auth(owner))
@@ -2461,6 +2494,36 @@ describe('governance record access', () => {
       .send({ lifecycle: 'retired', expectedUpdatedAt: otherPending.updatedAt })
       .expect(200);
     expect(retired).not.toHaveProperty('ownerHandover');
+
+    const recoverable = await register('planned-handover-recovery');
+    const { body: edited } = await directEdit(recoverable, auth(owner), {
+      name: 'Owner-preserving edit',
+      backupOwner: backupReviewer,
+    }).expect(200);
+    expect(edited.owner).toBe(owner);
+    catalog.mockResolvedValueOnce({ items: [] });
+    await directEdit(edited, auth(reviewer), { owner: nominee }).expect(503);
+    ownerActive = false;
+    await directEdit(edited, auth(owner), { owner: nominee }).expect(403);
+    await api
+      .get(`${apps}/${edited.id}`)
+      .set('Authorization', auth(backupReviewer))
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.ownerHandoverRequired).toBe(true);
+        expect(body).not.toHaveProperty('ownerHandoverRecoveryReviewer');
+      });
+    await directEdit(edited, auth(backupReviewer), { owner: nominee }).expect(
+      403,
+    );
+    await directEdit(recoverable, auth(reviewer), { owner: nominee }).expect(
+      409,
+    );
+    const { body: recovered } = await directEdit(edited, auth(reviewer), {
+      owner: nominee,
+    }).expect(200);
+    expect(recovered.owner).toBe(nominee);
+    expect(recovered.nextReview).toBe(recovered.updatedAt);
   });
 
   it('lets a verified backup take ownership and reapplies the normal ownership safeguards', async () => {

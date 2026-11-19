@@ -514,6 +514,10 @@ export const governancePlugin = createBackendPlugin({
             'Gateway attestation pauses require scheduled reminders and a pause delay at least as long as the manager escalation delay.',
           );
         }
+        const requireOwnerHandoverAcceptance =
+          config.getOptionalBoolean(
+            'governance.requireOwnerHandoverAcceptance',
+          ) ?? false;
         const graduationGroups = graduationGroupsInput
           .default([])
           .parse(config.getOptional('governance.graduationGroups'));
@@ -1386,6 +1390,28 @@ export const governancePlugin = createBackendPlugin({
           return { ...handover, backupRequired: evaluateTier(record) >= 2 };
         }
 
+        function ownerHandoverPolicy(
+          record: GovernanceRecord,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ): {
+          ownerHandoverRequired?: true;
+          ownerHandoverRecoveryReviewer?: true;
+        } {
+          if (!requireOwnerHandoverAcceptance || principal.type !== 'user')
+            return {};
+          const owner = principal.userEntityRef === record.owner;
+          const reviewer = reviewers.includes(principal.userEntityRef);
+          return {
+            ...((owner || reviewer) && {
+              ownerHandoverRequired: true as const,
+            }),
+            ...(reviewer &&
+              isIndependentReviewer(record, principal.userEntityRef) && {
+                ownerHandoverRecoveryReviewer: true as const,
+              }),
+          };
+        }
+
         function withRiskAssessment<T extends GovernanceRecord>(
           record: T,
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
@@ -1393,6 +1419,7 @@ export const governancePlugin = createBackendPlugin({
           return {
             ...record,
             ownerHandover: visibleOwnerHandover(record, principal),
+            ...ownerHandoverPolicy(record, principal),
             ...(canViewReviewDetails(record, principal) &&
               appReviewDetails(record)),
           };
@@ -1415,6 +1442,7 @@ export const governancePlugin = createBackendPlugin({
               ? record.directoryListing
               : undefined,
             ownerHandover: visibleOwnerHandover(record, principal),
+            ...ownerHandoverPolicy(record, principal),
             directoryLaunchEligible: canManageDirectory
               ? canPublishInDirectory(record, now)
               : undefined,
@@ -3137,6 +3165,30 @@ export const governancePlugin = createBackendPlugin({
           return updated;
         }
 
+        async function requireAcceptedOwnerTransfer(
+          record: GovernanceRecord,
+          principal: BackstageUserPrincipal | BackstageServicePrincipal,
+        ) {
+          if (!requireOwnerHandoverAcceptance) return;
+          const required = new NotAllowedError(
+            'Use Planned owner handover to transfer ownership. An independent reviewer can recover an app when its current owner is unavailable.',
+          );
+          if (
+            !ownerHandoverPolicy(record, principal)
+              .ownerHandoverRecoveryReviewer
+          )
+            throw required;
+          const unavailable = await unavailableOwners(
+            [record.owner],
+            true,
+          ).catch(() => {
+            throw new ServiceUnavailableError(
+              'Catalog could not verify whether the current owner is unavailable. Retry when Catalog is available.',
+            );
+          });
+          if (!unavailable.has(record.owner)) throw required;
+        }
+
         router.put('/apps/:id', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
@@ -3163,6 +3215,8 @@ export const governancePlugin = createBackendPlugin({
           );
           if (app.sourceUrl !== record.sourceUrl)
             throw new InputError('The registered source URL is fixed.');
+          if (app.owner !== record.owner)
+            await requireAcceptedOwnerTransfer(record, principal);
           await validateOwners(app);
           const updated = recordAfterAppEdit(record, app, principal);
           await assertProductionEngineeringHandoff(record, updated);
