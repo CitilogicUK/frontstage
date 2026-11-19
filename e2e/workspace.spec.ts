@@ -330,7 +330,20 @@ test('workspace screens share navigation and fit the viewport', async ({
     const ignore = strFromU8(files[`${id}/.gitignore`]).trim().split('\n');
     expect(ignore.slice(1)).toEqual(['.env', '.env.*', '!.env.example']);
     expect(strFromU8(files[`${id}/CLAUDE.md`]).trim()).toBe('@AGENTS.md');
-    expect(strFromU8(files[`${id}/AGENTS.md`])).toContain('Proof of concept');
+    const agentGuide = strFromU8(files[`${id}/AGENTS.md`]);
+    expect(agentGuide).toContain('Proof of concept');
+    for (const tool of [
+      'search_apps',
+      'get_app',
+      'preview_risk',
+      'list_approved_models',
+      'list_approved_connectors',
+      'preview_descriptor',
+      'register_descriptor',
+    ]) {
+      expect(agentGuide).toContain(tool);
+    }
+    expect(agentGuide).toMatch(/only with the user['’]s authorization/);
     const brief = strFromU8(files[`${id}/PROJECT_BRIEF.md`]);
     expect(brief).toContain('Delivery stage: Proof of concept');
     expect(brief).toContain(

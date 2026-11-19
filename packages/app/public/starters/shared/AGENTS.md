@@ -22,3 +22,14 @@ Read the existing code, local instructions, and `PROJECT_BRIEF.md` if present be
 | Production       | Apply the organization’s security, privacy, and release requirements. Test access controls and recovery where applicable. Assign ownership for monitoring, incidents, rollback, and dependencies. |
 
 A trial that touches sensitive data, real users, or consequential actions still needs the controls appropriate to that exposure. Reassess before expanding access or connecting production systems.
+
+## Check Frontstage policy before registration
+
+When Frontstage MCP is configured, use the workspace policy to review the project brief and its `catalog-info.yaml`.
+
+1. Use `search_apps` to check for an existing app before creating a record. Use `get_app` to inspect a possible match.
+2. Use `preview_risk` with the intended audience, data classification, connections, and actions. Record any review or ownership requirements in the brief.
+3. Use `list_approved_connectors` for any planned integration. Check the returned access and data limit against the planned use. For apps that call models at runtime, check `list_approved_models` using the effective classification from the risk preview.
+4. When descriptor tools are enabled, use `preview_descriptor` on the completed YAML and review the result with the user. Use `register_descriptor` only with the user's authorization to create the app record.
+
+The portal provides the same checks through Inventory, the Builder guide, the Register questionnaire, and **Validate file** under Import.
