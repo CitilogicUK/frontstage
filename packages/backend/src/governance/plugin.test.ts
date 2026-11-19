@@ -1285,6 +1285,154 @@ describe('governance record access', () => {
     expect(notifications.send).toHaveBeenCalledTimes(3);
   });
 
+  it('alerts active owners privately about current connector discrepancies only', async () => {
+    const owner = 'user:default/owner';
+    const departed = 'user:default/departed';
+    const backup = 'user:default/backup';
+    const inactive = new Set<string>();
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: {
+              'governance.backstage.io/active': inactive.has(ref)
+                ? 'false'
+                : 'true',
+            },
+          },
+        })),
+      }));
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
+    const scheduleTask = jest.fn<
+      Promise<void>,
+      Parameters<SchedulerService['scheduleTask']>
+    >();
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        notifications.factory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.scheduler.mock({ scheduleTask }).factory,
+        mockServices.rootConfig.factory({
+          data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
+            governance: {
+              reviewReminderIntervalMinutes: 15,
+              notifyOwnersOnConnectorDiscrepancies: true,
+              approvedConnectors: [
+                {
+                  id: 'catalog',
+                  name: 'Approved catalog',
+                  kind: 'data',
+                  description: 'Read synthetic data.',
+                  access: 'read',
+                  maxClassification: 'internal',
+                },
+              ],
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const connections = (name: string) => [{ name, access: 'read' }];
+    const register = async (
+      slug: string,
+      appOwner = owner,
+      lifecycle = 'active',
+    ) => {
+      const { body } = await api
+        .post(apps)
+        .set('Authorization', auth(appOwner))
+        .send({
+          name: 'Private synthetic app',
+          purpose: 'Verify a private reminder.',
+          type: 'app',
+          platform: 'GitHub',
+          sourceUrl: `https://example.com/${slug}`,
+          owner: appOwner,
+          backupOwner: backup,
+          team: 'group:default/platform',
+          lifecycle,
+          audience: 'personal',
+          classification: 'internal',
+          usesAiAtRuntime: false,
+          connections: connections('First unlisted catalog'),
+        })
+        .expect(201);
+      return body;
+    };
+    const app = await register('active-discrepancy');
+    await register('inactive-owner', departed);
+    await register('experimental-app', owner, 'experimental');
+    inactive.add(departed);
+    const edit = async (record: typeof app, name: string) => {
+      const { body } = await api
+        .put(`${apps}/${app.id}`)
+        .set('Authorization', auth(owner))
+        .send({
+          ...record,
+          connections: connections(name),
+          expectedUpdatedAt: record.updatedAt,
+        })
+        .expect(200);
+      expect(body.lifecycle).toBe('active');
+      return body;
+    };
+    const task = scheduleTask.mock.calls.find(
+      ([item]) => item.id === 'governance-review-reminders',
+    )?.[0];
+    expect(task).toBeDefined();
+    const run = () => task!.fn(new AbortController().signal);
+    const started = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(started);
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notification unavailable'),
+    );
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    expect(notifications.send).toHaveBeenLastCalledWith({
+      recipients: { type: 'entity', entityRef: owner },
+      payload: {
+        title: 'App connector declarations need attention',
+        description:
+          'Open the app in Inventory to review its declared connections.',
+        link: `https://portal.example.com/workspace?app=${app.id}&edit=connections`,
+        topic: 'AI App Governance',
+        scope: expect.stringMatching(
+          /^governance-review-reminder-[a-f0-9]{64}$/,
+        ),
+      },
+    });
+    const corrected = await edit(app, 'Approved catalog');
+    clock.mockReturnValue(started + 60 * 60 * 1000);
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+
+    const changed = await edit(corrected, 'Second unlisted catalog');
+    await run();
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(2);
+    expect(notifications.send.mock.calls[1][0].payload.scope).not.toBe(
+      notifications.send.mock.calls[0][0].payload.scope,
+    );
+    const repaired = await edit(changed, 'Approved catalog');
+    await run();
+    await edit(repaired, 'SECOND UNLISTED CATALOG');
+    await run();
+    expect(notifications.send).toHaveBeenCalledTimes(2);
+  });
+
   it('summarizes only the current owner’s active scorecard issues', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';
