@@ -155,6 +155,9 @@ function GatewayEnvironmentPanel({
     spend?.stopAtThreshold === true &&
     spend.monthStart.slice(0, 7) === new Date().toISOString().slice(0, 7) &&
     spend.liveEstimatedCostUsd >= spend.thresholdUsd;
+  const attestationPaused =
+    !usageError && usage?.gatewayPause === 'attestation-overdue';
+  const promptsPaused = attestationPaused || spendPaused;
 
   const readUsage = useCallback(
     async (signal?: AbortSignal) => {
@@ -249,7 +252,7 @@ function GatewayEnvironmentPanel({
 
   async function sendPrompt(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!key || spendPaused) return;
+    if (!key || promptsPaused) return;
     const data = new FormData(event.currentTarget);
     const prompt = String(data.get('prompt') ?? '').trim();
     if (!prompt) {
@@ -312,31 +315,29 @@ function GatewayEnvironmentPanel({
           Unavailable for {classification} data: {unavailableModels.join(', ')}.
         </p>
       )}
-      {!usageError && usage?.gatewayPause === 'attestation-overdue' && (
+      {attestationPaused && (
         <p className="gov-notice" role="status">
           Gateway access is paused until the app owner completes the overdue
           attestation.
         </p>
       )}
       {spendPaused && (
-        <>
-          <p className="gov-notice" role="status">
-            Production prompts are paused at the monthly spend threshold.
-          </p>
-          <button
-            type="button"
-            disabled={Boolean(pendingAction)}
-            onClick={async () => {
-              setPendingAction('refresh');
-              await readUsage();
-              setPendingAction(undefined);
-            }}
-          >
-            {pendingAction === 'refresh'
-              ? 'Refreshing usage…'
-              : 'Refresh usage'}
-          </button>
-        </>
+        <p className="gov-notice" role="status">
+          Production prompts are paused at the monthly spend threshold.
+        </p>
+      )}
+      {promptsPaused && (
+        <button
+          type="button"
+          disabled={Boolean(pendingAction)}
+          onClick={async () => {
+            setPendingAction('refresh');
+            await readUsage();
+            setPendingAction(undefined);
+          }}
+        >
+          {pendingAction === 'refresh' ? 'Refreshing usage…' : 'Refresh usage'}
+        </button>
       )}
       <div className="gov-gateway-key">
         <button
@@ -395,7 +396,7 @@ function GatewayEnvironmentPanel({
             !key ||
             Boolean(pendingAction) ||
             approvedModels.length === 0 ||
-            spendPaused
+            promptsPaused
           }
         >
           {pendingAction === 'send' ? 'Sending…' : 'Send prompt'}
