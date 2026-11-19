@@ -370,7 +370,16 @@ export function GovernancePage() {
     view === 'Discovery' &&
     Boolean(detailId && !selected && discoveryApp?.id !== detailId);
   const [message, setMessage] = useState('');
+  const [appEditorToggle, setAppEditorToggle] = useState<{
+    key: string;
+    open: boolean;
+  }>();
 
+  const appEditorKey = `${selected?.id}-edit-${selected?.updatedAt}`;
+  const appEditorOpen =
+    appEditorToggle?.key === appEditorKey
+      ? appEditorToggle.open
+      : params.get('edit') === '1';
   const reviewDate = selected && scheduledReviewDate(selected);
   const actorIsAcceptedCoOwner =
     selected !== undefined && isAcceptedEngineeringCoOwner(selected, actor);
@@ -427,6 +436,7 @@ export function GovernancePage() {
   }
 
   function closeApp() {
+    setAppEditorToggle(undefined);
     setSelected(undefined);
     setError('');
     setMessage('');
@@ -1668,12 +1678,72 @@ export function GovernancePage() {
                 </a>
               </p>
             )}
+            {selected.tier === 3 &&
+              selected.lifecycle !== 'retired' &&
+              (actor === selected.owner || canReview) && (
+                <details
+                  className="gov-app-editor"
+                  key={`review-ticket-${selected.id}`}
+                >
+                  <summary>Edit review ticket</summary>
+                  <p>Clear the URL and save to remove the ticket link.</p>
+                  <form
+                    key={selected.updatedAt}
+                    onSubmit={event => {
+                      if (appEditorOpen) {
+                        event.preventDefault();
+                        return;
+                      }
+                      submit(event, async data => {
+                        const url =
+                          String(data.get('ticket-url') ?? '').trim() || null;
+                        applySavedApp(
+                          await api(
+                            `/apps/${selected.id}/review-ticket`,
+                            { url, expectedUpdatedAt: selected.updatedAt },
+                            'PATCH',
+                          ),
+                        );
+                        setMessage(
+                          url
+                            ? 'Review ticket saved.'
+                            : 'Review ticket removed.',
+                        );
+                      });
+                    }}
+                  >
+                    <label>
+                      Ticket URL
+                      <input
+                        name="ticket-url"
+                        type="url"
+                        defaultValue={selected.reviewTicketUrl}
+                      />
+                    </label>
+                    {appEditorOpen && (
+                      <p>
+                        Save any changes to the app details and close that
+                        editor to use this shortcut.
+                      </p>
+                    )}
+                    <button disabled={busy || appEditorOpen}>
+                      Save review ticket
+                    </button>
+                  </form>
+                </details>
+              )}
             {selected.reviewNotes && <p>{selected.reviewNotes}</p>}
             {(actor === selected.owner || canReview) && (
               <details
                 className="gov-app-editor"
-                key={`${selected.id}-edit-${selected.updatedAt}`}
-                open={params.get('edit') === '1' || undefined}
+                key={appEditorKey}
+                onToggle={event =>
+                  setAppEditorToggle({
+                    key: appEditorKey,
+                    open: event.currentTarget.open,
+                  })
+                }
+                open={appEditorOpen}
               >
                 <summary>Edit app details</summary>
                 {selected.tier === 3 && (

@@ -2059,6 +2059,208 @@ describe('governance record access', () => {
     );
   });
 
+  it('updates review ticket metadata without changing approval or gateway access', async () => {
+    const owner = 'user:default/owner';
+    const backup = 'user:default/backup';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            backend: { listen: { host: '127.0.0.1' } },
+            governance: {
+              reviewers: [reviewer],
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const collection = '/api/governance/apps';
+    const appInput = {
+      name: 'Workflow assistant',
+      purpose: 'Support internal workflow approvals.',
+      type: 'assistant',
+      platform: 'GitHub',
+      sourceUrl: 'https://example.com/workflow-assistant',
+      owner,
+      backupOwner: backup,
+      team: 'group:default/engineering',
+      lifecycle: 'experimental',
+      audience: 'external',
+      classification: 'internal',
+      models: ['test-model'],
+    };
+    const { body: app } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send(appInput)
+      .expect(201);
+    const path = `${collection}/${app.id}`;
+    const { body: approved } = await api
+      .post(`${path}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        notes: 'Approved application.',
+        expectedUpdatedAt: app.updatedAt,
+      })
+      .expect(200);
+    const setLifecycle = (lifecycle: string, expectedUpdatedAt: string) =>
+      api
+        .patch(`${path}/lifecycle`)
+        .set('Authorization', auth(owner))
+        .send({ lifecycle, expectedUpdatedAt })
+        .expect(200);
+    const { body: active } = await setLifecycle('active', approved.updatedAt);
+    const {
+      body: { key },
+    } = await api
+      .post(`${path}/gateway-key`)
+      .set('Authorization', auth(owner))
+      .expect(201);
+    const ticketPath = `${path}/review-ticket`;
+    const patch = (
+      url: string | null | undefined,
+      expectedUpdatedAt: string,
+      actor = owner,
+    ) =>
+      api
+        .patch(ticketPath)
+        .set('Authorization', auth(actor))
+        .send({ url, expectedUpdatedAt });
+    const firstUrl = 'https://tickets.example.com/FRONT-1';
+    const secondUrl = 'http://tickets.example.com/FRONT-2';
+
+    for (const credentials of [
+      { header: mockCredentials.none.header(), status: 401 },
+      { header: mockCredentials.service.header(), status: 403 },
+    ]) {
+      await api
+        .patch(ticketPath)
+        .set('Authorization', credentials.header)
+        .send({ url: firstUrl, expectedUpdatedAt: active.updatedAt })
+        .expect(credentials.status);
+    }
+    await patch(firstUrl, active.updatedAt, backup).expect(403);
+    await patch(firstUrl, approved.updatedAt).expect(409);
+    for (const value of [
+      undefined,
+      '  ',
+      'mailto:support@example.com',
+      'https://sample:private@tickets.example.com/FRONT-1',
+      'https://sample@tickets.example.com/FRONT-1',
+      `https://tickets.example.com/${'x'.repeat(2048)}`,
+    ]) {
+      await patch(value, active.updatedAt).expect(400);
+    }
+
+    const { body: linked } = await patch(
+      `  ${firstUrl}  `,
+      active.updatedAt,
+    ).expect(200);
+    expect(linked).toEqual({
+      ...active,
+      updatedAt: expect.any(String),
+      reviewTicketUrl: firstUrl,
+    });
+    expect(linked.updatedAt).not.toBe(active.updatedAt);
+    await patch(firstUrl, active.updatedAt).expect(409);
+    await patch(`  ${firstUrl}  `, linked.updatedAt)
+      .expect('Cache-Control', 'no-store')
+      .expect(200, linked);
+    const { body: unrelated } = await api
+      .get(path)
+      .set('Authorization', auth('user:default/teammate'))
+      .expect(200);
+    expect(unrelated).not.toHaveProperty('reviewTicketUrl');
+
+    const { body: relinked } = await patch(
+      secondUrl,
+      linked.updatedAt,
+      reviewer,
+    ).expect(200);
+    expect(relinked.reviewTicketUrl).toBe(secondUrl);
+    const { body: cleared } = await patch(null, relinked.updatedAt).expect(200);
+    expect(cleared).toEqual({ ...active, updatedAt: expect.any(String) });
+    await patch(null, cleared.updatedAt).expect(200, cleared);
+    await api
+      .post('/api/governance/gateway/chat')
+      .set('Authorization', `Bearer ${key}`)
+      .send({
+        model: 'test-model',
+        prompt: 'Confirm the gateway remains available.',
+      })
+      .expect(200);
+    const { body: history } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const changes = history.events
+      .map((row: { event: string; digest: string }) => ({
+        ...JSON.parse(row.event),
+        digest: row.digest,
+      }))
+      .filter(
+        (row: { action: string }) => row.action === 'review-ticket-updated',
+      );
+    expect(
+      changes.map(
+        (row: { actor: string; record: { reviewTicketUrl?: string } }) => [
+          row.actor,
+          row.record.reviewTicketUrl,
+        ],
+      ),
+    ).toEqual([
+      [owner, firstUrl],
+      [reviewer, secondUrl],
+      [owner, undefined],
+    ]);
+    expect(changes[1].previousDigest).toBe(changes[0].digest);
+    expect(changes[2].previousDigest).toBe(changes[1].digest);
+
+    const { body: retired } = await setLifecycle('retired', cleared.updatedAt);
+    await patch(firstUrl, retired.updatedAt).expect(400);
+    const { body: lowRisk } = await api
+      .post(collection)
+      .set('Authorization', auth(owner))
+      .send({
+        ...appInput,
+        audience: 'personal',
+        sourceUrl: 'https://example.com/personal-workflow-assistant',
+      })
+      .expect(201);
+    await api
+      .patch(`${collection}/${lowRisk.id}/review-ticket`)
+      .set('Authorization', auth(owner))
+      .send({ url: firstUrl, expectedUpdatedAt: lowRisk.updatedAt })
+      .expect(400);
+  });
+
   it('enforces evidence, history, and ownership permissions', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';
