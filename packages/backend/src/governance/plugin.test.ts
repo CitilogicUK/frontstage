@@ -1023,6 +1023,10 @@ describe('governance record access', () => {
     const requester = 'user:default/requester';
     const otherRequester = 'user:default/other-requester';
     const inactive = new Set<string>();
+    const notifications = createServiceMock(notificationService, () => ({
+      send: jest.fn(),
+    }))();
+    notifications.send.mockResolvedValue(undefined);
     const db = await databases.init('SQLITE_3');
     const catalog = jest
       .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
@@ -1045,9 +1049,13 @@ describe('governance record access', () => {
     const { server } = await startTestBackend({
       features: [
         governancePlugin,
+        notifications.factory,
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
-          data: { governance: { reviewers: [reviewer] } },
+          data: {
+            app: { baseUrl: 'https://portal.example.com/workspace' },
+            governance: { reviewers: [reviewer] },
+          },
         }),
       ],
     });
@@ -1238,6 +1246,7 @@ describe('governance record access', () => {
       apps: [{ ...entry, requestStatus: 'pending' }],
     });
 
+    expect(notifications.send).not.toHaveBeenCalled();
     const { body: approved } = await decide(
       owner,
       created.id,
@@ -1250,6 +1259,17 @@ describe('governance record access', () => {
       status: 'approved',
       decidedBy: owner,
       decidedAt: expect.any(String),
+    });
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    expect(notifications.send).toHaveBeenNthCalledWith(1, {
+      recipients: { type: 'entity', entityRef: requester },
+      payload: {
+        title: 'Access request approved',
+        description: 'View the decision in Directory → My requests.',
+        link: 'https://portal.example.com/workspace?view=directory&directoryAccess=mine',
+        topic: 'AI App Governance',
+        scope: `governance-directory-decision-${created.id}`,
+      },
     });
     catalog.mockRejectedValueOnce(new Error('Catalog not available'));
     await decide(reviewer, 'unknown-request', 'approved').expect(404);
@@ -1285,12 +1305,27 @@ describe('governance record access', () => {
     });
     await feed(reviewer).expect(200, { apps: [] });
     await decide(reviewer, pending.id, 'approved').expect(409);
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notifications unavailable'),
+    );
     const { body: declined } = await decide(
       reviewer,
       pending.id,
       'declined',
     ).expect(200);
     expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
+    expect(notifications.send).toHaveBeenCalledTimes(2);
+    expect(notifications.send).toHaveBeenNthCalledWith(2, {
+      recipients: { type: 'entity', entityRef: otherRequester },
+      payload: {
+        title: 'Access request declined',
+        description: 'View the decision in Directory → My requests.',
+        link: 'https://portal.example.com/workspace?view=directory&directoryAccess=mine',
+        topic: 'AI App Governance',
+        scope: `governance-directory-decision-${pending.id}`,
+      },
+    });
     await feed(otherRequester).expect(200, {
       apps: [],
       unavailableRequests: [{ ...unavailableEntry, requestStatus: 'declined' }],
