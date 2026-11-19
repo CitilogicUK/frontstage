@@ -4718,17 +4718,14 @@ describe('governance record access', () => {
         .expect(200);
       expect(completed).not.toHaveProperty('missingCriticalReviewEvidence');
       const { body: decision } = await review(completed.updatedAt).expect(200);
-      if (separateTracks) {
-        expect(decision.reviewStatus).toBe('pending');
-        const { body: approved } = await review(
-          decision.updatedAt,
-          'approved',
-          protection,
-        ).expect(200);
-        expect(approved.reviewStatus).toBe('approved');
-      } else {
-        expect(decision.reviewStatus).toBe('approved');
-      }
+      expect(decision.reviewStatus).toBe(
+        separateTracks ? 'pending' : 'approved',
+      );
+      const finalDecision = separateTracks
+        ? (await review(decision.updatedAt, 'approved', protection).expect(200))
+            .body
+        : decision;
+      expect(finalDecision.reviewStatus).toBe('approved');
     },
   );
 
