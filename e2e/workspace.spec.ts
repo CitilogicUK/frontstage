@@ -588,6 +588,21 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await page.reload();
   await expect(accountableOwner).toHaveValue('user:default/another');
   await expect(rows).toHaveCount(1);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('accountableOwner');
+  const byOwner = page.getByRole('region', {
+    name: 'Apps by accountable owner',
+  });
+  await expect(
+    byOwner.getByRole('link', { name: 'user:default/demo-owner: 3 apps' }),
+  ).toBeVisible();
+  await byOwner
+    .getByRole('link', { name: 'user:default/another: 1 app' })
+    .click();
+  await expect(accountableOwner).toHaveValue('user:default/another');
+  await expect(rows).toHaveCount(1);
   const ownerExport = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download inventory CSV' }).click();
   const ownerCsv = await readFile(await (await ownerExport).path(), 'utf8');
