@@ -5568,6 +5568,7 @@ test('the playground clears a revealed key after environment or ownership change
       },
     }),
   );
+  let productionAttempts = 0;
   await page.route('**/api/governance/gateway/chat', route => {
     const request = route.request();
     const production =
@@ -5580,6 +5581,21 @@ test('the playground clears a revealed key after environment or ownership change
       prompt: 'Synthetic playground prompt',
       expectedEnvironment: production ? 'production' : 'sandbox',
     });
+    if (production && ++productionAttempts === 1) {
+      return route.fulfill({
+        status: 503,
+        headers: {
+          'Access-Control-Expose-Headers': 'Retry-After',
+          'Retry-After': '12',
+        },
+        json: {
+          error: {
+            message:
+              'The configured model provider is temporarily unavailable.',
+          },
+        },
+      });
+    }
     return route.fulfill({
       headers: {
         'Access-Control-Expose-Headers': 'Server-Timing',
@@ -5706,6 +5722,13 @@ test('the playground clears a revealed key after environment or ownership change
   await expect(playground.getByText(/Threshold reached/)).toBeVisible();
   await expect(send).toBeEnabled();
   await send.click();
+  const retryHint = playground.getByRole('alert').filter({
+    hasText: 'Wait 12 seconds before trying again.',
+  });
+  await expect(retryHint).toBeVisible();
+  expect(productionAttempts).toBe(1);
+  await send.click();
+  await expect(retryHint).toHaveCount(0);
   await expect(
     playground.getByText('Synthetic production reply', { exact: true }),
   ).toBeVisible();

@@ -51,12 +51,33 @@ const estimate = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 8,
 });
 
-async function readResponse<T>(response: Response): Promise<T> {
+function gatewayRetryHint(response: Response) {
+  if (response.status !== 429 && response.status !== 503) return undefined;
+  const value = response.headers.get('Retry-After');
+  if (!value) return undefined;
+  let seconds: number;
+  if (/^\d+$/.test(value)) {
+    seconds = Number(value);
+  } else {
+    const date = new Date(value);
+    if (date.toUTCString() !== value) return undefined;
+    seconds = Math.ceil((date.getTime() - Date.now()) / 1000);
+  }
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) return undefined;
+  return `Wait ${seconds.toLocaleString()} ${
+    seconds === 1 ? 'second' : 'seconds'
+  } before trying again.`;
+}
+
+async function readResponse<T>(
+  response: Response,
+  errorHint?: string,
+): Promise<T> {
   if (response.ok) return response.json();
   const body = await response.json().catch(() => undefined);
-  throw new Error(
-    body?.error?.message ?? `Gateway request failed (HTTP ${response.status}).`,
-  );
+  const message =
+    body?.error?.message ?? `Gateway request failed (HTTP ${response.status}).`;
+  throw new Error(errorHint ? `${message} ${errorHint}` : message);
 }
 
 type GatewayEnvironment = 'sandbox' | 'production';
@@ -279,7 +300,10 @@ function GatewayEnvironmentPanel({
           expectedEnvironment: environment,
         }),
       });
-      const result = await readResponse<GatewayResponse>(response);
+      const result = await readResponse<GatewayResponse>(
+        response,
+        gatewayRetryHint(response),
+      );
       const timing = response.headers.get('Server-Timing');
       setReply({
         ...result,
