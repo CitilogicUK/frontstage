@@ -22,6 +22,8 @@ yarn start --config ../../app-config.reviewer.yaml
 
 ## Register apps
 
+The **Risk assessment** preview shows which answers or workspace policy rules set the estimated tier. The same policy evaluates the record when you save.
+
 - **Intake form.** Use Register to enter app details and preview the tier. The backend recalculates the tier before saving.
 - **Repository.** Commit a descriptor using [examples/ai-app.yaml](examples/ai-app.yaml), then upload it under Import, submit it from CI, or use it when claiming a repository in Discovery.
 - **Bulk import.** A reviewer or authorized Backstage service can submit a spreadsheet exported as UTF-8 CSV using the [sample columns](packages/app/public/examples/ai-apps.csv), or JSON in the form `{"apps":[...]}`. Each entry uses the descriptor's `spec` fields. In CSV, set `usesAiAtRuntime` to No and leave `models` blank for software that runs without AI. Use `trial`, `poc`, `pilot`, or `production` in `deliveryStage`. Separate model names with `|`, use Yes or No for booleans, and put multiple connections in a JSON array inside the connections cell. Include `hosted.provider`, `hosted.workspace`, `hosted.sharing`, `hosted.dataAccess`, and, when applicable, `hosted.dataClassification` for provider-hosted apps. Batches of up to 100 records are atomic. In Import, select **Validate file** to preview calculated tiers and detect duplicate source URLs before saving. API consumers can send `?dryRun=true` to the repository or bulk import endpoint for the same preview.

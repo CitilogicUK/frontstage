@@ -1,6 +1,7 @@
 import {
   calculateTier,
   effectiveClassification,
+  evaluateTierPolicy,
   nextReview,
   sourceUrl,
   tierPolicyInput,
@@ -98,6 +99,67 @@ describe('governance policy', () => {
         policy,
       ),
     ).toBe(3);
+  });
+
+  it('explains only rules that match the final tier', () => {
+    expect(evaluateTierPolicy(base)).toEqual({ tier: 1, reasons: [] });
+    expect(
+      evaluateTierPolicy({
+        ...base,
+        audience: 'company',
+        classification: 'confidential',
+        hosted: { sharing: 'named people', dataClassification: 'confidential' },
+        connections: [{ access: 'read' }, { access: 'read' }],
+      }),
+    ).toEqual({
+      tier: 2,
+      reasons: [
+        'shared-audience',
+        'shared-hosted-workspace',
+        'confidential-data',
+        'read-connection',
+      ],
+    });
+    expect(
+      evaluateTierPolicy({
+        audience: 'external',
+        classification: 'confidential',
+        hosted: { sharing: 'public link', dataClassification: 'restricted' },
+        connections: [{ access: 'write' }, { access: 'read' }],
+        critical: true,
+        affectsPeople: true,
+        personalData: true,
+        takesActions: true,
+      }),
+    ).toEqual({
+      tier: 3,
+      reasons: [
+        'external-audience',
+        'public-hosted-sharing',
+        'restricted-data',
+        'personal-data',
+        'business-critical',
+        'affects-people',
+        'takes-actions',
+        'write-connection',
+      ],
+    });
+  });
+
+  it('explains a configuration match only at the final tier', () => {
+    const shared = { ...base, audience: 'team' } as const;
+    expect(evaluateTierPolicy(shared, { audience: { team: 1 } })).toEqual({
+      tier: 2,
+      reasons: ['shared-audience'],
+    });
+    expect(evaluateTierPolicy(shared, { audience: { team: 2 } })).toEqual({
+      tier: 2,
+      reasons: ['shared-audience', 'configured-minimum'],
+    });
+    expect(evaluateTierPolicy(shared, { audience: { team: 3 } })).toEqual({
+      tier: 3,
+      reasons: ['configured-minimum'],
+    });
   });
 
   it('retains the higher of declared and hosted data classifications', () => {

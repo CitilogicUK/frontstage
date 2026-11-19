@@ -2246,6 +2246,31 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
   );
 });
 
+test('registration explains the highest matching tier and clears outdated reasons', async ({
+  page,
+}) => {
+  await page.goto('/?view=register');
+  const risk = page.getByRole('complementary', {
+    name: 'Registration requirements',
+  });
+  const guest = page.getByRole('button', { name: /enter|guest/i }).first();
+  await expect(risk.or(guest)).toBeVisible();
+  if (await guest.isVisible()) await guest.click();
+
+  const classification = page.getByRole('combobox', {
+    name: 'Highest data classification',
+    exact: true,
+  });
+  const reasons = risk.getByRole('list', { name: 'Reasons for this tier' });
+  await classification.selectOption('restricted');
+  await expect(risk).toContainText('Estimated risk tier 3 · Critical');
+  await expect(reasons).toContainText('handles restricted data');
+
+  await classification.selectOption('internal');
+  await expect(risk).toContainText('Estimated risk tier 1 · Personal');
+  await expect(reasons).toHaveCount(0);
+});
+
 test('Discovery refreshes after a stale dismissal', async ({ page }) => {
   let registered = false;
   let discoveryUnavailable = true;
