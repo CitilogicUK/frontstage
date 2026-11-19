@@ -135,14 +135,30 @@ test('workspace screens share navigation and fit the viewport', async ({
     await assertWorkspace(page, destination.heading, destination.label);
   }
 
+  await page.route(
+    '**/api/governance/discovery/github',
+    route =>
+      route.fulfill({
+        status: 503,
+        json: { error: { message: 'Unavailable' } },
+      }),
+    { times: 1 },
+  );
   await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
   const coverage = page.locator('.gov-report-summary > div').filter({
     hasText: 'GitHub discovery coverage',
   });
+  await expect(coverage.getByRole('status')).toHaveText('Coverage unavailable');
+  await expect(coverage).not.toContainText('50%');
+  await coverage
+    .getByRole('button', { name: 'Retry loading coverage' })
+    .click();
   await expect(coverage).toContainText('50%');
   await expect(coverage).toContainText('Excludes dismissed repositories');
   await expect(coverage).toContainText('Partial scan results');
-  await coverage.getByRole('link', { name: 'View Discovery queue' }).click();
+  await coverage
+    .getByRole('link', { name: 'Review 1 unowned repository' })
+    .click();
   await expect(
     page.getByText(/1 of 2 tracked repositories registered.*50% coverage/),
   ).toBeVisible();

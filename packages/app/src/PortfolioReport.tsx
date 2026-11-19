@@ -135,6 +135,8 @@ const dollars = new Intl.NumberFormat('en-US', {
 export function PortfolioReport({
   apps,
   discoveries,
+  discoveryUnavailable,
+  onRetryDiscovery,
   report,
   usageDays,
   ownership,
@@ -147,6 +149,8 @@ export function PortfolioReport({
 }: {
   apps: AppSummary[];
   discoveries?: DiscoveryResult;
+  discoveryUnavailable: boolean;
+  onRetryDiscovery: () => void;
   report?: UsageReport;
   usageDays: number;
   ownership?: OwnershipReport | null;
@@ -497,6 +501,17 @@ export function PortfolioReport({
           <dt>Non-retired apps</dt>
           <dd>{inventory.length}</dd>
         </div>
+        {discoveryUnavailable && (
+          <div className="gov-panel">
+            <dt>GitHub discovery coverage</dt>
+            <dd>
+              <small role="status">Coverage unavailable</small>
+            </dd>
+            <button type="button" onClick={onRetryDiscovery}>
+              Retry loading coverage
+            </button>
+          </div>
+        )}
         {coverage && (
           <div className="gov-panel">
             <dt>GitHub discovery coverage</dt>
@@ -516,7 +531,13 @@ export function PortfolioReport({
                 : discoveries?.lastScan?.partial && ' · Partial scan results'}
             </small>
             <div>
-              <Link to="/?view=discovery">View Discovery queue</Link>
+              <Link to="/?view=discovery">
+                {coverage.unowned === 1
+                  ? 'Review 1 unowned repository'
+                  : coverage.unowned > 1
+                  ? `Review ${coverage.unowned} unowned repositories`
+                  : 'View Discovery queue'}
+              </Link>
             </div>
           </div>
         )}
