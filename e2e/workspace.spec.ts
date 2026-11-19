@@ -1997,6 +1997,11 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
           manifests: [
             { path: 'package.json', status: 'checked', packages: ['openai'] },
             { path: 'requirements.txt', status: 'missing', packages: [] },
+            {
+              path: 'pyproject.toml',
+              status: 'checked',
+              packages: ['anthropic'],
+            },
           ],
         },
       }),
@@ -2033,6 +2038,12 @@ test('Discovery refreshes after a stale dismissal', async ({ page }) => {
     .click();
   await expect(discoveryRow.getByText(/openai/i)).toBeVisible();
   await expect(discoveryRow.getByText(/requirements\.txt/i)).toBeVisible();
+  await expect(
+    discoveryRow.getByText('pyproject.toml', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    discoveryRow.getByText('anthropic', { exact: true }),
+  ).toBeVisible();
   await expect(
     discoveryRow.getByRole('link', { name: 'Claim repository' }),
   ).toBeVisible();
