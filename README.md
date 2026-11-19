@@ -241,7 +241,7 @@ The dev server uses seed identities and SQLite. Before deployment, configure com
 
 Run `yarn install --immutable` once per worktree. Use focused tests while editing and run `yarn verify:code` for reviewer configuration, TypeScript, lint, unit tests, the starter projects’ offline tests, and the audit verifier tests. For a full checkpoint, install Chromium once with `yarn playwright install chromium` and run `yarn verify`. On Linux, use `yarn playwright install --with-deps chromium` if the browser system libraries are missing. If Playwright's Chromium build is unavailable on your development host, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium executable.
 
-Give concurrent worktrees different browser-test ports so they can run alongside the usual dev server. Playwright starts and stops each worktree's own server.
+Give concurrent worktrees different browser-test ports so they can run alongside the usual dev server. Playwright starts and stops each isolated worktree’s server. Servers started by `yarn test:e2e` use a temporary SQLite database directory unless you supply `APP_CONFIG_backend_database_connection_directory`. A reused dev server keeps its configured database.
 
 ```sh
 FRONTSTAGE_E2E_APP_PORT=3101 FRONTSTAGE_E2E_BACKEND_PORT=7101 yarn verify
