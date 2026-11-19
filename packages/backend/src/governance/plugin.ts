@@ -1424,6 +1424,44 @@ export const governancePlugin = createBackendPlugin({
             .json(visibleRecord(updated, principal));
         });
 
+        async function notifyDirectoryAccess({
+          recipient,
+          requestId,
+          title,
+          description,
+          search,
+          kind,
+        }: {
+          recipient: string;
+          requestId: string;
+          title: string;
+          description: string;
+          search: string;
+          kind: 'request' | 'decision';
+        }) {
+          try {
+            const appBaseUrl = config.getOptionalString('app.baseUrl');
+            const link = appBaseUrl
+              ? new URL(search, appBaseUrl).toString()
+              : `/${search}`;
+            await notifications.send({
+              recipients: { type: 'entity', entityRef: recipient },
+              payload: {
+                title,
+                description,
+                link,
+                topic: 'AI App Governance',
+                scope: `governance-directory-${kind}-${requestId}`,
+              },
+            });
+          } catch {
+            logger.warn('Could not deliver directory access notification', {
+              requestId,
+              kind,
+            });
+          }
+        }
+
         router.post('/apps/:id/directory-requests', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user'],
@@ -1444,7 +1482,7 @@ export const governancePlugin = createBackendPlugin({
             throw new NotFoundError(
               'This app has no current directory listing.',
             );
-          const created = await db.transaction(async transaction => {
+          const { created, owner } = await db.transaction(async transaction => {
             const { record, revision } = await load(req.params.id, transaction);
             const now = Date.now();
             if (revision !== candidate.revision)
@@ -1473,7 +1511,16 @@ export const governancePlugin = createBackendPlugin({
               throw new ConflictError(
                 'You already have an access request for this app.',
               );
-            return row;
+            return { created: row, owner: record.owner };
+          });
+          await notifyDirectoryAccess({
+            recipient: owner,
+            requestId: created.id,
+            title: 'New directory access request',
+            description:
+              'Review the request in Inventory → My pending access requests.',
+            search: '?owner=me&review=access',
+            kind: 'request',
           });
           res.set('Cache-Control', 'no-store').status(201).json(created);
         });
@@ -1579,27 +1626,14 @@ export const governancePlugin = createBackendPlugin({
                 );
               return updated;
             });
-            try {
-              const appBaseUrl = config.getOptionalString('app.baseUrl');
-              const search = '?view=directory&directoryAccess=mine';
-              const link = appBaseUrl
-                ? new URL(search, appBaseUrl).toString()
-                : `/${search}`;
-              await notifications.send({
-                recipients: { type: 'entity', entityRef: saved.requester },
-                payload: {
-                  title: `Access request ${saved.status}`,
-                  description: 'View the decision in Directory → My requests.',
-                  link,
-                  topic: 'AI App Governance',
-                  scope: `governance-directory-decision-${saved.id}`,
-                },
-              });
-            } catch {
-              logger.warn('Could not notify requester of directory decision', {
-                requestId: saved.id,
-              });
-            }
+            await notifyDirectoryAccess({
+              recipient: saved.requester,
+              requestId: saved.id,
+              title: `Access request ${saved.status}`,
+              description: 'View the decision in Directory → My requests.',
+              search: '?view=directory&directoryAccess=mine',
+              kind: 'decision',
+            });
             res
               .set('Cache-Control', 'no-store')
               .json(directoryRequestView(saved));

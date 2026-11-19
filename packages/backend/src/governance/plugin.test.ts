@@ -1132,10 +1132,29 @@ describe('governance record access', () => {
     expect(attempts.map(result => result.status).sort()).toEqual([201, 409]);
     const created = attempts.find(result => result.status === 201)?.body;
     expect(created).toEqual({ id: expect.any(String), status: 'pending' });
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notifications unavailable'),
+    );
     const { body: pending } = await createRequest(
       otherRequester,
       'Second private message.',
     ).expect(201);
+
+    expect(notifications.send).toHaveBeenCalledTimes(2);
+    for (const [index, id] of [created.id, pending.id].entries()) {
+      expect(notifications.send).toHaveBeenNthCalledWith(index + 1, {
+        recipients: { type: 'entity', entityRef: owner },
+        payload: {
+          title: 'New directory access request',
+          description:
+            'Review the request in Inventory → My pending access requests.',
+          link: 'https://portal.example.com/workspace?owner=me&review=access',
+          topic: 'AI App Governance',
+          scope: `governance-directory-request-${id}`,
+        },
+      });
+    }
 
     const unavailableEntry = { id: app.id, name: app.name };
     const entry = { ...unavailableEntry, ...listing };
@@ -1246,7 +1265,7 @@ describe('governance record access', () => {
       apps: [{ ...entry, requestStatus: 'pending' }],
     });
 
-    expect(notifications.send).not.toHaveBeenCalled();
+    expect(notifications.send).toHaveBeenCalledTimes(2);
     const { body: approved } = await decide(
       owner,
       created.id,
@@ -1260,8 +1279,8 @@ describe('governance record access', () => {
       decidedBy: owner,
       decidedAt: expect.any(String),
     });
-    expect(notifications.send).toHaveBeenCalledTimes(1);
-    expect(notifications.send).toHaveBeenNthCalledWith(1, {
+    expect(notifications.send).toHaveBeenCalledTimes(3);
+    expect(notifications.send).toHaveBeenNthCalledWith(3, {
       recipients: { type: 'entity', entityRef: requester },
       payload: {
         title: 'Access request approved',
@@ -1305,7 +1324,7 @@ describe('governance record access', () => {
     });
     await feed(reviewer).expect(200, { apps: [] });
     await decide(reviewer, pending.id, 'approved').expect(409);
-    expect(notifications.send).toHaveBeenCalledTimes(1);
+    expect(notifications.send).toHaveBeenCalledTimes(3);
     notifications.send.mockRejectedValueOnce(
       new Error('Notifications unavailable'),
     );
@@ -1315,8 +1334,8 @@ describe('governance record access', () => {
       'declined',
     ).expect(200);
     expect(declined).toMatchObject({ status: 'declined', decidedBy: reviewer });
-    expect(notifications.send).toHaveBeenCalledTimes(2);
-    expect(notifications.send).toHaveBeenNthCalledWith(2, {
+    expect(notifications.send).toHaveBeenCalledTimes(4);
+    expect(notifications.send).toHaveBeenNthCalledWith(4, {
       recipients: { type: 'entity', entityRef: otherRequester },
       payload: {
         title: 'Access request declined',
@@ -1351,6 +1370,7 @@ describe('governance record access', () => {
     await publish(unpublished.updatedAt);
     await createRequest(requester).expect(409);
     await createRequest(otherRequester).expect(409);
+    expect(notifications.send).toHaveBeenCalledTimes(4);
     await feed(requester).expect(200, {
       apps: [{ ...entry, requestStatus: 'approved' }],
     });
