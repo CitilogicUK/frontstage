@@ -60,7 +60,7 @@ export function OutsideGatewayUsage({
   onPreview,
 }: {
   appLink: (appId: string) => To;
-  onRegister: (sourceUrl: string) => void;
+  onRegister: (sourceUrl: string, model: string) => void;
   preview?: OutsideGatewayUsagePreview;
   onPreview: (preview: OutsideGatewayUsagePreview | undefined) => void;
 }) {
@@ -587,7 +587,9 @@ export function OutsideGatewayUsage({
                               <button
                                 type="button"
                                 disabled={busy}
-                                onClick={() => onRegister(row.sourceUrl)}
+                                onClick={() =>
+                                  onRegister(row.sourceUrl, row.model)
+                                }
                               >
                                 Start registration
                               </button>

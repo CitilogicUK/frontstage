@@ -899,6 +899,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(page.getByRole('textbox', { name: 'Source URL' })).toHaveValue(
     snapshot.rows[1].sourceUrl,
   );
+  const registrationModels = page.getByRole('textbox', { name: 'Models' });
+  await expect(registrationModels).toHaveValue(snapshot.rows[1].model);
+  await registrationModels.fill('reviewer-confirmed-model');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
   await expect(match).toBeVisible();
@@ -910,6 +913,7 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   expect(registered).toBe(false);
 
   await startRegistration.click();
+  await expect(registrationModels).toHaveValue(snapshot.rows[1].model);
   await page.getByLabel('App name').fill(draft.name);
   await page.getByLabel('Purpose', { exact: true }).fill(draft.purpose);
   await page.getByLabel('Built on').fill(draft.platform);

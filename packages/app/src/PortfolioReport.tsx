@@ -261,7 +261,7 @@ export function PortfolioReport({
   loading: boolean;
   usageError: string;
   onRetryUsage: () => void;
-  onRegisterUsageSource: (sourceUrl: string) => void;
+  onRegisterUsageSource: (sourceUrl: string, model: string) => void;
   usagePreview?: OutsideGatewayUsagePreview;
   onUsagePreview: (preview: OutsideGatewayUsagePreview | undefined) => void;
 }) {
