@@ -16,8 +16,9 @@ import {
   type CatalogService,
 } from '@backstage/plugin-catalog-node';
 
+import { isActiveCatalogEntity } from '../catalogIdentity';
+
 const githubUserIdAnnotation = 'github.com/user-id';
-const activeAnnotation = 'governance.backstage.io/active';
 
 export function activeGithubSignInResolver(
   auth: Pick<AuthService, 'getOwnServiceCredentials'>,
@@ -53,7 +54,7 @@ export function activeGithubSignInResolver(
         'User lookup resulted in multiple exact matches.',
       );
     const [entity] = matches;
-    if (!entity || entity.metadata.annotations?.[activeAnnotation] === 'false')
+    if (!entity || !isActiveCatalogEntity(entity))
       throw new AuthenticationError(
         'GitHub sign-in requires a matching active Catalog user.',
       );

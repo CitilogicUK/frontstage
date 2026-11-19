@@ -71,16 +71,16 @@ describe('GitHub Catalog sign-in', () => {
         annotations: { 'github.com/user-id': githubNodeId.toLowerCase() },
       },
     },
-    {
+    ...['false', ' FALSE '].map(active => ({
       ...catalogUser,
       metadata: {
         ...catalogUser.metadata,
         annotations: {
           ...catalogUser.metadata.annotations,
-          'governance.backstage.io/active': 'false',
+          'governance.backstage.io/active': active,
         },
       },
-    },
+    })),
   ];
   it.each(unsuitableEntities)(
     'denies an unsuitable Catalog entity',
