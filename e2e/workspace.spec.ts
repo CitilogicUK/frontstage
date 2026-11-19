@@ -138,6 +138,7 @@ test('workspace screens share navigation and fit the viewport', async ({
 }, testInfo) => {
   let discoveryStatuses = ['registered', 'unowned', 'dismissed'];
   let recordCoverageUnavailable = false;
+  let incompleteReason = 'backup-required';
   await page.route('**/api/governance/apps', async route => {
     const response = await route.fetch();
     return route.fulfill({
@@ -166,6 +167,12 @@ test('workspace screens share navigation and fit the viewport', async ({
                 incompleteRepositoryIds: discoveryStatuses.filter(
                   status => status === 'registered',
                 ),
+                incompleteRecords: discoveryStatuses
+                  .filter(status => status === 'registered')
+                  .map(repositoryId => ({
+                    repositoryId,
+                    reason: incompleteReason,
+                  })),
               }),
         },
         repositories: discoveryStatuses.map(status => ({
@@ -247,11 +254,24 @@ test('workspace screens share navigation and fit the viewport', async ({
     .getByRole('link', { name: 'Review incomplete records' })
     .click();
   await expect(page).toHaveURL(/discoveryStatus=incomplete$/);
+  const incompleteRow = page.getByRole('row', {
+    name: /registered repository/,
+  });
+  await expect(incompleteRow).toContainText(/backup owner/i);
+  await expect(
+    incompleteRow.getByRole('link', { name: 'Open app record' }),
+  ).toBeVisible();
   await expect(
     page.getByText('registered repository', { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText('unowned repository', { exact: true }),
+  ).toHaveCount(0);
+  incompleteReason = 'source-mismatch';
+  await page.reload();
+  await expect(incompleteRow).toContainText(/source/i);
+  await expect(
+    incompleteRow.getByRole('link', { name: 'Open app record' }),
   ).toHaveCount(0);
   await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
   await coverage
