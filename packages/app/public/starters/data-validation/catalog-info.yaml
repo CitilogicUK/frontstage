@@ -1,0 +1,17 @@
+apiVersion: governance.backstage.io/v1alpha1
+kind: AIApp
+metadata:
+  name: data-validation
+spec:
+  name: Data Validation CLI
+  purpose: Describe the dataset the CLI validates and who uses the results.
+  type: app
+  platform: GitHub
+  sourceUrl: https://github.com/example-org/data-validation
+  owner: user:default/guest
+  team: group:default/platform
+  lifecycle: experimental
+  deliveryStage: trial
+  audience: personal
+  classification: internal
+  usesAiAtRuntime: false
