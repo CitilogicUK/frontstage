@@ -53,7 +53,7 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
   expect(hasOverflow).toBe(false);
 }
 
-test('Catalog opens a managed app in its governance record', async ({
+test('Catalog finds and opens managed apps by governance fields', async ({
   page,
 }) => {
   const actor = 'user:default/owner';
@@ -86,6 +86,18 @@ test('Catalog opens a managed app in its governance record', async ({
               'backstage.io/managed-by-location': 'governance:inventory',
             },
           },
+          spec: {
+            platform: 'GitHub',
+            tier: 3,
+            classification: 'internal',
+            effectiveClassification: 'restricted',
+            models: ['example-model'],
+          },
+        },
+        {
+          apiVersion: 'governance.backstage.io/v1alpha1',
+          kind: 'AIApp',
+          metadata: { name: 'other-app', title: 'Other app' },
         },
         {
           apiVersion: 'backstage.io/v1alpha1',
@@ -107,7 +119,16 @@ test('Catalog opens a managed app in its governance record', async ({
     page.getByRole('link', { name: 'Sample service' }),
   ).toHaveAttribute('href', '/catalog/default/component/sample-service');
   await page.getByRole('button', { name: 'AI apps', exact: true }).click();
-  await page.getByRole('link', { name: app.name }).click();
+  const otherApp = page.getByRole('link', { name: 'Other app' });
+  await expect(otherApp).toBeVisible();
+  const search = page.getByRole('searchbox', { name: 'Search catalog' });
+  const managedApp = page.getByRole('link', { name: app.name });
+  for (const query of ['Tier 3', 'RESTRICTED', 'example-model', 'GitHub']) {
+    await search.fill(query);
+    await expect(managedApp).toBeVisible();
+    await expect(otherApp).toBeHidden();
+  }
+  await managedApp.click();
   await expect(page).toHaveURL(`${workspaceUrl}/?app=${app.id}`);
   await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
 });
