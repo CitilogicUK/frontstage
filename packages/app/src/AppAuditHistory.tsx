@@ -22,7 +22,30 @@ type RenewalException = {
   expiresAt: string;
 };
 
+type Connection = { name: string; access: string };
+
+function unmatchedConnections(
+  connections: Connection[],
+  comparison: Connection[],
+) {
+  const keyOf = ({ name, access }: Connection) =>
+    JSON.stringify([name, access]);
+  const counts = new Map<string, number>();
+  for (const connection of comparison) {
+    const key = keyOf(connection);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return connections.filter(connection => {
+    const key = keyOf(connection);
+    const count = counts.get(key) ?? 0;
+    if (!count) return true;
+    counts.set(key, count - 1);
+    return false;
+  });
+}
+
 type AuditRecord = {
+  connections?: Connection[];
   hostedAttestation?: { at: string; nextDue: string };
   hosted?: Partial<Record<keyof typeof hostedFields, string>>;
   owner: string;
@@ -190,6 +213,25 @@ export function AppAuditHistory({
             );
           }
         }
+      }
+      if (previous) {
+        const before = previous.connections ?? [];
+        const after = record.connections ?? [];
+        const removed = unmatchedConnections(before, after);
+        const added = unmatchedConnections(after, before);
+        for (const { name, access } of removed)
+          details.push(`Connected system removed · ${name} (${access})`);
+        for (const { name, access } of added)
+          details.push(`Connected system added · ${name} (${access})`);
+        if (
+          !removed.length &&
+          !added.length &&
+          before.some(
+            ({ name, access }, index) =>
+              name !== after[index].name || access !== after[index].access,
+          )
+        )
+          details.push('Connected systems reordered');
       }
       if (entry.lifecycleReason)
         details.push(`Reason: ${entry.lifecycleReason}`);
