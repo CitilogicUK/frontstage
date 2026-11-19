@@ -411,6 +411,16 @@ export function PortfolioReport({
   const pendingRetirementIds = new Set(
     pendingRetirementReviews.map(({ app }) => app.id),
   );
+  const retirementDecisions = canReview
+    ? apps
+        .flatMap(app => {
+          const review = app.retirementReview;
+          return review && review.status !== 'pending' && review.decidedAt
+            ? [{ app, outcome: review.status, decidedAt: review.decidedAt }]
+            : [];
+        })
+        .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))
+    : [];
   const retirementCandidates = report?.retirementReview?.apps.filter(
     app => !pendingRetirementIds.has(app.appId),
   );
@@ -1381,7 +1391,9 @@ export function PortfolioReport({
           onPreview={onUsagePreview}
         />
       )}
-      {(report?.retirementReview || pendingRetirementReviews.length > 0) && (
+      {(report?.retirementReview ||
+        pendingRetirementReviews.length > 0 ||
+        retirementDecisions.length > 0) && (
         <section
           className="gov-panel gov-stage-report"
           aria-labelledby="portfolio-retirement-review"
@@ -1442,6 +1454,21 @@ export function PortfolioReport({
                   ))}
                 </ul>
               </section>
+            )}
+            {retirementDecisions.length > 0 && (
+              <details>
+                <summary>Latest recorded decisions</summary>
+                <ul>
+                  {retirementDecisions.map(({ app, outcome, decidedAt }) => (
+                    <li key={app.id}>
+                      <Link to={reportAppLink(app.id)}>{app.name}</Link>
+                      {' · '}
+                      {outcome === 'retired' ? 'Retired' : 'Kept'}{' '}
+                      <time dateTime={decidedAt}>{decidedAt.slice(0, 10)}</time>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </div>
         </section>
