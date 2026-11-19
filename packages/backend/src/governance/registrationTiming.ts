@@ -38,8 +38,10 @@ export async function recordRegistrationTiming(db: Knex, input: unknown) {
 export async function registrationTimingReport(db: Knex, enabled: boolean) {
   if (!enabled) return { enabled, days, sampleCount: 0, medianSeconds: null };
   const now = Date.now();
+  const windowStartUtc = utcDay(now - (days - 1) * dayMs);
+  const windowEndUtc = utcDay(now);
   const ranked = db(timingTable)
-    .whereBetween('utc_day', [utcDay(now - (days - 1) * dayMs), utcDay(now)])
+    .whereBetween('utc_day', [windowStartUtc, windowEndUtc])
     .select(
       'elapsed_seconds',
       db.raw('row_number() over (order by elapsed_seconds) as sample_rank'),
@@ -60,6 +62,8 @@ export async function registrationTimingReport(db: Knex, enabled: boolean) {
   return {
     enabled,
     days,
+    windowStartUtc,
+    windowEndUtc,
     sampleCount: Number(stats?.sampleCount ?? 0),
     medianSeconds: medianSeconds === null ? null : Number(medianSeconds),
   };

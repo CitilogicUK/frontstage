@@ -123,6 +123,8 @@ describe('governance record access', () => {
     await report().expect(200, {
       enabled: true,
       days: 30,
+      windowStartUtc: '2026-06-01',
+      windowEndUtc: '2026-06-30',
       sampleCount: 0,
       medianSeconds: null,
     });
@@ -226,6 +228,8 @@ describe('governance record access', () => {
     await report().expect(200, {
       enabled: true,
       days: 30,
+      windowStartUtc: '2026-06-01',
+      windowEndUtc: '2026-06-30',
       sampleCount: 2,
       medianSeconds: 20.5,
     });
@@ -237,6 +241,8 @@ describe('governance record access', () => {
     await report().expect(200, {
       enabled: true,
       days: 30,
+      windowStartUtc: '2026-06-01',
+      windowEndUtc: '2026-06-30',
       sampleCount: 3,
       medianSeconds: 9,
     });
@@ -248,6 +254,8 @@ describe('governance record access', () => {
     await report().expect(200, {
       enabled: true,
       days: 30,
+      windowStartUtc: '2026-06-01',
+      windowEndUtc: '2026-06-30',
       sampleCount: 3,
       medianSeconds: 9,
     });

@@ -133,7 +133,7 @@ test('Catalog finds and opens managed apps by governance fields', async ({
   await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
 });
 
-test('reviewers can export aggregate registration feedback with its UTC dates', async ({
+test('reviewers can export aggregate registration metrics with their UTC dates', async ({
   page,
 }) => {
   let reportsWindow = true;
@@ -143,6 +143,7 @@ test('reviewers can export aggregate registration feedback with its UTC dates', 
         actor: 'user:default/reviewer',
         canReview: true,
         collectRegistrationFeedback: true,
+        collectTierOneRegistrationTiming: true,
         apps: [],
       },
     }),
@@ -162,8 +163,28 @@ test('reviewers can export aggregate registration feedback with its UTC dates', 
       },
     }),
   );
+  await page.route('**/api/governance/reports/registration-timing', route =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        days: 30,
+        ...(reportsWindow && {
+          windowStartUtc: '2026-06-01',
+          windowEndUtc: '2026-06-30',
+        }),
+        sampleCount: 2,
+        medianSeconds: 20.5,
+      },
+    }),
+  );
   const registrationFeedback = page.getByRole('region', {
     name: 'Registration feedback',
+  });
+  const registrationTiming = page.getByRole('region', {
+    name: 'Tier 1 registration time',
+  });
+  const timingDownload = registrationTiming.getByRole('button', {
+    name: 'Download registration timing CSV',
   });
   const guest = page.getByRole('button', { name: /enter|guest/i }).first();
   async function openFeedbackReport() {
@@ -186,9 +207,21 @@ test('reviewers can export aggregate registration feedback with its UTC dates', 
     '\uFEFFwindow_start_utc,window_end_utc,window_days,eligible_count,response_count,satisfied_count\r\n"2026-08-01","2026-08-30",30,8,4,3\r\n',
   );
 
+  const timingExport = page.waitForEvent('download');
+  await timingDownload.click();
+  const timingFile = await timingExport;
+  expect(timingFile.suggestedFilename()).toBe(
+    'frontstage-registration-timing.csv',
+  );
+  expect(await readFile(await timingFile.path(), 'utf8')).toBe(
+    '\uFEFFwindow_start_utc,window_end_utc,window_days,sample_count,median_seconds\r\n"2026-06-01","2026-06-30",30,2,20.5\r\n',
+  );
+
   reportsWindow = false;
   await page.reload();
   await openFeedbackReport();
+  await expect(registrationTiming).toContainText('Median: 20.5 seconds');
+  await expect(timingDownload).toHaveCount(0);
   await expect(
     registrationFeedback.getByRole('button', {
       name: 'Download registration feedback CSV',

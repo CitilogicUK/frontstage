@@ -3,6 +3,7 @@ import {
   pendingSignoffsCsv,
   portfolioCsv,
   registrationFeedbackCsv,
+  registrationTimingCsv,
 } from './portfolioExport';
 
 it('exports hosted observations without inferring unsupplied declarations', () => {
@@ -117,4 +118,23 @@ it('exports only the aggregate registration feedback window and counts', () => {
   expect(registrationFeedbackCsv(report)).toBe(
     'window_start_utc,window_end_utc,window_days,eligible_count,response_count,satisfied_count\r\n"2026-08-01","2026-08-30",30,8,4,3\r\n',
   );
+});
+
+it('exports aggregate Tier 1 timings and leaves an absent median blank', () => {
+  const report = {
+    days: 30,
+    windowStartUtc: '2026-06-01',
+    windowEndUtc: '2026-06-30',
+    sampleCount: 2,
+    medianSeconds: 20.5,
+    appId: 'private-app',
+  };
+  const header =
+    'window_start_utc,window_end_utc,window_days,sample_count,median_seconds';
+  expect(registrationTimingCsv(report)).toBe(
+    `${header}\r\n"2026-06-01","2026-06-30",30,2,20.5\r\n`,
+  );
+  expect(
+    registrationTimingCsv({ ...report, sampleCount: 0, medianSeconds: null }),
+  ).toBe(`${header}\r\n"2026-06-01","2026-06-30",30,0,""\r\n`);
 });
