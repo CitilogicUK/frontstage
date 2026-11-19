@@ -255,10 +255,10 @@ export function PortfolioReport({
     discoveryLinkLabel = `Review ${unowned} unowned repositories`;
   const windowLabel = usageDays === 1 ? '24 hours' : `${usageDays} days`;
   const [query, setQuery] = useState('');
-  const [blockQuery, setBlockQuery] = useState('');
   const [params, setParams] = useSearchParams();
   const selectedTeam = params.get('usageTeam') ?? '';
   const selectedBlockReason = params.get('blockReason') ?? '';
+  const blockQuery = params.get('blockApp') ?? '';
   const blockNextStep = gatewayBlockNextStep(selectedBlockReason);
   const groupByModel = params.get('usageGroup') === 'model';
   const inventoryGroups = {
@@ -355,15 +355,19 @@ export function PortfolioReport({
       | 'usageGroup'
       | 'inventoryGroup'
       | 'ownershipRole'
-      | 'blockReason',
+      | 'blockReason'
+      | 'blockApp',
     value: string,
   ) {
-    setParams(previous => {
-      const next = new URLSearchParams(previous);
-      if (value) next.set(key, value);
-      else next.delete(key);
-      return next;
-    });
+    setParams(
+      previous => {
+        const next = new URLSearchParams(previous);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: key === 'blockApp', preventScrollReset: true },
+    );
   }
   const requestedOwnershipRole = params.get('ownershipRole');
   const ownershipRole = Object.keys(ownershipRoles).find(
@@ -1419,7 +1423,7 @@ export function PortfolioReport({
             label="Search policy blocks"
             placeholder="Search by app name or ID…"
             value={blockQuery}
-            onChange={setBlockQuery}
+            onChange={value => setReportFilter('blockApp', value)}
             count={blocks.length}
           >
             {blockReasons.length > 0 && (
