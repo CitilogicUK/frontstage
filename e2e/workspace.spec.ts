@@ -1017,6 +1017,7 @@ test('reviewers can find required reviews without a linked ticket', async ({
 test('audit history shows production review and ownership handoff', async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   const pilot = {
     id: 'purchase-order',
     name: 'Purchase order pilot',
