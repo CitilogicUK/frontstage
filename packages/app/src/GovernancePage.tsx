@@ -3862,11 +3862,12 @@ export function GovernancePage() {
             <div className="gov-form-actions">
               <button
                 type="button"
-                onClick={() =>
-                  navigate(
-                    candidate || hostedRegistration ? 'Discovery' : 'Inventory',
-                  )
-                }
+                onClick={() => {
+                  if (usageRegistrationSource) navigate('Reports');
+                  else if (candidate || hostedRegistration)
+                    navigate('Discovery');
+                  else navigate('Inventory');
+                }}
               >
                 Cancel
               </button>

@@ -741,6 +741,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await expect(page.getByRole('textbox', { name: 'Source URL' })).toHaveValue(
     snapshot.rows[1].sourceUrl,
   );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
+  await expect(report).toBeVisible();
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
