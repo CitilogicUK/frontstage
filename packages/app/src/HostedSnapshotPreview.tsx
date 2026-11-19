@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { appRecordPath } from './appRecordPath';
+import { downloadCsv, hostedSnapshotCsv } from './portfolioExport';
 
 const settingLabels = {
   sharing: 'Sharing',
@@ -187,6 +188,21 @@ export function HostedSnapshotPreview({
           }
         >
           Recheck snapshot
+        </button>
+      )}
+      {!!apps?.length && (
+        <button
+          className="gov-button"
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            downloadCsv(
+              hostedSnapshotCsv(apps),
+              'frontstage-hosted-snapshot.csv',
+            )
+          }
+        >
+          Download hosted snapshot CSV
         </button>
       )}
       {!!apps?.length && (

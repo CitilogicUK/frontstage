@@ -1,4 +1,5 @@
 import { registrationSource } from './appDimensions';
+import type { HostedSnapshotApp } from './HostedSnapshotPreview';
 import { appRecordUrl, reviewDaysOverdue } from './reviewDue';
 import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 
@@ -120,6 +121,61 @@ export function outsideGatewayUsageCsv(preview: OutsideGatewayUsagePreview) {
       row.appId ?? '',
       row.appName ?? '',
     ]),
+  );
+}
+
+export function hostedSnapshotCsv(apps: HostedSnapshotApp[]) {
+  return encodeCsv(
+    [
+      'app_name',
+      'source_url',
+      'app_id',
+      'match_status',
+      'observed_provider',
+      'observed_workspace',
+      'registered_provider',
+      'registered_workspace',
+      'record_mismatch',
+      'observed_sharing',
+      'observed_data_access',
+      'observed_data_classification',
+      'registered_sharing',
+      'registered_data_access',
+      'registered_data_classification',
+      'differing_settings',
+      'observed_workspace_approval',
+    ],
+    apps.map(app => {
+      const comparable = Boolean(app.appId) && app.mismatch !== 'app-type';
+      const registeredSetting = (
+        field: 'sharing' | 'dataAccess' | 'dataClassification',
+      ) => {
+        if (!comparable) return '';
+        const difference = app.settingDifferences?.find(
+          item => item.field === field,
+        );
+        return difference ? difference.registered ?? '' : app[field] ?? '';
+      };
+      return [
+        app.name,
+        app.sourceUrl,
+        app.appId ?? '',
+        app.appId ? 'matched' : 'unmatched',
+        app.provider,
+        app.workspace,
+        comparable ? app.registeredWorkspace?.provider ?? app.provider : '',
+        comparable ? app.registeredWorkspace?.workspace ?? app.workspace : '',
+        app.mismatch ?? '',
+        app.sharing ?? '',
+        app.dataAccess ?? '',
+        app.dataClassification ?? '',
+        registeredSetting('sharing'),
+        registeredSetting('dataAccess'),
+        registeredSetting('dataClassification'),
+        app.settingDifferences?.map(item => item.field).join('|') ?? '',
+        app.observedWorkspaceApproval ?? '',
+      ];
+    }),
   );
 }
 
