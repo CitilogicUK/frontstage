@@ -154,6 +154,8 @@ The **Directory** lets signed-in teammates find apps that their owners or review
 
 Owners and reviewers can update or remove a listing. The directory hides apps that no longer meet current launch requirements or whose catalog owners or team are unavailable. Leaving active status or transferring the accountable owner clears the listing.
 
+A teammate can request access to a listed app with a short message. In the app details, the accountable owner or a reviewer can approve or decline the pending request. The requester sees the decision in Directory while the app remains listed. Frontstage records the decision. Provisioning and revoking access happen in the destination app.
+
 ## Approved connector registry
 
 The **Builder guide** lists approved MCP servers and data connectors with their allowed access and highest data classification. Configure entries under `governance.approvedConnectors` with an ID, name, kind, description, access, classification, and optional HTTPS documentation URL. The reviewer profile uses two synthetic sandbox entries. The registry is guidance for registration and review. Runtime access and provider settings are managed separately.

@@ -46,6 +46,7 @@ import {
   AppDirectoryPublisher,
   type DirectoryListing,
 } from './AppDirectory';
+import { DirectoryRequestQueue } from './DirectoryAccessRequests';
 import { AppGraduation, type Graduation } from './AppGraduation';
 import {
   AppRetirementReview,
@@ -1920,6 +1921,18 @@ export function GovernancePage() {
                   }
                 />
               )}
+            {(actor === selected.owner || canReview) && (
+              <DirectoryRequestQueue
+                key={`directory-requests-${selected.id}`}
+                appId={selected.id}
+                appRevision={selected.updatedAt}
+                listingMeetsLaunchRequirements={
+                  selected.lifecycle === 'active' &&
+                  selected.directoryLaunchEligible !== false &&
+                  !!selected.directoryListing
+                }
+              />
+            )}
             {(canNominateCoOwner || selected.graduation) && (
               <AppGraduation
                 key={`graduation-${selected.updatedAt}`}

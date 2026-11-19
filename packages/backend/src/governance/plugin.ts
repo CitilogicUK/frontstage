@@ -1,3 +1,9 @@
+import {
+  directoryRequestsMigration,
+  directoryRequestsTable,
+  directoryRequestView,
+  type DirectoryRequestRow,
+} from './directoryRequests';
 import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
@@ -20,6 +26,7 @@ import {
   InputError,
   NotAllowedError,
   NotFoundError,
+  ServiceUnavailableError,
 } from '@backstage/errors';
 import express from 'express';
 import Router from 'express-promise-router';
@@ -348,6 +355,7 @@ export const governancePlugin = createBackendPlugin({
             '012_gateway_key_audit',
             '013_repository_source_keys',
             '014_discovery_visibility',
+            '015_directory_requests',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -355,6 +363,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '015_directory_requests')
+              return directoryRequestsMigration(table);
             if (name === '014_discovery_visibility')
               return discoveryVisibilityMigration();
             if (name === '003_gateway') return gatewayMigration(table);
@@ -987,28 +997,68 @@ export const governancePlugin = createBackendPlugin({
           );
         }
 
+        function eligibleDirectoryListing(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          return canPublishInDirectory(record, now)
+            ? record.directoryListing
+            : undefined;
+        }
+
+        async function hasEligibleDirectoryListing(
+          record: GovernanceRecord,
+          now = Date.now(),
+        ) {
+          if (!eligibleDirectoryListing(record, now)) return false;
+          try {
+            return await ownersAreActive(record);
+          } catch {
+            throw new ServiceUnavailableError(
+              'Catalog ownership could not be verified. Retry when catalog is available.',
+            );
+          }
+        }
+
         router.get('/directory', async (req, res) => {
-          await httpAuth.credentials(req, { allow: ['user'] });
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
           const now = Date.now();
-          const rows = await db(table).select('payload');
+          const [rows, ownRequests] = await Promise.all([
+            db(table).select('payload'),
+            db<DirectoryRequestRow>(directoryRequestsTable)
+              .where({ requester: principal.userEntityRef })
+              .select('app_id', 'status'),
+          ]);
+          const ownStatuses = new Map(
+            ownRequests.map(row => [row.app_id, row.status]),
+          );
           const candidates = rows
             .map(row => JSON.parse(row.payload) as GovernanceRecord)
-            .filter(
-              record =>
-                canPublishInDirectory(record, now) && record.directoryListing,
-            );
+            .flatMap(record => {
+              const listing = eligibleDirectoryListing(record, now);
+              return listing ? [{ record, listing }] : [];
+            });
           const unavailable = await unavailableOwners([
-            ...new Set(candidates.flatMap(ownershipRefs)),
+            ...new Set(
+              candidates.flatMap(({ record }) => ownershipRefs(record)),
+            ),
           ]);
           const apps = candidates
-            .flatMap(record => {
-              if (
-                !record.directoryListing ||
-                ownershipRefs(record).some(ref => unavailable.has(ref))
-              )
+            .flatMap(({ record, listing }) => {
+              if (ownershipRefs(record).some(ref => unavailable.has(ref)))
                 return [];
-              const { summary, url } = record.directoryListing;
-              return [{ id: record.id, name: record.name, summary, url }];
+              const { summary, url } = listing;
+              return [
+                {
+                  id: record.id,
+                  name: record.name,
+                  summary,
+                  url,
+                  requestStatus: ownStatuses.get(record.id),
+                },
+              ];
             })
             .sort(
               (a, b) =>
@@ -1087,6 +1137,133 @@ export const governancePlugin = createBackendPlugin({
             .set('Cache-Control', 'no-store')
             .json(visibleRecord(updated, principal));
         });
+
+        router.post('/apps/:id/directory-requests', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const message = z
+            .string()
+            .trim()
+            .min(1)
+            .max(500)
+            .safeParse(req.body?.message);
+          if (!message.success)
+            throw new InputError(
+              'Provide an access request message of up to 500 characters.',
+            );
+          const created = await db.transaction(async transaction => {
+            const { record } = await load(req.params.id, transaction);
+            const now = Date.now();
+            if (!(await hasEligibleDirectoryListing(record, now)))
+              throw new NotFoundError(
+                'This app has no current directory listing.',
+              );
+            const [row] = await transaction<DirectoryRequestRow>(
+              directoryRequestsTable,
+            )
+              .insert({
+                id: randomUUID(),
+                app_id: record.id,
+                requester: principal.userEntityRef,
+                message: message.data,
+                status: 'pending',
+                requested_at: new Date(now).toISOString(),
+              })
+              .onConflict(['app_id', 'requester'])
+              .ignore()
+              .returning(['id', 'status']);
+            if (!row)
+              throw new ConflictError(
+                'You already have an access request for this app.',
+              );
+            return row;
+          });
+          res.set('Cache-Control', 'no-store').status(201).json(created);
+        });
+
+        router.get('/apps/:id/directory-requests', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          const queue = await db.transaction(async transaction => {
+            const { record } = await load(req.params.id, transaction);
+            assertCanEdit(record, principal);
+            const requests = await transaction<DirectoryRequestRow>(
+              directoryRequestsTable,
+            )
+              .where({ app_id: record.id })
+              .orderBy('requested_at', 'desc')
+              .orderBy('id');
+            const canApprove = await hasEligibleDirectoryListing(record).catch(
+              () => undefined,
+            );
+            return {
+              requests: requests.map(directoryRequestView),
+              canApprove: canApprove === true,
+              ...(canApprove === undefined && {
+                approvalCheckUnavailable: true,
+              }),
+            };
+          });
+          res.set('Cache-Control', 'no-store').json(queue);
+        });
+
+        router.patch(
+          '/apps/:id/directory-requests/:requestId',
+          async (req, res) => {
+            const { principal } = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            const input = z
+              .enum(['approved', 'declined'])
+              .safeParse(req.body?.status);
+            if (!input.success)
+              throw new InputError(
+                'Choose whether to approve or decline the request.',
+              );
+            const saved = await db.transaction(async transaction => {
+              const { record } = await load(req.params.id, transaction);
+              assertCanEdit(record, principal);
+              const request = transaction<DirectoryRequestRow>(
+                directoryRequestsTable,
+              ).where({ app_id: record.id, id: req.params.requestId });
+              const current = await request.clone().first('status');
+              if (!current)
+                throw new NotFoundError(
+                  'This app has no matching access request.',
+                );
+              if (current.status !== 'pending')
+                throw new ConflictError(
+                  'This access request has already been decided.',
+                );
+              const now = Date.now();
+              if (
+                input.data === 'approved' &&
+                !(await hasEligibleDirectoryListing(record, now))
+              )
+                throw new ConflictError(
+                  'This app no longer has an eligible directory listing.',
+                );
+              const [updated] = await request
+                .where({ status: 'pending' })
+                .update({
+                  status: input.data,
+                  decided_at: new Date(now).toISOString(),
+                  decided_by: principal.userEntityRef,
+                })
+                .returning('*');
+              if (!updated)
+                throw new ConflictError(
+                  'This access request has already been decided.',
+                );
+              return updated;
+            });
+            res
+              .set('Cache-Control', 'no-store')
+              .json(directoryRequestView(saved));
+          },
+        );
 
         router.get('/apps', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
