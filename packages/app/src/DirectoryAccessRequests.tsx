@@ -122,10 +122,12 @@ export function DirectoryRequestQueue({
   appId,
   listingMeetsLaunchRequirements,
   appRevision,
+  onPendingChange,
 }: {
   appId: string;
   listingMeetsLaunchRequirements: boolean;
   appRevision: string;
+  onPendingChange: (appId: string, hasPending: boolean) => void;
 }) {
   const api = useDirectoryRequestApi(appId);
   const [open, setOpen] = useState(false);
@@ -143,7 +145,13 @@ export function DirectoryRequestQueue({
     setQueue(undefined);
     api<AccessRequestQueue>('', { signal: controller.signal }).then(
       result => {
-        if (!controller.signal.aborted) setQueue(result);
+        if (!controller.signal.aborted) {
+          setQueue(result);
+          onPendingChange(
+            appId,
+            result.requests.some(item => item.status === 'pending'),
+          );
+        }
       },
       reason => {
         if (!controller.signal.aborted)
@@ -151,7 +159,7 @@ export function DirectoryRequestQueue({
       },
     );
     return () => controller.abort();
-  }, [api, appRevision, open, queueVersion]);
+  }, [api, appId, appRevision, onPendingChange, open, queueVersion]);
 
   async function decide(event: FormEvent<HTMLFormElement>, requestId: string) {
     event.preventDefault();
@@ -160,23 +168,12 @@ export function DirectoryRequestQueue({
     setSubmitting(true);
     setError('');
     try {
-      const saved = await api<AccessRequest>(
-        `/${encodeURIComponent(requestId)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status }),
-        },
-      );
-      setQueue(
-        previous =>
-          previous && {
-            ...previous,
-            requests: previous.requests.map(item =>
-              item.id === saved.id ? saved : item,
-            ),
-          },
-      );
+      await api<AccessRequest>(`/${encodeURIComponent(requestId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      setQueueVersion(version => version + 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
       if (
