@@ -576,17 +576,25 @@ export function GovernancePage() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function setAppInUrl(id?: string) {
+  function setAppInUrl(id?: string, edit = false) {
     setParams(
       previous => {
         const next = new URLSearchParams(previous);
         if (id) next.set('app', id);
         else next.delete('app');
-        next.delete('edit');
+        if (id && edit) next.set('edit', '1');
+        else next.delete('edit');
         return next;
       },
       { replace: !id },
     );
+  }
+
+  function openAppRecord(app: App, edit = false) {
+    setError('');
+    setMessage('');
+    setSelected(app);
+    setAppInUrl(app.id, edit);
   }
 
   function closeApp() {
@@ -604,12 +612,19 @@ export function GovernancePage() {
     setRuntimeEdit(undefined);
   }, [selected]);
   const dialog = useRef<HTMLDialogElement>(null);
+  const editorSummary = useRef<HTMLElement>(null);
   const detailOpen = Boolean(selected);
+  const reassessmentEditorRequested =
+    params.get('review') === 'reassess' && params.get('edit') === '1';
 
   useEffect(() => {
-    if (detailOpen) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [detailOpen]);
+    if (detailOpen) {
+      dialog.current?.showModal();
+      if (reassessmentEditorRequested) editorSummary.current?.focus();
+    } else {
+      dialog.current?.close();
+    }
+  }, [detailOpen, reassessmentEditorRequested]);
 
   const api = useCallback(
     async (path: string, body?: unknown, method = 'POST') => {
@@ -1935,12 +1950,7 @@ export function GovernancePage() {
                               type="button"
                               className="gov-app-link"
                               aria-haspopup="dialog"
-                              onClick={() => {
-                                setError('');
-                                setMessage('');
-                                setSelected(app);
-                                setAppInUrl(app.id);
-                              }}
+                              onClick={() => openAppRecord(app)}
                             >
                               <WorkspaceRecordTitle
                                 title={app.name}
@@ -1960,9 +1970,20 @@ export function GovernancePage() {
                             <RiskBadge tier={app.tier} />
                             {inventoryReviewFilter === 'reassess' &&
                               app.riskAssessment && (
-                                <small className="gov-current-tier">
-                                  Current policy tier {app.riskAssessment.tier}
-                                </small>
+                                <>
+                                  <small className="gov-current-tier">
+                                    Current policy tier{' '}
+                                    {app.riskAssessment.tier}
+                                  </small>
+                                  <button
+                                    type="button"
+                                    aria-haspopup="dialog"
+                                    aria-label={`Reassess ${app.name}`}
+                                    onClick={() => openAppRecord(app, true)}
+                                  >
+                                    Reassess
+                                  </button>
+                                </>
                               )}
                           </td>
                           <td data-label="Delivery stage">
@@ -2345,7 +2366,7 @@ export function GovernancePage() {
                 }
                 open={appEditorOpen}
               >
-                <summary>Edit app details</summary>
+                <summary ref={editorSummary}>Edit app details</summary>
                 {selected.tier === 3 && (
                   <p>
                     Changes to purpose, ownership, or review evidence require a

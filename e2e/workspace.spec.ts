@@ -1318,6 +1318,19 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
   await expect(rows.last()).toContainText('Tier decrease');
   await expect(rows.last()).toContainText('T3 · Critical');
   await expect(rows.last()).toContainText('Current policy tier 2');
+  await rows
+    .first()
+    .getByRole('button', { name: 'Reassess Tier increase' })
+    .click();
+  const details = page.getByRole('dialog', { name: 'Tier increase' });
+  const editor = details.getByText('Edit app details', { exact: true });
+  await expect(editor).toBeFocused();
+  await expect(
+    details.getByRole('button', { name: 'Save app details' }),
+  ).toBeVisible();
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(page).toHaveURL(/review=reassess$/);
+  await expect(rows).toHaveCount(2);
 });
 
 test('audit history shows production review and ownership handoff', async ({
