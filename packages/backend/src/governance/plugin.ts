@@ -2788,6 +2788,15 @@ export const governancePlugin = createBackendPlugin({
             principal,
             accepted ? 'graduation-accepted' : 'graduation-declined',
           );
+          await sendGovernanceNotification({
+            recipient: record.owner,
+            title: accepted
+              ? 'Engineering co-owner nomination accepted'
+              : 'Engineering co-owner nomination declined',
+            description: 'Open the app in Inventory to view the decision.',
+            search: `?app=${encodeURIComponent(record.id)}`,
+            scope: `governance-graduation-decision-${record.id}-${updatedAt}`,
+          });
           res.json(visibleRecord(updated, principal));
         });
 

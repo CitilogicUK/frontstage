@@ -2112,6 +2112,9 @@ describe('governance record access', () => {
 
     membership = 'group:default/subteam';
     await decide('accept', proposed.body.updatedAt).expect(400);
+    notifications.send.mockRejectedValueOnce(
+      new Error('Notifications unavailable'),
+    );
     const declined = await decide(
       'decline',
       proposed.body.updatedAt,
@@ -2122,6 +2125,9 @@ describe('governance record access', () => {
       status: 'declined',
       reason: 'Not available',
     });
+    expect((await getApp(owner)).body.graduation).toEqual(
+      declined.body.graduation,
+    );
     membership = group;
     const reproposed = await nominate(
       engineer,
@@ -2257,7 +2263,13 @@ describe('governance record access', () => {
       })
       .expect(200);
     expect(retired.body).not.toHaveProperty('graduation');
-    expect(notifications.send.mock.calls.map(([notice]) => notice)).toEqual(
+    const notices = notifications.send.mock.calls.map(([notice]) => notice);
+    expect(notices).toHaveLength(9);
+    expect(
+      notices.filter(notice =>
+        notice.payload.scope?.startsWith('governance-graduation-nomination-'),
+      ),
+    ).toEqual(
       [
         abandoned,
         proposed,
@@ -2277,6 +2289,25 @@ describe('governance record access', () => {
           )}`,
           topic: 'AI App Governance',
           scope: `governance-graduation-nomination-${body.id}-${body.updatedAt}`,
+        },
+      })),
+    );
+
+    expect(
+      notices.filter(notice =>
+        notice.payload.scope?.startsWith('governance-graduation-decision-'),
+      ),
+    ).toEqual(
+      [declined, accepted].map(({ body }) => ({
+        recipients: { type: 'entity', entityRef: owner },
+        payload: {
+          title: `Engineering co-owner nomination ${body.graduation.status}`,
+          description: 'Open the app in Inventory to view the decision.',
+          link: `https://portal.example.com/workspace?app=${encodeURIComponent(
+            body.id,
+          )}`,
+          topic: 'AI App Governance',
+          scope: `governance-graduation-decision-${body.id}-${body.updatedAt}`,
         },
       })),
     );
