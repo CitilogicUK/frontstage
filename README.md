@@ -203,7 +203,7 @@ To require two independent sign-offs, configure `governance.reviewTracks.securit
 
 With split reviews enabled, reviewers can select **My pending sign-offs** in Reviews to find apps still waiting for their assigned Security or Data Protection decision. When the first-decision wait is available, it breaks ties between equally urgent apps. The filtered queue can be downloaded as CSV, with the app, owner, team, pending sign-offs assigned to you, the scheduled review date, a direct link to each app, and the first-decision wait in weekdays when available.
 
-The accountable owner receives a private Backstage notification when the overall Tier 3 review changes to approved or changes needed. In **Inventory**, combine **My apps** with **Changes requested** under **Review status** to find Tier 3 reviews that need a response. Partial sign-offs and repeated decisions that leave the overall status unchanged do not send a notification. Review notes and evidence stay on the app record. A delivery failure leaves the recorded review decision intact.
+The accountable owner receives a private Backstage notification when the overall Tier 3 review changes to approved or changes needed. In **Inventory**, combine **My apps** with **Changes requested** under **Review status** to find Tier 3 reviews that need a response. If one of your apps has changes requested, Inventory also links directly to that filtered list. Partial sign-offs and repeated decisions that leave the overall status unchanged do not send a notification. Review notes and evidence stay on the app record. A delivery failure leaves the recorded review decision intact.
 
 ## Tier 3 renewal exceptions
 

@@ -283,6 +283,14 @@ function workspaceAttestationIssue(app: App, now: number) {
   return { due, label: 'Workspace confirmation overdue' };
 }
 
+function hasRequestedReviewChanges(app: App) {
+  return (
+    app.tier === 3 &&
+    app.lifecycle !== 'retired' &&
+    app.reviewStatus === 'changes needed'
+  );
+}
+
 function appReview(app: App, now: number) {
   if (app.lifecycle === 'retired' || app.tier === 1) {
     return { label: 'Not required', status: 'not required', priority: 3 };
@@ -1318,6 +1326,12 @@ export function GovernancePage() {
           app => app.owner === actor && appReview(app, now).priority <= 1,
         ).length
       : 0;
+  const myRequestedReviewChangesCount =
+    view === 'Inventory' && actor
+      ? apps.filter(
+          app => app.owner === actor && hasRequestedReviewChanges(app),
+        ).length
+      : 0;
   const myRetirementDecisionCount =
     view === 'Inventory' && actor
       ? apps.filter(app => ownerCanDecideRetirement(app, actor)).length
@@ -1470,10 +1484,7 @@ export function GovernancePage() {
       (inventoryReviewFilter !== 'reassess' || needsRiskReassessment(app)) &&
       (inventoryReviewFilter !== 'attention' ||
         appReview(app, now).priority <= 1) &&
-      (inventoryReviewFilter !== 'changes' ||
-        (app.tier === 3 &&
-          app.lifecycle !== 'retired' &&
-          app.reviewStatus === 'changes needed')) &&
+      (inventoryReviewFilter !== 'changes' || hasRequestedReviewChanges(app)) &&
       (inventoryReviewFilter !== 'upcoming' ||
         appReview(app, now).priority === 1) &&
       (inventoryReviewFilter !== 'retirement' ||
@@ -1824,6 +1835,16 @@ export function GovernancePage() {
                   ? '1 of your apps needs review attention'
                   : `${myReviewAttentionCount} of your apps need review attention`}
               </Link>
+              {myRequestedReviewChangesCount > 0 && (
+                <>
+                  {' · '}
+                  <Link to="/?owner=me&review=changes">
+                    {myRequestedReviewChangesCount === 1
+                      ? 'Changes requested on 1 app'
+                      : `Changes requested on ${myRequestedReviewChangesCount} apps`}
+                  </Link>
+                </>
+              )}
             </p>
           )}
           {!loading && !error && myRetirementDecisionCount > 0 && (
