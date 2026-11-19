@@ -142,7 +142,7 @@ Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080
 
 ## Hosted workspace attestation
 
-For provider-hosted apps where no admin API is available, the accountable owner can open the app details and confirm that the provider workspace, sharing, and data access match the declaration. Frontstage records who confirmed the settings and when in Audit history. The next confirmation is due in 90 days. Changing the owner or declared hosted settings clears the current confirmation. The scorecard highlights missing or overdue confirmations for follow-up.
+For provider-hosted apps where no admin API is available, the accountable owner can open the app details and confirm that the provider workspace, sharing, and data access match the declaration. Frontstage records who confirmed the settings and when in Audit history. The next confirmation is due in 90 days. Owners, backup owners, and reviewers can download that date as a calendar reminder. Changing the owner or declared hosted settings clears the current confirmation. The scorecard highlights missing or overdue confirmations for follow-up.
 
 ## Discover and claim a GitHub repository
 
