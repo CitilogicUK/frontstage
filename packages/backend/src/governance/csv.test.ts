@@ -64,6 +64,25 @@ describe('parseAppCsv', () => {
     ]);
   });
 
+  it('reads the optional canonical starter column and omits blank cells', () => {
+    const content = [
+      'name,starterId',
+      'From the library,internal-web-app',
+      'No starter,',
+    ].join('\n');
+    expect(parseAppCsv(content)).toStrictEqual([
+      {
+        source: 'CSV app 1',
+        app: {
+          name: 'From the library',
+          starterId: 'internal-web-app',
+          models: [],
+        },
+      },
+      { source: 'CSV app 2', app: { name: 'No starter', models: [] } },
+    ]);
+  });
+
   it('rejects misspelled and duplicate columns so risk flags cannot be skipped accidentally', () => {
     expect(() => parseAppCsv('name,critcal\nApp,Yes')).toThrow('critcal');
     expect(() => parseAppCsv('name,name\nApp,Other')).toThrow('duplicate');

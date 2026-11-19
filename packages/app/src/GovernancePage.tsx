@@ -496,6 +496,7 @@ export function GovernancePage() {
         | 'owner'
         | 'backupOwner'
         | 'team'
+        | 'starterId'
         | 'deliveryStage'
         | 'usesAiAtRuntime'
         | 'effectiveClassification'
@@ -3891,6 +3892,10 @@ export function GovernancePage() {
                           {app.backupOwner &&
                             ` · Backup owner: ${app.backupOwner}`}
                           {' · '}Team: {app.team}
+                          {app.starterId &&
+                            ` · Starter: ${
+                              findStarter(app.starterId)?.name ?? app.starterId
+                            }`}
                         </div>
                       </li>
                     );
