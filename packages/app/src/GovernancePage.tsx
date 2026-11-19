@@ -3456,15 +3456,33 @@ export function GovernancePage() {
           />
         ))}
       {view === 'Register' && repositoryId && !candidate && (
-        <p
-          role={discoveries || discoveryError ? 'alert' : 'status'}
-          className="gov-notice"
-        >
-          {discoveryError ||
-            (discoveries
-              ? 'This repository is already registered or no longer available.'
-              : 'Loading repository…')}
-        </p>
+        <div className="gov-notice">
+          <p role={discoveries || discoveryError ? 'alert' : 'status'}>
+            {discoveryError ||
+              (discoveries
+                ? 'This repository is already registered or no longer available.'
+                : 'Loading repository…')}
+          </p>
+          {discoveryError && (
+            <button
+              type="button"
+              onClick={() => setDiscoveryLoadAttempt(attempt => attempt + 1)}
+            >
+              Retry loading repository
+            </button>
+          )}
+          {(discoveries || discoveryError) && (
+            <Link
+              className="gov-button"
+              to={{
+                pathname: '/',
+                search: discoveryRouteParams(params).toString(),
+              }}
+            >
+              Back to Discovery
+            </Link>
+          )}
+        </div>
       )}
       {registrationFormKey !== undefined && (
         <section className="gov-registration" aria-label="App registration">
