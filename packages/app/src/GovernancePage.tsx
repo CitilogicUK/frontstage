@@ -1401,6 +1401,7 @@ export function GovernancePage() {
     view === 'Inventory' &&
     (inventoryReview === 'overdue' ||
       inventoryReview === 'attention' ||
+      inventoryReview === 'changes' ||
       inventoryReview === 'upcoming' ||
       inventoryReview === 'retirement' ||
       inventoryReview === 'access' ||
@@ -1469,6 +1470,10 @@ export function GovernancePage() {
       (inventoryReviewFilter !== 'reassess' || needsRiskReassessment(app)) &&
       (inventoryReviewFilter !== 'attention' ||
         appReview(app, now).priority <= 1) &&
+      (inventoryReviewFilter !== 'changes' ||
+        (app.tier === 3 &&
+          app.lifecycle !== 'retired' &&
+          app.reviewStatus === 'changes needed')) &&
       (inventoryReviewFilter !== 'upcoming' ||
         appReview(app, now).priority === 1) &&
       (inventoryReviewFilter !== 'retirement' ||
@@ -2094,6 +2099,7 @@ export function GovernancePage() {
                     >
                       <option value="">All review statuses</option>
                       <option value="attention">Needs review attention</option>
+                      <option value="changes">Changes requested</option>
                       {canFilterReassessment && (
                         <option value="reassess">
                           Needs risk reassessment
