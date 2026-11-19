@@ -10,6 +10,7 @@ The AI App Governance Platform spec describes four phases. Frontstage demonstrat
 | Control runtime AI | Try a sandbox call before and after critical approval and activation. Check the policy block, successful call, permitted models, and key history. [Gateway browser test](../e2e/gateway.spec.ts) |
 | Bring unregistered usage into Inventory | Upload the sample usage CSV, save the reconciliation, register the unmatched app, and recheck. The current and original views should show zero and three unmatched calls respectively. [Outside-gateway usage](../README.md#review-usage-outside-the-gateway) |
 | Keep ownership and approvals current | Filter owner gaps, review a scheduled attestation, and export the audit chain. The 30-day ownership summary uses the first recorded Catalog observation and reports incomplete coverage. [Owner attestation](../README.md#owner-attestation) · [Portfolio reports](../README.md#portfolio-reports) |
+| Correct a connector discrepancy | Activate an app with an unlisted read connector, sign in as its owner, and follow the private notification to correct the declaration. The app scorecard should pass the declared connections check after the edit. [Connector alert demo](../README.md#correct-a-connector-discrepancy-from-an-owner-notification) |
 | Reuse a published app | Find the seeded warehouse app in Directory, request access, and record the owner decision. The destination is a synthetic URL and access fulfilment stays with the destination app. [App directory](../README.md#app-directory) |
 
 ## Evidence needed for a pilot
