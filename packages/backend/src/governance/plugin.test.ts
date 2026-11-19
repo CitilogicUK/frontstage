@@ -4764,6 +4764,21 @@ describe('governance record access', () => {
         expect(body.simulated).toBe(true);
       });
     expect(provider).not.toHaveBeenCalled();
+    for (const [key, expectedEnvironment] of [
+      [issued.body.key, 'sandbox'],
+      [sandbox.body.key, 'production'],
+    ]) {
+      await api
+        .post('/api/governance/gateway/chat')
+        .set('Authorization', `Bearer ${key}`)
+        .send({
+          model: 'test-model',
+          prompt: 'Synthetic prompt',
+          expectedEnvironment,
+        })
+        .expect(403);
+    }
+    expect(provider).not.toHaveBeenCalled();
     provider.mockResolvedValueOnce(
       new Response('Synthetic upstream details', {
         status: 307,
@@ -4840,7 +4855,10 @@ describe('governance record access', () => {
         thresholdUsd: 2,
         stopAtThreshold: true,
       },
-      blocks: [{ reason: 'spend-threshold', calls: 1 }],
+      blocks: expect.arrayContaining([
+        { reason: 'spend-threshold', calls: 1 },
+        { reason: 'key-environment', calls: 2 },
+      ]),
     });
 
     await issue(productionPath).expect(201);

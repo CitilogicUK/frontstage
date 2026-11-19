@@ -12,6 +12,7 @@ test('gateway requests stay within the configured endpoint and propagate failure
     FRONTSTAGE_BACKEND_URL: 'http://127.0.0.1:7007/frontstage',
     FRONTSTAGE_MODEL: 'test-model',
   };
+  delete process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT;
   t.after(() => {
     process.env = originalEnv;
   });
@@ -31,6 +32,7 @@ test('gateway requests stay within the configured endpoint and propagate failure
   assert.deepEqual(JSON.parse(options.body), {
     model: 'test-model',
     prompt: 'Synthetic prompt',
+    expectedEnvironment: 'sandbox',
   });
 
   request.mock.mockImplementation(async () =>
@@ -46,12 +48,27 @@ test('gateway requests stay within the configured endpoint and propagate failure
   await assert.rejects(runModel('   '), /Supply a prompt/);
   assert.equal(request.mock.callCount(), 3);
 
+  process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT = 'invalid';
+  await assert.rejects(runModel('Synthetic prompt'), /sandbox or production/);
+  assert.equal(request.mock.callCount(), 3);
+
+  process.env.FRONTSTAGE_GATEWAY_ENVIRONMENT = 'production';
+  request.mock.mockImplementation(async () =>
+    Response.json({ output: 'Synthetic answer' }),
+  );
+  await runModel('Synthetic prompt');
+  const [, productionOptions] = request.mock.calls[3].arguments;
+  assert.equal(
+    JSON.parse(productionOptions.body).expectedEnvironment,
+    'production',
+  );
+
   process.env.FRONTSTAGE_BACKEND_URL = 'http://example.invalid';
   await assert.rejects(
     runModel('Synthetic prompt'),
     /HTTPS Frontstage backend URL/,
   );
-  assert.equal(request.mock.callCount(), 3);
+  assert.equal(request.mock.callCount(), 4);
 });
 
 test('input is trimmed and rejects blank or oversized streams', async () => {
