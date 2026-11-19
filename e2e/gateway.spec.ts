@@ -1444,6 +1444,35 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
     ]);
     const [, , unregistered] = previewedApps;
     expect(unregistered).not.toHaveProperty('appId');
+    const usageSample = JSON.parse(
+      await readFile(
+        resolve(
+          backendRoot,
+          '../app/public/examples/outside-gateway-usage.json',
+        ),
+        'utf8',
+      ),
+    );
+    const expectedUsageMatch = seeded.find(
+      (record: { name: string }) => record.name === 'Hosted workspace demo',
+    );
+    const usagePreview = await request.post(
+      `${api}/reports/outside-gateway/preview`,
+      { headers, data: usageSample },
+    );
+    await expectStatus(usagePreview, 200, 'Reconcile the sample usage report');
+    expect(await usagePreview.json()).toEqual({
+      ...usageSample,
+      rows: [
+        {
+          ...usageSample.rows[0],
+          appId: expectedUsageMatch.id,
+          appName: expectedUsageMatch.name,
+        },
+        usageSample.rows[1],
+      ],
+    });
+    expect(await readSeededInventory()).toEqual(seeded);
     const directoryDemo = seeded.find(
       (record: { name: string }) =>
         record.name === 'Warehouse reconciliation demo',
