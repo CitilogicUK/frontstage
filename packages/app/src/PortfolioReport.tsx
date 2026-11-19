@@ -33,6 +33,7 @@ import { discoveryCounts, type DiscoveryResult } from './DiscoveryQueue';
 import { formatDiscoveryCoverage } from './discoveryCoverage';
 import { NoLiveCallsSinceActivation } from './AppRetirementReview';
 import { OutsideGatewayUsage } from './OutsideGatewayUsage';
+import { RegistrationTimingReport } from './RegistrationTimingReport';
 import { ManagerEscalations } from './ManagerEscalations';
 import { ConnectorDiscrepancies } from './ApprovedConnectorsGuide';
 import { findStarter } from './AppTemplates';
@@ -231,6 +232,7 @@ function GatewaySpendShare({
 export function PortfolioReport({
   apps,
   appSaveVersion,
+  collectTierOneRegistrationTiming = false,
   discoveries,
   discoveryUnavailable,
   onRetryDiscovery,
@@ -251,6 +253,7 @@ export function PortfolioReport({
 }: {
   apps: AppSummary[];
   appSaveVersion: number;
+  collectTierOneRegistrationTiming?: boolean;
   discoveries?: DiscoveryResult;
   discoveryUnavailable: boolean;
   onRetryDiscovery: () => void;
@@ -1296,6 +1299,9 @@ export function PortfolioReport({
       )}
       {canReview && (
         <ManagerEscalations key={appSaveVersion} appLink={reportAppLink} />
+      )}
+      {canReview && collectTierOneRegistrationTiming && (
+        <RegistrationTimingReport />
       )}
       {canReview && (
         <ConnectorDiscrepancies

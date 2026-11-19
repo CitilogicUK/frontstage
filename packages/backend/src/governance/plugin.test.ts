@@ -23,6 +23,179 @@ describe('governance record access', () => {
   const databases = TestDatabases.create({ ids: ['SQLITE_3', 'POSTGRES_17'] });
   afterEach(() => jest.restoreAllMocks());
 
+  it('collects anonymous Tier 1 registration timings only on successful interactive saves', async () => {
+    const owner = 'user:default/owner';
+    const reviewer = 'user:default/reviewer';
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              collectTierOneRegistrationTiming: true,
+              discovery: { github: { organization: 'example', topic: 'llm' } },
+            },
+          },
+        }),
+      ],
+    });
+    jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-06-30T23:59:59.000Z'));
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const timing = '/api/governance/reports/registration-timing';
+    const report = () =>
+      api
+        .get(timing)
+        .set('Authorization', auth(reviewer))
+        .expect('Cache-Control', 'no-store');
+    await report().expect(200, {
+      enabled: true,
+      days: 30,
+      sampleCount: 0,
+      medianSeconds: null,
+    });
+    await api.get(timing).set('Authorization', auth(owner)).expect(403);
+    await api
+      .get(timing)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(403);
+    await api
+      .get(apps)
+      .set('Authorization', auth(owner))
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.collectTierOneRegistrationTiming).toBe(true),
+      );
+    await api
+      .get(apps)
+      .set('Authorization', mockCredentials.service.header())
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body).not.toHaveProperty('collectTierOneRegistrationTiming'),
+      );
+
+    const declaration = {
+      name: 'Synthetic assistant',
+      purpose: 'Measure an interactive registration.',
+      type: 'app',
+      platform: 'GitHub',
+      owner,
+      team: 'group:default/platform',
+      lifecycle: 'experimental',
+      audience: 'personal',
+      classification: 'internal',
+      usesAiAtRuntime: false,
+    };
+    const register = (
+      slug: string,
+      timingValue: unknown,
+      changes = {},
+      actor = auth(owner),
+    ) =>
+      api
+        .post(apps)
+        .set('Authorization', actor)
+        .send({
+          ...declaration,
+          sourceUrl: `https://example.com/${slug}`,
+          registrationElapsedSeconds: timingValue,
+          ...changes,
+        });
+    await register('tier-one', 0)
+      .expect(201)
+      .expect(({ body }) =>
+        expect(body).not.toHaveProperty('registrationElapsedSeconds'),
+      );
+    await register('tier-one', 10).expect(409);
+    await register('tier-two', 11, {
+      audience: 'team',
+      backupOwner: 'user:default/backup',
+    }).expect(201);
+    await register('service', 12, {}, mockCredentials.service.header()).expect(
+      201,
+    );
+    for (const [slug, value] of [
+      ['fraction', 1.5],
+      ['large', 86401],
+      ['string', '13'],
+      ['negative', -1],
+    ] as const)
+      await register(slug, value).expect(201);
+
+    const discovery = '/api/governance/discovery/github';
+    jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      Response.json({
+        total_count: 1,
+        incomplete_results: false,
+        items: [
+          {
+            id: 100,
+            full_name: 'example/discovered',
+            description: null,
+            private: false,
+          },
+        ],
+      }),
+    );
+    await api
+      .post(`${discovery}/scan`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    await api
+      .post(`${discovery}/100/claim`)
+      .set('Authorization', auth(owner))
+      .send({ ...declaration, registrationElapsedSeconds: 41 })
+      .expect(201);
+    const samples = 'governance_tier_one_registration_timing';
+    expect(await db(samples).orderBy('elapsed_seconds')).toEqual([
+      { utc_day: '2026-06-30', elapsed_seconds: 0 },
+      { utc_day: '2026-06-30', elapsed_seconds: 41 },
+    ]);
+    await report().expect(200, {
+      enabled: true,
+      days: 30,
+      sampleCount: 2,
+      medianSeconds: 20.5,
+    });
+    await db(samples).insert([
+      { utc_day: '2026-05-31', elapsed_seconds: 100 },
+      { utc_day: '2026-06-01', elapsed_seconds: 9 },
+      { utc_day: '2026-07-01', elapsed_seconds: 100 },
+    ]);
+    await report().expect(200, {
+      enabled: true,
+      days: 30,
+      sampleCount: 3,
+      medianSeconds: 9,
+    });
+    await db.raw(
+      `CREATE TRIGGER fixture_timing_failure BEFORE INSERT ON ?? BEGIN SELECT RAISE(ABORT, 'Synthetic sample failure'); END`,
+      [samples],
+    );
+    await register('survives-timing-failure', 50).expect(201);
+    await report().expect(200, {
+      enabled: true,
+      days: 30,
+      sampleCount: 3,
+      medianSeconds: 9,
+    });
+  });
+
   it('preserves existing directory requests when adding fulfillment tracking', async () => {
     const db = await databases.init('SQLITE_3');
     await db.schema.createTable('fixture_apps', table => {

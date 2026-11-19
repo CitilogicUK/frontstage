@@ -1,5 +1,10 @@
 import { sendBackupHandoverNotifications } from './backupHandoverNotifications';
 import {
+  recordRegistrationTiming,
+  registrationTimingMigration,
+  registrationTimingReport,
+} from './registrationTiming';
+import {
   clearOwnerObservation,
   ownershipObservationMigration,
   readOwnerObservations,
@@ -403,6 +408,10 @@ export const governancePlugin = createBackendPlugin({
           ...(trackConfig?.security ?? []),
           ...(trackConfig?.dataProtection ?? []),
         ];
+        const collectTierOneRegistrationTiming =
+          config.getOptionalBoolean(
+            'governance.collectTierOneRegistrationTiming',
+          ) ?? false;
         const requireHumanApprovalEvidence =
           config.getOptionalBoolean(
             'governance.requireHumanApprovalEvidence',
@@ -570,9 +579,12 @@ export const governancePlugin = createBackendPlugin({
             '018_outside_gateway_usage',
             '019_ownership_observations',
             '020_directory_request_fulfillment',
+            '021_registration_timing',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
+            if (name === '021_registration_timing')
+              return registrationTimingMigration();
             if (name === '020_directory_request_fulfillment')
               return directoryRequestFulfillmentMigration();
             if (name === '012_gateway_key_audit')
@@ -974,7 +986,13 @@ export const governancePlugin = createBackendPlugin({
         async function insert(
           records: GovernanceRecord[],
           principal: BackstageUserPrincipal | BackstageServicePrincipal,
-          discoveryClaim?: { id: string; includePrivate: boolean },
+          {
+            discoveryClaim,
+            registrationElapsedSeconds,
+          }: {
+            discoveryClaim?: { id: string; includePrivate: boolean };
+            registrationElapsedSeconds?: unknown;
+          } = {},
         ) {
           await db.transaction(async transaction => {
             const rows = records.map(record => ({
@@ -1010,6 +1028,20 @@ export const governancePlugin = createBackendPlugin({
             for (const record of records) {
               await logChange(transaction, record, 0, principal, 'registered');
             }
+            if (
+              collectTierOneRegistrationTiming &&
+              principal.type === 'user' &&
+              records.length === 1 &&
+              records[0].tier === 1
+            )
+              await recordRegistrationTiming(
+                transaction,
+                registrationElapsedSeconds,
+              ).catch(() =>
+                logger.warn(
+                  'Could not record anonymous Tier 1 registration timing',
+                ),
+              );
           });
         }
 
@@ -2174,6 +2206,22 @@ export const governancePlugin = createBackendPlugin({
           });
         });
 
+        router.get('/reports/registration-timing', async (req, res) => {
+          const { principal } = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          if (!reviewers.includes(principal.userEntityRef))
+            throw new NotAllowedError('Reviewer access is required.');
+          res
+            .set('Cache-Control', 'no-store')
+            .json(
+              await registrationTimingReport(
+                db,
+                collectTierOneRegistrationTiming,
+              ),
+            );
+        });
+
         router.get('/apps', async (req, res) => {
           const { principal } = await httpAuth.credentials(req, {
             allow: ['user', 'service'],
@@ -2223,6 +2271,9 @@ export const governancePlugin = createBackendPlugin({
               appsAwaitingAccessFulfillment: ownedIds.filter(id =>
                 awaitingFulfillment.has(id),
               ),
+              ...(collectTierOneRegistrationTiming && {
+                collectTierOneRegistrationTiming: true,
+              }),
             }),
             graduationEnabled,
             reviewTracks: trackConfig ? reviewTrack.options : [],
@@ -2625,8 +2676,8 @@ export const governancePlugin = createBackendPlugin({
           await validateOwners(app);
           const record = buildRecord(app, 'git');
           await insert([record], principal, {
-            id: req.params.id,
-            includePrivate,
+            discoveryClaim: { id: req.params.id, includePrivate },
+            registrationElapsedSeconds: req.body?.registrationElapsedSeconds,
           });
           res
             .status(201)
@@ -2679,7 +2730,9 @@ export const governancePlugin = createBackendPlugin({
           if (fromHostedSnapshot) source = 'hosted snapshot';
           if (fromOutsideGateway) source = 'outside-gateway usage';
           const record = buildRecord(app, source);
-          await insert([record], principal);
+          await insert([record], principal, {
+            registrationElapsedSeconds: req.body?.registrationElapsedSeconds,
+          });
           res
             .status(201)
             .json(

@@ -143,9 +143,18 @@ test('workspace screens share navigation and fit the viewport', async ({
     const response = await route.fetch();
     return route.fulfill({
       response,
-      json: { ...(await response.json()), canReview: true },
+      json: {
+        ...(await response.json()),
+        canReview: true,
+        collectTierOneRegistrationTiming: true,
+      },
     });
   });
+  await page.route('**/api/governance/reports/registration-timing', route =>
+    route.fulfill({
+      json: { enabled: true, days: 30, sampleCount: 3, medianSeconds: 125 },
+    }),
+  );
   await page.route('**/api/governance/discovery/github', route =>
     route.fulfill({
       json: {
@@ -238,6 +247,11 @@ test('workspace screens share navigation and fit the viewport', async ({
     { times: 1 },
   );
   await navigation.getByRole('link', { name: 'Reports', exact: true }).click();
+  const registrationTiming = page.getByRole('region', {
+    name: 'Tier 1 registration time',
+  });
+  await expect(registrationTiming).toContainText('Median: 125 seconds');
+  await expect(registrationTiming).toContainText('3 timed registrations');
   const coverage = page.locator('.gov-report-summary > div').filter({
     hasText: 'GitHub discovery coverage',
   });
@@ -571,6 +585,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     const payload = route.request().postDataJSON();
     expect(payload).toMatchObject({
       starterId: 'internal-web-app',
+      registrationElapsedSeconds: expect.any(Number),
       usesAiAtRuntime: false,
     });
     return route.fulfill({

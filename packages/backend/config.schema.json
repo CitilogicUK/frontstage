@@ -17,6 +17,11 @@
           "default": false,
           "description": "Require reviewer verification and an HTTPS evidence link when approving a Tier 3 app that takes actions."
         },
+        "collectTierOneRegistrationTiming": {
+          "type": "boolean",
+          "default": false,
+          "description": "Collect anonymous registration timing samples for successful interactive Tier 1 registrations."
+        },
         "requireOwnerHandoverAcceptance": {
           "type": "boolean",
           "default": false,
