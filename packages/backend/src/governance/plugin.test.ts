@@ -3866,7 +3866,11 @@ describe('governance record access', () => {
       })
       .expect(200);
     expect(retired.body).not.toHaveProperty('graduation');
-    const notices = notifications.send.mock.calls.map(([notice]) => notice);
+    const notices = notifications.send.mock.calls
+      .map(([notice]) => notice)
+      .filter(notice =>
+        notice.payload.scope?.startsWith('governance-graduation-'),
+      );
     expect(notices).toHaveLength(9);
     expect(
       notices.filter(notice =>
@@ -6163,13 +6167,19 @@ describe('governance record access', () => {
             metadata: { name: ref.split('/')[1] },
           })),
         }));
+      const notifications = createServiceMock(notificationService, () => ({
+        send: jest.fn(),
+      }))();
+      notifications.send.mockResolvedValue(undefined);
       const db = await databases.init('SQLITE_3');
       const { server } = await startTestBackend({
         features: [
           governancePlugin,
+          notifications.factory,
           mockServices.database.factory({ knex: db }),
           mockServices.rootConfig.factory({
             data: {
+              app: { baseUrl: 'https://portal.example.com/internal/' },
               governance: {
                 reviewers: [reviewer],
                 requiredCriticalReviewEvidence: ['tests', 'dataFlow'],
@@ -6245,17 +6255,46 @@ describe('governance record access', () => {
               track: actor === reviewer ? 'security' : 'dataProtection',
             }),
           });
+      const expectOwnerNotice = (
+        call: number,
+        title: string,
+        updatedAt: string,
+      ) => {
+        expect(notifications.send).toHaveBeenNthCalledWith(call, {
+          recipients: { type: 'entity', entityRef: owner },
+          payload: {
+            title,
+            description: expect.any(String),
+            link: `https://portal.example.com/internal/?app=${app.id}`,
+            topic: 'AI App Governance',
+            scope: `review-decision:${app.id}:${updatedAt}`,
+          },
+        });
+        const { description } =
+          notifications.send.mock.calls[call - 1][0].payload;
+        expect(description).not.toContain('Checked the evidence');
+        expect(description).not.toContain('https://');
+        expect(description).not.toContain(app.name);
+      };
       const blocked = await review(app.updatedAt).expect(400);
       expect(blocked.body.error.message).toBe(
         'Add the required review evidence to the app record before approving.',
       );
       if (separateTracks)
         await review(app.updatedAt, 'approved', protection).expect(400);
+      expect(notifications.send).not.toHaveBeenCalled();
       const { body: requested } = await review(
         app.updatedAt,
         'changes needed',
       ).expect(200);
       expect(requested.reviewStatus).toBe('changes needed');
+      expectOwnerNotice(
+        1,
+        'Changes requested in Tier 3 review',
+        requested.updatedAt,
+      );
+      await review(app.updatedAt, 'changes needed').expect(409);
+      expect(notifications.send).toHaveBeenCalledTimes(1);
 
       const { body: completed } = await api
         .put(path)
@@ -6274,11 +6313,65 @@ describe('governance record access', () => {
       expect(decision.reviewStatus).toBe(
         separateTracks ? 'pending' : 'approved',
       );
+      expect(notifications.send).toHaveBeenCalledTimes(separateTracks ? 1 : 2);
       const finalDecision = separateTracks
         ? (await review(decision.updatedAt, 'approved', protection).expect(200))
             .body
         : decision;
       expect(finalDecision.reviewStatus).toBe('approved');
+      expectOwnerNotice(2, 'Tier 3 review approved', finalDecision.updatedAt);
+      const { body: repeated } = await review(finalDecision.updatedAt).expect(
+        200,
+      );
+      expect(repeated.reviewStatus).toBe('approved');
+      expect(notifications.send).toHaveBeenCalledTimes(2);
+
+      let latest = repeated;
+      let statusBeforeRenewal = repeated.reviewStatus;
+      let noticeCount = 2;
+      if (separateTracks) {
+        jest
+          .spyOn(Date, 'now')
+          .mockReturnValue(Date.parse(repeated.nextReview));
+        const { body: expired } = await api
+          .get(path)
+          .set('Authorization', auth(owner))
+          .expect(200);
+        statusBeforeRenewal = expired.reviewStatus;
+        latest = (
+          await review(repeated.updatedAt, 'approved', protection).expect(200)
+        ).body;
+        noticeCount += 1;
+        expectOwnerNotice(
+          noticeCount,
+          'Tier 3 review approved',
+          latest.updatedAt,
+        );
+      }
+
+      expect(statusBeforeRenewal).toBe(separateTracks ? 'pending' : 'approved');
+      expect(latest.reviewStatus).toBe('approved');
+
+      notifications.send.mockRejectedValueOnce(
+        new Error('Notification service unavailable'),
+      );
+      const { body: changed } = await review(
+        latest.updatedAt,
+        'changes needed',
+      ).expect(200);
+      expectOwnerNotice(
+        noticeCount + 1,
+        'Changes requested in Tier 3 review',
+        changed.updatedAt,
+      );
+      const { body: persisted } = await api
+        .get(path)
+        .set('Authorization', auth(owner))
+        .expect(200);
+      expect(persisted).toMatchObject({
+        reviewStatus: 'changes needed',
+        updatedAt: changed.updatedAt,
+      });
     },
   );
 

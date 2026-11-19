@@ -4207,6 +4207,26 @@ export const governancePlugin = createBackendPlugin({
           await save(updated, revision, principal, 'reviewed', {
             humanApprovalEvidenceUrl,
           });
+          const previousReviewStatus = trackConfig
+            ? trackedReview(record.signoffs, trackConfig, Date.parse(at))
+                .reviewStatus
+            : record.reviewStatus;
+          if (
+            updated.reviewStatus !== previousReviewStatus &&
+            (updated.reviewStatus === 'approved' ||
+              updated.reviewStatus === 'changes needed')
+          ) {
+            await sendGovernanceNotification({
+              recipient: updated.owner,
+              title:
+                updated.reviewStatus === 'approved'
+                  ? 'Tier 3 review approved'
+                  : 'Changes requested in Tier 3 review',
+              description: 'Open the app in Inventory to view the decision.',
+              search: `?app=${encodeURIComponent(updated.id)}`,
+              scope: `review-decision:${updated.id}:${at}`,
+            });
+          }
           res.json(visibleRecord(updated, principal));
         });
 
