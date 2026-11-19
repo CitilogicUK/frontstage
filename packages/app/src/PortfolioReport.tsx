@@ -164,6 +164,13 @@ export function PortfolioReport({
       values: appRiskTierNames.map((_, index) => String(index + 1)),
       valuesOf: (app: AppSummary) => [String(app.tier)],
     },
+    accountableOwner: {
+      label: 'Accountable owner',
+      values: [...new Set(apps.map(app => app.owner))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
+      valuesOf: (app: AppSummary) => [app.owner],
+    },
     team: {
       label: 'Team',
       values: [...new Set(apps.map(app => app.team).filter(Boolean))].sort(
@@ -563,6 +570,7 @@ export function PortfolioReport({
               if (
                 inventoryGroup === 'platform' ||
                 inventoryGroup === 'team' ||
+                inventoryGroup === 'accountableOwner' ||
                 inventoryGroup === 'model'
               )
                 label = value;

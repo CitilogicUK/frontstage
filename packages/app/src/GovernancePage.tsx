@@ -926,8 +926,13 @@ export function GovernancePage() {
       : undefined;
   const platformFilter = view === 'Inventory' ? params.get('platform') : null;
   const teamFilter = view === 'Inventory' ? params.get('team') : null;
+  const accountableOwnerFilter =
+    view === 'Inventory' ? params.get('accountableOwner') : null;
   const modelFilter = view === 'Inventory' ? params.get('model') : null;
   const declaredModels = [...new Set(apps.flatMap(app => app.models))].sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const accountableOwners = [...new Set(apps.map(app => app.owner))].sort(
     (a, b) => a.localeCompare(b),
   );
   const owningTeams = [
@@ -946,6 +951,7 @@ export function GovernancePage() {
       classificationFilter ||
       platformFilter ||
       teamFilter ||
+      accountableOwnerFilter ||
       modelFilter,
   );
   const filteredApps = scopedApps.filter(
@@ -967,6 +973,7 @@ export function GovernancePage() {
           classificationFilter) &&
       (!platformFilter || app.platform === platformFilter) &&
       (!teamFilter || app.team === teamFilter) &&
+      (!accountableOwnerFilter || app.owner === accountableOwnerFilter) &&
       (!modelFilter || app.models.includes(modelFilter)),
   );
 
@@ -979,6 +986,7 @@ export function GovernancePage() {
       | 'classification'
       | 'platform'
       | 'team'
+      | 'accountableOwner'
       | 'model'
       | 'tier',
     value: string,
@@ -1179,6 +1187,24 @@ export function GovernancePage() {
                       <option value="all">All owners</option>
                       <option value="me">My apps</option>
                       <option value="backup">Apps I back up</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span className="gov-visually-hidden">
+                      Accountable owner
+                    </span>
+                    <select
+                      value={accountableOwnerFilter ?? ''}
+                      onChange={event =>
+                        setAppListFilter('accountableOwner', event.target.value)
+                      }
+                    >
+                      <option value="">Any accountable owner</option>
+                      {accountableOwnerFilter &&
+                        !accountableOwners.includes(accountableOwnerFilter) && (
+                          <option>{accountableOwnerFilter}</option>
+                        )}
+                      {options(accountableOwners)}
                     </select>
                   </label>
                   <label>
@@ -1482,6 +1508,7 @@ export function GovernancePage() {
                             next.delete('classification');
                             next.delete('platform');
                             next.delete('team');
+                            next.delete('accountableOwner');
                             next.delete('model');
                             next.delete('tier');
                             if (inventoryReviewFilter) next.delete('review');
