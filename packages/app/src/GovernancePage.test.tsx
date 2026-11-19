@@ -25,6 +25,13 @@ it('reports elapsed registration time and saved tier only after a successful sav
       Response.json({
         id: 'private-id',
         name: 'Private app name',
+        owner: 'user:default/private-owner',
+        team: 'private-team',
+        classification: 'public',
+        reviewStatus: 'pending',
+        updatedAt: '2026-11-19T00:00:00Z',
+        nextReview: null,
+        lastReview: null,
         tier: 2,
         models: [],
         connections: [],
