@@ -135,6 +135,7 @@ const inventoryColumns = [
   'days_overdue',
   'app_url',
   'registration_source',
+  'current_policy_tier',
 ];
 
 export function inventoryCsv(
@@ -147,6 +148,7 @@ export function inventoryCsv(
     classification: string;
     effectiveClassification?: string;
     tier: number;
+    riskAssessment?: { tier: number };
     lifecycle: string;
     deliveryStage?: string;
     discoverySource?: string;
@@ -177,6 +179,7 @@ export function inventoryCsv(
       reviewDaysOverdue(app, now) ?? '',
       appRecordUrl(baseUrl, app.id).href,
       registrationSource(app.discoverySource),
+      app.riskAssessment?.tier ?? '',
     ]),
   );
 }
