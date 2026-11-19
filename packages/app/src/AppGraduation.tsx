@@ -11,6 +11,7 @@ export type Graduation = {
 
 export function AppGraduation({
   graduation,
+  needsProductionHandoff = false,
   canNominate,
   canDecide,
   canRemove,
@@ -20,6 +21,7 @@ export function AppGraduation({
   onRemove,
 }: {
   graduation?: Graduation;
+  needsProductionHandoff?: boolean;
   canNominate: boolean;
   canDecide: boolean;
   canRemove: boolean;
@@ -34,6 +36,12 @@ export function AppGraduation({
       aria-labelledby="engineering-co-owner-title"
     >
       <h3 id="engineering-co-owner-title">Engineering co-owner</h3>
+      {needsProductionHandoff && (
+        <p>
+          An eligible engineering co-owner must accept the handoff before this
+          app can move to active.
+        </p>
+      )}
       {graduation?.status === 'pending' && (
         <>
           <p>Awaiting a decision from {graduation.nominee}.</p>

@@ -2157,6 +2157,148 @@ describe('governance record access', () => {
     },
   );
 
+  it('requires an eligible accepted engineering handoff only on Tier 3 production activation', async () => {
+    const owner = 'user:default/owner';
+    const engineer = 'user:default/engineer';
+    const reviewer = 'user:default/reviewer';
+    const group = 'group:default/engineering';
+    let engineerActive = true;
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: {
+            name: ref.split('/')[1],
+            annotations: {
+              'governance.backstage.io/active':
+                ref === engineer && !engineerActive ? 'false' : 'true',
+            },
+          },
+          ...(ref === engineer && {
+            relations: [{ type: 'memberOf', targetRef: group }],
+          }),
+        })),
+      }));
+    const db = await databases.init('SQLITE_3');
+    const { server } = await startTestBackend({
+      features: [
+        governancePlugin,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            governance: {
+              reviewers: [reviewer],
+              graduationGroups: [group],
+              requireProductionEngineeringCoOwner: true,
+            },
+          },
+        }),
+      ],
+    });
+    const api = request(server);
+    const auth = (user: string) => mockCredentials.user.header(user);
+    const apps = '/api/governance/apps';
+    const { body: pilot } = await api
+      .post(apps)
+      .set('Authorization', auth(owner))
+      .send({
+        name: 'Synthetic production workflow',
+        purpose: 'Demonstrate engineering handoff.',
+        type: 'app',
+        platform: 'GitHub',
+        sourceUrl: 'https://example.com/production-co-owner',
+        owner,
+        backupOwner: 'user:default/backup',
+        team: 'group:default/platform',
+        lifecycle: 'experimental',
+        audience: 'external',
+        classification: 'internal',
+        usesAiAtRuntime: false,
+        deliveryStage: 'pilot',
+      })
+      .expect(201);
+    expect(pilot).not.toHaveProperty('requiresProductionEngineeringCoOwner');
+    const path = `${apps}/${pilot.id}`;
+    const review = (expectedUpdatedAt: string) =>
+      api.post(`${path}/reviews`).set('Authorization', auth(reviewer)).send({
+        status: 'approved',
+        notes: 'Independent review completed.',
+        expectedUpdatedAt,
+      });
+    const changeLifecycle = (expectedUpdatedAt: string, lifecycle = 'active') =>
+      api.patch(`${path}/lifecycle`).set('Authorization', auth(owner)).send({
+        lifecycle,
+        expectedUpdatedAt,
+      });
+    const edit = (record: { updatedAt: string }, changes: object) =>
+      api
+        .put(path)
+        .set('Authorization', auth(owner))
+        .send({
+          ...record,
+          ...changes,
+          expectedUpdatedAt: record.updatedAt,
+        });
+
+    const { body: approvedPilot } = await review(pilot.updatedAt).expect(200);
+    const { body: activePilot } = await changeLifecycle(
+      approvedPilot.updatedAt,
+    ).expect(200);
+    const { body: production } = await edit(activePilot, {
+      deliveryStage: 'production',
+    }).expect(200);
+    expect(production).toMatchObject({
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      requiresProductionEngineeringCoOwner: true,
+    });
+    const unrelated = await api
+      .get(path)
+      .set('Authorization', auth('user:default/other'))
+      .expect(200);
+    expect(unrelated.body).not.toHaveProperty(
+      'requiresProductionEngineeringCoOwner',
+    );
+    const { body: approved } = await review(production.updatedAt).expect(200);
+    const blocked = await changeLifecycle(approved.updatedAt).expect(400);
+    expect(blocked.body.error.message).toMatch(
+      /engineering co-owner must accept/,
+    );
+    await edit(approved, { lifecycle: 'active' }).expect(400);
+
+    const { body: nominated } = await api
+      .post(`${path}/graduation`)
+      .set('Authorization', auth(owner))
+      .send({ nominee: engineer, expectedUpdatedAt: approved.updatedAt })
+      .expect(200);
+    await changeLifecycle(nominated.updatedAt).expect(400);
+    const { body: accepted } = await api
+      .patch(`${path}/graduation`)
+      .set('Authorization', auth(engineer))
+      .send({ decision: 'accept', expectedUpdatedAt: nominated.updatedAt })
+      .expect(200);
+    engineerActive = false;
+    await changeLifecycle(accepted.updatedAt).expect(400);
+    engineerActive = true;
+    const { body: active } = await edit(
+      { ...approved, ...accepted },
+      { lifecycle: 'active' },
+    ).expect(200);
+    expect(active.lifecycle).toBe('active');
+    engineerActive = false;
+    const { body: renamed } = await edit(active, {
+      name: 'Updated app name',
+    }).expect(200);
+    expect(renamed.lifecycle).toBe('active');
+    const { body: inactive } = await changeLifecycle(
+      renamed.updatedAt,
+      'experimental',
+    ).expect(200);
+    await changeLifecycle(inactive.updatedAt).expect(400);
+  });
+
   it('limits engineering handoffs to eligible nominees for Tier 3 production apps', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';
