@@ -6529,6 +6529,10 @@ describe('governance record access', () => {
     );
     const providerDeadline = jest.spyOn(AbortSignal, 'timeout');
     const unavailable = await call().expect(503);
+    const failureReference = unavailable.headers['x-frontstage-request-id'];
+    expect(failureReference).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
     expect(unavailable.headers['server-timing']).toBeUndefined();
     expect(unavailable.headers['retry-after']).toBeUndefined();
     expect(providerDeadline).toHaveBeenCalledWith(12_000);
@@ -6537,6 +6541,7 @@ describe('governance record access', () => {
       'The configured model provider is temporarily unavailable.',
     );
     expect(warn).toHaveBeenCalledWith('Model provider request failed', {
+      requestId: failureReference,
       appId: app.body.id,
       model: 'test-model',
       kind: 'upstream-http',
@@ -6558,9 +6563,13 @@ describe('governance record access', () => {
       init?.signal?.throwIfAborted();
       throw new Error('Expected a provider deadline signal');
     });
-    await call().expect(503);
+    const timedOut = await call().expect(503);
     expiredDeadline.mockRestore();
+    expect(timedOut.headers['x-frontstage-request-id']).not.toBe(
+      failureReference,
+    );
     expect(warn).toHaveBeenLastCalledWith('Model provider request failed', {
+      requestId: timedOut.headers['x-frontstage-request-id'],
       appId: app.body.id,
       model: 'test-model',
       kind: 'timeout',
@@ -6604,6 +6613,7 @@ describe('governance record access', () => {
     );
     expect(cancelOversizedResponse).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenLastCalledWith('Model provider request failed', {
+      requestId: oversized.headers['x-frontstage-request-id'],
       appId: app.body.id,
       model: 'test-model',
       kind: 'response-too-large',

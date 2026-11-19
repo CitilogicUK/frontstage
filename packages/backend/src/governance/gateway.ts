@@ -1439,8 +1439,11 @@ export function registerGatewayRoutes(options: {
               policy.maxCompletionTokens,
               config.upstreamTimeoutMs,
               (failure, retryAfter) => {
+                const requestId = randomUUID();
+                res.set('X-Frontstage-Request-Id', requestId);
                 if (retryAfter) res.set('Retry-After', retryAfter);
                 logger.warn('Model provider request failed', {
+                  requestId,
                   appId: record.id,
                   model,
                   ...failure,

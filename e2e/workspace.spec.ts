@@ -5568,6 +5568,7 @@ test('the playground clears a revealed key after environment or ownership change
       },
     }),
   );
+  const failureReference = '6082e77e-b972-4a5d-8dd7-6ba4108b1305';
   let productionAttempts = 0;
   await page.route('**/api/governance/gateway/chat', route => {
     const request = route.request();
@@ -5585,7 +5586,9 @@ test('the playground clears a revealed key after environment or ownership change
       return route.fulfill({
         status: 503,
         headers: {
-          'Access-Control-Expose-Headers': 'Retry-After',
+          'Access-Control-Expose-Headers':
+            'Retry-After, X-Frontstage-Request-Id',
+          'X-Frontstage-Request-Id': failureReference,
           'Retry-After': '12',
         },
         json: {
@@ -5772,6 +5775,9 @@ test('the playground clears a revealed key after environment or ownership change
     hasText: 'Wait 12 seconds before trying again.',
   });
   await expect(retryHint).toBeVisible();
+  await expect(retryHint).toContainText(
+    `Support reference ${failureReference}.`,
+  );
   expect(productionAttempts).toBe(1);
   await send.click();
   await expect(retryHint).toHaveCount(0);
