@@ -3805,6 +3805,34 @@ describe('governance record access', () => {
       riskAssessment,
     });
     const path = `${apps}/${created.body.id}`;
+    const credentialLink =
+      'https://example-user:synthetic@example.com/evidence';
+    await api
+      .post(apps)
+      .set('Authorization', auth(owner))
+      .send({
+        ...created.body,
+        sourceUrl: 'https://example.com/rejected-review-link',
+        reviewTicketUrl: credentialLink,
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.message).toContain('contain no credentials');
+        expect(body.error.message).not.toContain(credentialLink);
+      });
+    await api
+      .put(path)
+      .set('Authorization', auth(owner))
+      .send({ ...created.body, evidence: { tests: credentialLink } })
+      .expect(400);
+    await api
+      .put(path)
+      .set('Authorization', auth(owner))
+      .send({
+        ...created.body,
+        evidence: { tests: `https://example.com/${'x'.repeat(2048)}` },
+      })
+      .expect(400);
     const notes = 'Approval covers the sandbox only.';
     await api
       .post(`${path}/reviews`)
