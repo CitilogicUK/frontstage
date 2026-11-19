@@ -150,6 +150,23 @@ Start with a fresh seeded reviewer demo and set `APP_CONFIG_governance_requiredC
 2. Open **Edit app details**, add `https://example.com/evidence/restricted-data-flow` as the **Data-flow diagram** link, and save.
 3. Close the record and confirm it has left the filtered list. Switch to **Review required now**, reopen the app, and record an approval. The evidence link remains on the app record.
 
+### Correct a connector discrepancy from an owner notification
+
+Start with a fresh seeded reviewer demo. In **Stock count proof of concept**, add `user:default/backup` as backup owner. Under **Connected systems**, declare **Unlisted demo connector** with **Read** access and save. The app moves to Tier 2. Set **Lifecycle** to **active** and select **Update lifecycle**.
+
+Stop the dev server and restart it from the same shell so it uses the same database and ports. Enable alerts and sign in as the seeded app owner.
+
+```sh
+APP_CONFIG_auth_providers_guest_userEntityRef=user:default/guest \
+APP_CONFIG_governance_reviewReminderIntervalMinutes=15 \
+APP_CONFIG_governance_notifyOwnersOnConnectorDiscrepancies=true \
+yarn start --config ../../app-config.reviewer.yaml
+```
+
+1. Sign in as **Guest** in a fresh private window. After the initial scheduled check, open **App connector declarations need attention** in **Notifications**. It opens **Connected systems** on the app record.
+2. Change the declared name to **Catalog sandbox**, keep **Read** access, and select **Save app details**.
+3. Open **App scorecard** and verify that **Declared connections** passes. The original notification remains in Backstage as a record of the alert.
+
 ### Live OpenAI call
 
 Set `OPENAI_API_KEY` in your shell, then start with the live adapter overlay. Use **Meeting summary demo** for the live call. In its gateway panel, select **Production** and issue a key explicitly. The live overlay permits only public and internal data. The restricted scenario is intended for the simulation.
