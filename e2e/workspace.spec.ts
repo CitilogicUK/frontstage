@@ -817,9 +817,15 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   const overdueDownload = await overdueCsvPending;
   const overdueCsv = await readFile(await overdueDownload.path(), 'utf8');
   const [columns, oldest, newest] = overdueCsv.trimEnd().split(/\r?\n/);
-  expect(columns).toMatch(/next_review_utc,days_overdue,app_url$/);
-  expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other"`)).toBe(true);
-  expect(newest.endsWith(`,0,"${workspaceUrl}/?app=overdue"`)).toBe(true);
+  expect(columns).toMatch(
+    /next_review_utc,days_overdue,app_url,registration_source$/,
+  );
+  expect(oldest.endsWith(`,5,"${workspaceUrl}/?app=other","unrecorded"`)).toBe(
+    true,
+  );
+  expect(
+    newest.endsWith(`,0,"${workspaceUrl}/?app=overdue","registered"`),
+  ).toBe(true);
   await reviewStatus.selectOption('');
   await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
