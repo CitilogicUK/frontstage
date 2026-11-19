@@ -33,6 +33,7 @@ type AppSummary = {
   deliveryStage?: string;
   usesAiAtRuntime?: boolean;
   reviewStatus: string;
+  reviewTicketUrl?: string;
   nextReview: string | null;
 };
 
@@ -259,6 +260,9 @@ export function PortfolioReport({
   const reviewable = inventory.filter(app => app.tier === 2 || app.tier === 3);
   const overdue = reviewable.filter(app => isReviewOverdue(app, now)).length;
   const critical = inventory.filter(app => requiresCriticalReview(app, now));
+  const missingTickets = canReview
+    ? critical.filter(app => !app.reviewTicketUrl).length
+    : 0;
   const liveCost = report?.usage.reduce(
     (sum, row) => sum + (row.mode === 'openai' ? row.estimatedCostUsd : 0),
     0,
@@ -408,6 +412,13 @@ export function PortfolioReport({
             <div>
               <Link to="/?view=reviews&review=required">
                 View required reviews
+              </Link>
+            </div>
+          )}
+          {missingTickets > 0 && (
+            <div>
+              <Link to="/?view=reviews&review=missing-ticket">
+                {missingTickets} missing a review ticket
               </Link>
             </div>
           )}
