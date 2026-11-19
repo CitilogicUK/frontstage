@@ -242,6 +242,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(descriptor).toContain('deliveryStage: poc');
     expect(descriptor).toContain(`usesAiAtRuntime: ${usesAi}`);
     expect(Boolean(files[`${id}/gateway.mjs`])).toBe(usesAi);
+    expect(Boolean(files[`${id}/gateway.test.mjs`])).toBe(usesAi);
     expect(descriptor).toContain('classification: restricted');
     expect(descriptor).toContain('backupOwner: user:default/backup');
     expect(brief).toContain('Highest data classification: restricted');
@@ -281,6 +282,22 @@ test('workspace screens share navigation and fit the viewport', async ({
         } finally {
           await rm(projectDir, { recursive: true, force: true });
         }
+      }
+    }
+    if (id === 'gateway-assistant' && testInfo.project.name === 'desktop') {
+      const projectDir = await mkdtemp(join(tmpdir(), 'frontstage-gateway-'));
+      try {
+        await Promise.all(
+          ['gateway.mjs', 'gateway.test.mjs'].map(name =>
+            writeFile(join(projectDir, name), files[`${id}/${name}`]),
+          ),
+        );
+        execFileSync(process.execPath, ['--test'], {
+          cwd: projectDir,
+          timeout: 10_000,
+        });
+      } finally {
+        await rm(projectDir, { recursive: true, force: true });
       }
     }
     if (usesAi) {
