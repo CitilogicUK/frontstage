@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { configApiRef, useApi } from '@backstage/core-plugin-api';
 import { appRecordUrl, scheduledReviewDate } from './reviewDue';
+import { reviewTrackLabels, type ReviewTrack } from './reviewTracks';
 
 type ReviewTicketApp = Parameters<typeof scheduledReviewDate>[0] & {
   id: string;
@@ -8,6 +9,7 @@ type ReviewTicketApp = Parameters<typeof scheduledReviewDate>[0] & {
   owner: string;
   team: string;
   reviewStatus: string;
+  signoffs?: Partial<Record<ReviewTrack, { status: string }>>;
 };
 
 function httpsTicketDestination(value: string | undefined) {
@@ -22,7 +24,13 @@ function httpsTicketDestination(value: string | undefined) {
   }
 }
 
-export function ReviewTicketContext({ app }: { app: ReviewTicketApp }) {
+export function ReviewTicketContext({
+  app,
+  tracks,
+}: {
+  app: ReviewTicketApp;
+  tracks: readonly ReviewTrack[];
+}) {
   const config = useApi(configApiRef);
   const ticketCreateUrl = httpsTicketDestination(
     config.getOptionalString('app.reviewTicketCreateUrl'),
@@ -48,6 +56,12 @@ export function ReviewTicketContext({ app }: { app: ReviewTicketApp }) {
       `Owner: ${app.owner}`,
       `Team: ${app.team}`,
       `Review status: ${app.reviewStatus}`,
+      ...tracks.map(
+        track =>
+          `${reviewTrackLabels[track]} sign-off: ${
+            app.signoffs?.[track]?.status ?? 'pending'
+          }`,
+      ),
       ...(due ? [`Renewal due: ${due.toISOString().slice(0, 10)} UTC`] : []),
     ].join('\n');
     try {
@@ -78,7 +92,12 @@ export function ReviewTicketContext({ app }: { app: ReviewTicketApp }) {
       {manualCopy && (
         <label>
           Review ticket context
-          <textarea ref={copyField} readOnly rows={7} value={manualCopy} />
+          <textarea
+            ref={copyField}
+            readOnly
+            rows={7 + tracks.length}
+            value={manualCopy}
+          />
         </label>
       )}
     </div>

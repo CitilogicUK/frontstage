@@ -2640,6 +2640,7 @@ export function GovernancePage() {
                   <ReviewTicketContext
                     key={selected.updatedAt}
                     app={selected}
+                    tracks={reviewTracks}
                   />
                   <p>Clear the URL and save to remove the ticket link.</p>
                   <form
