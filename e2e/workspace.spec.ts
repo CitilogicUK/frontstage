@@ -293,8 +293,10 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
     tier: 2,
     reviewStatus: 'not required',
   };
-  const dateInDays = (days: number) =>
-    new Date(Date.now() + days * 86_400_000).toISOString();
+  const now = Date.now();
+  await page.clock.setFixedTime(now);
+  const dateInDays = (days: number, offsetMs = 0) =>
+    new Date(now + days * 86_400_000 + offsetMs).toISOString();
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -312,21 +314,21 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
             deliveryStage: 'poc',
             usesAiAtRuntime: false,
             models: [],
-            nextReview: dateInDays(60),
+            nextReview: dateInDays(30, 1),
           },
           {
             ...base,
             id: 'soon',
             name: 'Due soon app',
             models: ['gpt-4.1-mini', 'gpt-4.1-mini'],
-            nextReview: dateInDays(15),
+            nextReview: dateInDays(30),
           },
           {
             ...base,
             id: 'overdue',
             name: 'Overdue app',
             deliveryStage: 'production',
-            nextReview: dateInDays(-1),
+            nextReview: dateInDays(0),
           },
           {
             ...base,
@@ -396,6 +398,25 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('Attestation overdue');
   await expect(rows.nth(1)).toContainText('Attestation due soon');
+  await reviewStatus.selectOption('upcoming');
+  await expect(page).toHaveURL(/owner=me&review=upcoming$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  await page.reload();
+  await expect(reviewStatus).toHaveValue('upcoming');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Due soon app');
+  const upcomingDownload = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download my review calendar' })
+    .click();
+  const upcomingCalendar = await readFile(
+    await (await upcomingDownload).path(),
+    'utf8',
+  );
+  expect(upcomingCalendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(upcomingCalendar).toContain('SUMMARY:App attestation: Due soon app');
+  expect(upcomingCalendar).toContain(`URL:${workspaceUrl}/?app=soon`);
   await reviewStatus.selectOption('');
   const lifecycle = page.getByRole('combobox', {
     name: 'Lifecycle',
