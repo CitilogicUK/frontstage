@@ -1158,10 +1158,9 @@ export function GovernancePage() {
   const usesAiAtRuntime =
     hosted || (draft.usesAiAtRuntime ?? runtimeDefault) === 'yes';
   const observedModel = usageRegistration?.model;
-  // This form treats commas as separators between model names.
-  const observedModelDefault = observedModel?.includes(',')
-    ? ''
-    : observedModel ?? '';
+  // Preserve the observed identifier only when the single-line, comma-separated field can represent it.
+  const observedModelDefault =
+    observedModel && !/[,\r\n]/.test(observedModel) ? observedModel : '';
   const initialModels = starter?.runtime
     ? params.get('model') ?? starterDefaults.model
     : observedModelDefault;
