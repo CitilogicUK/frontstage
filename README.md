@@ -49,6 +49,8 @@ Use `search_apps` to find registered apps by name or ID. It returns up to 20 mat
 
 Use `preview_risk` while drafting an app to check the effective data classification, calculated tier, and reasons. Provide the audience and classification along with any actions, connections, or hosted settings that apply. It uses the same policy as the registration questionnaire and saves no record.
 
+Use `list_approved_models` with a Backstage user credential to read the gateway's approved model list and live output limits. Pass `classification` to see only models allowed for that data. The response also tells you whether the gateway is enabled and whether it supports production calls.
+
 Set `FRONTSTAGE_MCP_WRITE_ENABLED=true` in the MCP process environment to add the descriptor tools. Pass the YAML from a repository descriptor as `content` to `preview_descriptor` to check ownership, calculated tier, and source URL conflicts. After reviewing the preview, use `register_descriptor` with the same content to create the record. The MCP client controls interactive approval for `register_descriptor`. Backstage applies the same authentication, validation, and audit rules as the repository registration endpoint.
 
 Set optional risk floors in `governance.tierPolicy`. The keys are `audience`, `classification`, `hostedSharing`, and `connection`. Values 1 through 3 can raise the built-in requirements. For example, set `governance.tierPolicy.classification.confidential: 3` to require critical review for confidential data. The live questionnaire uses `POST /api/governance/tier-preview`.
