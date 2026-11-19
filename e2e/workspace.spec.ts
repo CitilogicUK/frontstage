@@ -1280,8 +1280,33 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
     classification: 'internal',
     lifecycle: 'experimental',
     models: [],
+    usesAiAtRuntime: false,
+    updatedAt: '2025-01-01T10:00:00.000Z',
     reviewStatus: 'pending',
   };
+  const increase = {
+    ...base,
+    id: 'increase',
+    name: 'Tier increase',
+    tier: 1,
+    riskAssessment: { tier: 2, reasons: ['configured-minimum'] },
+  };
+  await page.route('**/api/governance/apps/increase', route => {
+    expect(route.request().method()).toBe('PUT');
+    expect(route.request().postDataJSON()).toMatchObject({
+      expectedUpdatedAt: base.updatedAt,
+      backupOwner: 'user:default/backup',
+    });
+    return route.fulfill({
+      json: {
+        ...increase,
+        tier: 2,
+        backupOwner: 'user:default/backup',
+        reviewStatus: 'not required',
+        updatedAt: '2025-01-02T10:00:00.000Z',
+      },
+    });
+  });
   await page.route('**/api/governance/apps', route =>
     route.fulfill({
       json: {
@@ -1295,13 +1320,7 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
             tier: 3,
             riskAssessment: { tier: 2, reasons: [] },
           },
-          {
-            ...base,
-            id: 'increase',
-            name: 'Tier increase',
-            tier: 1,
-            riskAssessment: { tier: 2, reasons: ['configured-minimum'] },
-          },
+          increase,
         ],
       },
     }),
@@ -1328,9 +1347,17 @@ test('the risk reassessment queue shows both tiers and prioritizes increases', a
   await expect(
     details.getByRole('button', { name: 'Save app details' }),
   ).toBeVisible();
+  await details
+    .getByLabel('Backup owner', { exact: true })
+    .fill('user:default/backup');
+  await details.getByRole('button', { name: 'Save app details' }).click();
+  await expect(details.getByRole('status')).toHaveText(
+    'Risk tier updated to Tier 2.',
+  );
   await details.getByRole('button', { name: 'Close app details' }).click();
   await expect(page).toHaveURL(/review=reassess$/);
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Tier decrease');
 });
 
 test('audit history shows production review and ownership handoff', async ({
