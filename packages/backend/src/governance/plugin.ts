@@ -1794,6 +1794,7 @@ export const governancePlugin = createBackendPlugin({
             throw new InputError(
               'Choose an approved provider workspace before attesting.',
             );
+          await validateOwners(record);
           const at = nextRecordTimestamp(record.updatedAt);
           const updated: GovernanceRecord = {
             ...record,
