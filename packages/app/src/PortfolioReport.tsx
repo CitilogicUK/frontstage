@@ -132,6 +132,56 @@ const dollars = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 8,
 });
 
+const spendShareFormat = new Intl.NumberFormat('en-US', {
+  style: 'percent',
+  maximumFractionDigits: 1,
+});
+
+function GatewaySpendShare({
+  liveCost,
+  windowLabel,
+}: {
+  liveCost: number;
+  windowLabel: string;
+}) {
+  const [outsideSpend, setOutsideSpend] = useState('');
+  const outsideCost = Number(outsideSpend);
+  let result = 'Enter an amount to calculate the share.';
+  if (outsideSpend !== '') {
+    if (!Number.isFinite(outsideCost) || outsideCost < 0) {
+      result = 'Enter a non-negative USD amount.';
+    } else if (liveCost === 0 && outsideCost === 0) {
+      result = 'No spend in this window.';
+    } else {
+      result = `${spendShareFormat.format(
+        liveCost / (liveCost + outsideCost),
+      )} estimated gateway share`;
+    }
+  }
+
+  return (
+    <details className="gov-spend-share">
+      <summary>Estimate gateway spend share</summary>
+      <label>
+        Model spend outside the gateway (USD)
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={outsideSpend}
+          onChange={event => setOutsideSpend(event.target.value)}
+          aria-describedby="gov-spend-share-window"
+        />
+      </label>
+      <small id="gov-spend-share-window">
+        Use outside-gateway spend for the same last {windowLabel}. The amount is
+        not saved.
+      </small>
+      <p role="status">{result}</p>
+    </details>
+  );
+}
+
 export function PortfolioReport({
   apps,
   discoveries,
@@ -634,10 +684,15 @@ export function PortfolioReport({
             )}
           </div>
         )}
-        {liveCost !== undefined && (
+        {canReview && report && liveCost !== undefined && (
           <div className="gov-panel">
             <dt>Live estimated cost · {windowLabel}</dt>
             <dd>{dollars.format(liveCost)}</dd>
+            <GatewaySpendShare
+              key={`${usageDays}:${report.from}`}
+              liveCost={liveCost}
+              windowLabel={windowLabel}
+            />
           </div>
         )}
         {report && (
