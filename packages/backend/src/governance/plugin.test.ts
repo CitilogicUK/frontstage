@@ -3568,12 +3568,12 @@ describe('governance record access', () => {
     const { body: unapproved } = await create('Other').expect(201);
     expect(original.discoverySource).toBe('hosted snapshot');
     expect(unapproved.discoverySource).toBe('registered');
-    const history = await api
+    const initialHistory = await api
       .get(`${apps}/${original.id}/history`)
       .set('Authorization', auth(reviewer))
       .expect(200);
     expect(
-      JSON.parse(history.body.events[0].event).record.discoverySource,
+      JSON.parse(initialHistory.body.events[0].event).record.discoverySource,
     ).toBe('hosted snapshot');
     expect(original.hostedWorkspaceAllowed).toBe(true);
     expect(unapproved.hostedWorkspaceAllowed).toBe(false);
