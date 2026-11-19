@@ -7,6 +7,10 @@ import {
 import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
+import {
+  reviewRemindersMigration,
+  sendReviewReminders,
+} from './reviewReminders';
 import { appSourceKey, repositorySourceMigration } from './sourceKey';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -28,6 +32,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from '@backstage/errors';
+import { notificationService } from '@backstage/plugin-notifications-node';
 import express from 'express';
 import Router from 'express-promise-router';
 import { parse } from 'yaml';
@@ -293,6 +298,7 @@ export const governancePlugin = createBackendPlugin({
         logger: coreServices.logger,
         discovery: coreServices.discovery,
         scheduler: coreServices.scheduler,
+        notifications: notificationService,
         config: coreServices.rootConfig,
       },
       async init({
@@ -303,6 +309,7 @@ export const governancePlugin = createBackendPlugin({
         logger,
         discovery,
         scheduler,
+        notifications,
         config,
       }) {
         const db = await database.getClient();
@@ -347,6 +354,15 @@ export const governancePlugin = createBackendPlugin({
           .parse(
             config.getOptional('governance.retirementReviewIntervalMinutes'),
           );
+        const reviewReminderIntervalMinutes = z
+          .number()
+          .int()
+          .min(15)
+          .max(10_080)
+          .optional()
+          .parse(
+            config.getOptional('governance.reviewReminderIntervalMinutes'),
+          );
         const graduationGroups = graduationGroupsInput
           .default([])
           .parse(config.getOptional('governance.graduationGroups'));
@@ -386,6 +402,7 @@ export const governancePlugin = createBackendPlugin({
             '013_repository_source_keys',
             '014_discovery_visibility',
             '015_directory_requests',
+            '016_review_reminders',
           ],
           getMigrationName: (name: string) => name,
           getMigration: async (name: string) => {
@@ -393,6 +410,8 @@ export const governancePlugin = createBackendPlugin({
               return gatewayKeyAuditMigration();
             if (name === '013_repository_source_keys')
               return repositorySourceMigration(table);
+            if (name === '016_review_reminders')
+              return reviewRemindersMigration();
             if (name === '015_directory_requests')
               return directoryRequestsMigration(table);
             if (name === '014_discovery_visibility')
@@ -2741,6 +2760,38 @@ export const governancePlugin = createBackendPlugin({
           await save(updated, revision, principal, 'reviewed');
           res.json(visibleRecord(updated, principal));
         });
+
+        if (reviewReminderIntervalMinutes !== undefined) {
+          const appBaseUrl = config.getString('app.baseUrl');
+          await scheduler.scheduleTask({
+            id: 'governance-review-reminders',
+            scope: 'global',
+            frequency: { minutes: reviewReminderIntervalMinutes },
+            initialDelay: { seconds: 5 },
+            timeout: { minutes: 2 },
+            async fn(signal) {
+              await sendReviewReminders({
+                db,
+                appsTable: table,
+                policy: {
+                  evaluateTier,
+                  reviewDue: (record, at) =>
+                    record.tier === 3 && trackConfig
+                      ? trackedReview(record.signoffs, trackConfig, at)
+                          .nextReview
+                      : record.nextReview,
+                  hostedWorkspaceApproved,
+                },
+                load,
+                unavailableOwners: refs => unavailableOwners(refs, true),
+                notifications,
+                logger,
+                appBaseUrl,
+                signal,
+              });
+            },
+          });
+        }
 
         if (retirementReviewIntervalMinutes !== undefined) {
           await scheduler.scheduleTask({

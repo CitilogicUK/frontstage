@@ -9,6 +9,7 @@ import AssignmentTurnedInOutlinedIcon from '@material-ui/icons/AssignmentTurnedI
 import CategoryIcon from '@material-ui/icons/Category';
 import CloudUploadOutlinedIcon from '@material-ui/icons/CloudUploadOutlined';
 import MenuBookOutlinedIcon from '@material-ui/icons/MenuBookOutlined';
+import NotificationsNoneIcon from '@material-ui/icons/NotificationsNone';
 import SearchIcon from '@material-ui/icons/Search';
 import ViewListOutlinedIcon from '@material-ui/icons/ViewListOutlined';
 import './governance.css';
@@ -43,6 +44,12 @@ export const workspaceViews = {
     title: 'Critical app reviews',
     summary: 'Track tier 3 apps and the decisions that govern their launch.',
     icon: AssignmentTurnedInOutlinedIcon,
+  },
+  Notifications: {
+    path: '/notifications',
+    title: 'Notifications',
+    summary: 'Read updates about your apps.',
+    icon: NotificationsNoneIcon,
   },
   Reports: {
     path: '/?view=reports',

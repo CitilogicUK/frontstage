@@ -176,7 +176,7 @@ const hostedAccessOptions = [
   'both',
 ];
 
-type View = Exclude<keyof typeof workspaceViews, 'Catalog'>;
+type View = Exclude<keyof typeof workspaceViews, 'Catalog' | 'Notifications'>;
 
 const viewParameters = new Map<string, View>([
   ['register', 'Register'],

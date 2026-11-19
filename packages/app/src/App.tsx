@@ -8,6 +8,8 @@ import {
 import appPlugin from '@backstage/plugin-app';
 import { WorkspaceNavigation } from './WorkspaceLayout';
 import catalogPlugin from '@backstage/plugin-catalog/alpha';
+import notificationsPlugin from '@backstage/plugin-notifications/alpha';
+import signalsPlugin from '@backstage/plugin-signals/alpha';
 import CategoryIcon from '@material-ui/icons/Category';
 import VerifiedUserIcon from '@material-ui/icons/VerifiedUser';
 
@@ -67,4 +69,6 @@ const app = appPlugin.withOverrides({
   ],
 });
 
-export default createApp({ features: [app, catalog, governance] });
+export default createApp({
+  features: [app, catalog, governance, notificationsPlugin, signalsPlugin],
+});
