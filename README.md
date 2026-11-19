@@ -399,6 +399,19 @@ Register a GitHub OAuth app with the Frontstage frontend URL and the callback `<
 
 Each allowed user needs a managed Backstage User entity with the `github.com/user-id` annotation set to their GitHub GraphQL node ID. For example, look up the ID with `gh api users/LOGIN --jq .node_id`. Use administrator-managed Catalog providers or locations for identity mappings. The overlay disables Catalog API writes, including location registration. Frontstage app registration remains available through its governance API. Start the pilot Catalog with trusted sources only. At sign-in and session refresh, Frontstage issues an identity only for a matching Catalog user whose `governance.backstage.io/active` annotation is absent or set to a value other than `false`. Frontstage also recognizes capitalized or whitespace-padded forms of `false` as inactive. Reviewer permissions come from the mapped Backstage user references in `governance.reviewers`. Use your company’s approved identity provider if GitHub identities are outside the pilot’s scope.
 
+### Check pilot builder and reviewer access
+
+Use two managed test accounts and short-lived Backstage user credentials obtained through your approved sign-in flow. Export the credentials as `FRONTSTAGE_PILOT_BUILDER_TOKEN` and `FRONTSTAGE_PILOT_REVIEWER_TOKEN`, then run:
+
+```sh
+FRONTSTAGE_PILOT_URL=https://frontstage.example.com \
+  FRONTSTAGE_PILOT_BUILDER_REF=user:default/pilot-builder \
+  FRONTSTAGE_PILOT_REVIEWER_REF=user:default/pilot-reviewer \
+  yarn pilot:probe-roles
+```
+
+The probe checks that both identities can open Inventory as the expected user and that only the reviewer can read the registration feedback report. It sends read-only requests and prints role names and HTTP statuses, without displaying tokens or returned records. The probe accepts HTTPS origins or local loopback HTTP and refuses redirects. Run the full sign-in and disabled-user scenarios separately.
+
 ### Build and run the pilot image
 
 Build the Backstage frontend and backend on the same Node 24 version used by the image. Build the image from the repository root.
