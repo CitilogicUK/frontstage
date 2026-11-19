@@ -338,10 +338,8 @@ test.each([
       .mockResolvedValueOnce(searchResults(second, total));
     await expect(discovery.scan()).resolves.toEqual({ found, partial: true });
     await expect(discovery.list(true)).resolves.toHaveLength(found + 1);
-    if (earlierPrivate) {
-      await expect(discovery.get('100')).resolves.toBeUndefined();
-      await expect(discovery.get('100', true)).resolves.toBeDefined();
-    }
+    expect(Boolean(await discovery.get('100'))).toBe(!earlierPrivate);
+    await expect(discovery.get('100', true)).resolves.toBeDefined();
     await expect(discovery.get('101')).resolves.toMatchObject({
       source_url: 'https://github.com/exampleai/unseen',
     });
