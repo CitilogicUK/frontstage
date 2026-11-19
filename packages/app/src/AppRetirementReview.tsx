@@ -52,12 +52,10 @@ export function AppRetirementReview({
   const [confirmed, setConfirmed] = useState(false);
   const hasCandidate = candidateLastLiveCall !== undefined;
   const liveActivityChangedAt = review?.liveActivityChangedAt;
-  const lastLiveCall =
-    review?.status === 'pending'
-      ? review.lastLiveCall
-      : hasCandidate
-      ? candidateLastLiveCall
-      : review?.lastLiveCall;
+  const showCandidateActivity = hasCandidate && review?.status !== 'pending';
+  const lastLiveCall = showCandidateActivity
+    ? candidateLastLiveCall
+    : review?.lastLiveCall;
   if (lastLiveCall === undefined) return null;
 
   return (
