@@ -4392,7 +4392,7 @@ describe('governance record access', () => {
     );
   });
 
-  it('updates review ticket metadata without changing approval or gateway access', async () => {
+  it('preserves approval for metadata updates and reopens it for connection changes', async () => {
     const owner = 'user:default/owner';
     const backup = 'user:default/backup';
     const reviewer = 'user:default/reviewer';
@@ -4578,12 +4578,17 @@ describe('governance record access', () => {
 
     const { body: retired } = await setLifecycle('retired', cleared.updatedAt);
     await patch(firstUrl, retired.updatedAt).expect(400);
+    const readConnection = [{ name: 'Workflow system', access: 'read' }];
+    const writeConnection = [{ name: 'Workflow system', access: 'write' }];
+    const renamedConnection = [{ name: 'Workflow connector', access: 'write' }];
     const { body: lowRisk } = await api
       .post(collection)
       .set('Authorization', auth(owner))
       .send({
         ...appInput,
         audience: 'personal',
+        lifecycle: 'active',
+        connections: readConnection,
         sourceUrl: 'https://example.com/personal-workflow-assistant',
       })
       .expect(201);
@@ -4592,6 +4597,97 @@ describe('governance record access', () => {
       .set('Authorization', auth(owner))
       .send({ url: firstUrl, expectedUpdatedAt: lowRisk.updatedAt })
       .expect(400);
+
+    const connectionPath = `${collection}/${lowRisk.id}`;
+    const editConnectionApp = async (
+      record: { updatedAt: string },
+      updates: object,
+    ) => {
+      const { body } = await api
+        .put(connectionPath)
+        .set('Authorization', auth(owner))
+        .send({ ...record, ...updates, expectedUpdatedAt: record.updatedAt })
+        .expect(200);
+      return body;
+    };
+    expect(lowRisk).toMatchObject({
+      tier: 2,
+      lifecycle: 'active',
+      connections: readConnection,
+    });
+    const writeEnabled = await editConnectionApp(lowRisk, {
+      connections: writeConnection,
+    });
+    expect(writeEnabled).toMatchObject({
+      tier: 3,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      connections: writeConnection,
+    });
+
+    const { body: writeApproved } = await api
+      .post(`${connectionPath}/reviews`)
+      .set('Authorization', auth(reviewer))
+      .send({
+        status: 'approved',
+        notes: 'Approved write access to the workflow system.',
+        expectedUpdatedAt: writeEnabled.updatedAt,
+      })
+      .expect(200);
+    const { body: writeActive } = await api
+      .patch(`${connectionPath}/lifecycle`)
+      .set('Authorization', auth(owner))
+      .send({ lifecycle: 'active', expectedUpdatedAt: writeApproved.updatedAt })
+      .expect(200);
+    const nameOnlyEdit = await editConnectionApp(writeActive, {
+      name: 'Internal workflow assistant',
+    });
+    expect(nameOnlyEdit).toMatchObject({
+      tier: 3,
+      lifecycle: 'active',
+      reviewStatus: 'approved',
+      nextReview: writeApproved.nextReview,
+      connections: writeConnection,
+    });
+    const reopened = await editConnectionApp(nameOnlyEdit, {
+      connections: renamedConnection,
+    });
+    expect(reopened).toMatchObject({
+      tier: 3,
+      lifecycle: 'experimental',
+      reviewStatus: 'pending',
+      nextReview: null,
+      connections: renamedConnection,
+    });
+    const { body: saved } = await api
+      .get(connectionPath)
+      .set('Authorization', auth(owner))
+      .expect(200);
+    expect(saved.connections).toEqual(renamedConnection);
+
+    const { body: connectionHistory } = await api
+      .get(`${connectionPath}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const events = connectionHistory.events.map(
+      ({ event }: { event: string }) => JSON.parse(event),
+    );
+    expect(events[0]).toMatchObject({
+      action: 'registered',
+      record: { connections: readConnection },
+    });
+    expect(events[1]).toMatchObject({
+      action: 'updated',
+      record: { connections: writeConnection },
+    });
+    expect(events.at(-2)).toMatchObject({
+      action: 'updated',
+      record: { connections: writeConnection, reviewStatus: 'approved' },
+    });
+    expect(events.at(-1)).toMatchObject({
+      action: 'updated',
+      record: { connections: renamedConnection, reviewStatus: 'pending' },
+    });
   });
 
   it('records hosted workspace attestations independently and clears them when ownership or settings change', async () => {

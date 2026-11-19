@@ -86,6 +86,8 @@ In a second terminal at the repository root, run `yarn demo:seed` after the back
    yarn audit:verify path/to/export.json RECORD_DIGEST --key-head KEY_DIGEST
    ```
 
+5. **Show how connector access changes risk.** Open **Stock count proof of concept**. In **Edit app details**, add `user:default/backup` as backup owner and add **Catalog sandbox** with **Read** access under **Connected systems**. Save and check that the app is now Tier 2. Edit the connection to **Inventory sandbox** with **Write** access and save again. The app moves to Tier 3 and enters Reviews even though it runs without AI. **Declared connections** also flags that the write connector is approved only for public data and this app declares internal data. In **Audit history**, check the removed read declaration, the added write declaration, and the risk-tier change.
+
 To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace. To demonstrate the owner confirmation, stop the reviewer server and restart it against the same database with the owner identity:
 
 ```sh
