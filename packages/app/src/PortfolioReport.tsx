@@ -21,6 +21,7 @@ import {
   gatewaySpendShareCsv,
   ownershipIssuesCsv,
   portfolioCsv,
+  type OutsideGatewayUsagePreview,
   type PortfolioExportRow,
 } from './portfolioExport';
 import {
@@ -237,6 +238,8 @@ export function PortfolioReport({
   usageError,
   onRetryUsage,
   onRegisterUsageSource,
+  usagePreview,
+  onUsagePreview,
 }: {
   apps: AppSummary[];
   discoveries?: DiscoveryResult;
@@ -254,6 +257,8 @@ export function PortfolioReport({
   usageError: string;
   onRetryUsage: () => void;
   onRegisterUsageSource: (sourceUrl: string) => void;
+  usagePreview?: OutsideGatewayUsagePreview;
+  onUsagePreview: (preview: OutsideGatewayUsagePreview | undefined) => void;
 }) {
   const medianWorkingDays = reviewTurnaround?.medianWorkingDays;
   const coverage = discoveries?.source
@@ -1168,6 +1173,8 @@ export function PortfolioReport({
         <OutsideGatewayUsage
           appLink={reportAppLink}
           onRegister={onRegisterUsageSource}
+          preview={usagePreview}
+          onPreview={onUsagePreview}
         />
       )}
       {report?.retirementReview && (

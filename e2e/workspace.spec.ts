@@ -647,10 +647,37 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
       },
     ],
   };
+  const reviewer = 'user:default/reviewer';
+  const draft = {
+    ...app,
+    id: 'registered-assistant',
+    name: 'Registered assistant',
+    sourceUrl: snapshot.rows[1].sourceUrl,
+    owner: reviewer,
+    lifecycle: 'experimental',
+    usesAiAtRuntime: false,
+    models: [],
+  };
+  let registered = false;
+  let previewCalls = 0;
   await page.route('**/api/governance/apps', route => {
-    expect(route.request().method()).toBe('GET');
+    const request = route.request();
+    if (request.method() === 'POST') {
+      expect(request.postDataJSON()).toMatchObject({
+        name: draft.name,
+        sourceUrl: draft.sourceUrl,
+        lifecycle: 'experimental',
+      });
+      registered = true;
+      return route.fulfill({ status: 201, json: draft });
+    }
+    expect(request.method()).toBe('GET');
     return route.fulfill({
-      json: { apps: [app], actor: 'user:default/reviewer', canReview: true },
+      json: {
+        apps: registered ? [app, draft] : [app],
+        actor: reviewer,
+        canReview: true,
+      },
     });
   });
   await page.route(
@@ -658,12 +685,15 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     route => {
       expect(route.request().method()).toBe('POST');
       expect(route.request().postDataJSON()).toEqual(snapshot);
+      previewCalls += 1;
       return route.fulfill({
         json: {
           ...snapshot,
           rows: [
             { ...snapshot.rows[0], appId: app.id, appName: app.name },
-            snapshot.rows[1],
+            registered
+              ? { ...snapshot.rows[1], appId: draft.id, appName: draft.name }
+              : snapshot.rows[1],
           ],
         },
       });
@@ -743,7 +773,26 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   );
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
-  await expect(report).toBeVisible();
+  await expect(match).toBeVisible();
+  const startRegistration = unmatched.getByRole('button', {
+    name: 'Start registration',
+  });
+  await expect(startRegistration).toBeVisible();
+  expect(previewCalls).toBe(2);
+  expect(registered).toBe(false);
+
+  await startRegistration.click();
+  await page.getByLabel('App name').fill(draft.name);
+  await page.getByLabel('Purpose', { exact: true }).fill(draft.purpose);
+  await page.getByLabel('Built on').fill(draft.platform);
+  await page.getByLabel('Owner', { exact: true }).fill(draft.owner);
+  await page.getByLabel('Owning team').fill(draft.team);
+  await page.getByLabel('Does the app use AI at runtime?').selectOption('no');
+  await page.getByRole('button', { name: 'Register app', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
+  await expect(report.getByRole('link', { name: draft.name })).toBeVisible();
+  await expect(startRegistration).toHaveCount(0);
+  expect(previewCalls).toBe(3);
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
