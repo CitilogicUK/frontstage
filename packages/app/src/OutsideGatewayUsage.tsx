@@ -16,8 +16,10 @@ const maxUsageFileSize = 1024 * 1024;
 
 export function OutsideGatewayUsage({
   appLink,
+  onRegister,
 }: {
   appLink: (appId: string) => To;
+  onRegister: (sourceUrl: string) => void;
 }) {
   const config = useApi(configApiRef);
   const discovery = useApi(discoveryApiRef);
@@ -194,7 +196,15 @@ export function OutsideGatewayUsage({
                             {row.appName ?? row.appId}
                           </Link>
                         ) : (
-                          'No app matched'
+                          <>
+                            No app matched{' '}
+                            <button
+                              type="button"
+                              onClick={() => onRegister(row.sourceUrl)}
+                            >
+                              Start registration
+                            </button>
+                          </>
                         )}
                       </td>
                       <td data-label="Source">{row.sourceUrl}</td>

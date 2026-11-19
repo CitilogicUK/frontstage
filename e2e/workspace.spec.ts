@@ -647,11 +647,12 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
       },
     ],
   };
-  await page.route('**/api/governance/apps', route =>
-    route.fulfill({
+  await page.route('**/api/governance/apps', route => {
+    expect(route.request().method()).toBe('GET');
+    return route.fulfill({
       json: { apps: [app], actor: 'user:default/reviewer', canReview: true },
-    }),
-  );
+    });
+  });
   await page.route(
     '**/api/governance/reports/outside-gateway/preview',
     route => {
@@ -726,7 +727,23 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     `"${snapshot.from}","${snapshot.to}","${snapshot.rows[1].sourceUrl}","gpt-4.1-mini",3,"",""`,
   ]);
   await match.click();
-  await expect(page.getByRole('dialog', { name: app.name })).toBeVisible();
+  const details = page.getByRole('dialog', { name: app.name });
+  await expect(details).toBeVisible();
+  await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
+  await details.getByRole('button', { name: 'Close app details' }).click();
+  await expect(match).toBeVisible();
+
+  const unmatched = report.getByRole('row', { name: /No app matched/ });
+  await unmatched.getByRole('button', { name: 'Start registration' }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Register an AI app' }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Source URL' })).toHaveValue(
+    snapshot.rows[1].sourceUrl,
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]view=reports(?:&|$)/);
+  await expect(report).toBeVisible();
 });
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({

@@ -278,7 +278,7 @@ Preview matches the source URLs against Inventory. Open the record for a match o
 
 ## Preview outside-gateway usage
 
-After running `yarn demo:seed` with the reviewer profile, open **Reports → Outside-gateway usage**. Select **Download sample usage JSON**, upload it, and select **Preview outside-gateway usage**. The synthetic file reports 15 calls. One row links to **Hosted workspace demo** in Inventory, and one has no matching record. Select **Download outside-gateway usage CSV** to export both outcomes.
+After running `yarn demo:seed` with the reviewer profile, open **Reports → Outside-gateway usage**. Select **Download sample usage JSON**, upload it, and select **Preview outside-gateway usage**. The synthetic file reports 15 calls. One row links to **Hosted workspace demo** in Inventory, and one has no matching record. Select **Download outside-gateway usage CSV** to export both outcomes. On the unmatched row, **Start registration** prefills the source URL. Complete the form and submit it to create the record.
 
 For your own data, upload a JSON file up to 1 MB or paste JSON into the form. Supply UTC `from` and `to` timestamps and up to 100 rows with an HTTPS `sourceUrl`, a `model`, and a positive integer `calls` value. The preview matches by source URL and does not store the file or monitor provider traffic.
 

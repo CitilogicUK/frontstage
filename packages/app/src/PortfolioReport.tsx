@@ -236,6 +236,7 @@ export function PortfolioReport({
   loading,
   usageError,
   onRetryUsage,
+  onRegisterUsageSource,
 }: {
   apps: AppSummary[];
   discoveries?: DiscoveryResult;
@@ -252,6 +253,7 @@ export function PortfolioReport({
   loading: boolean;
   usageError: string;
   onRetryUsage: () => void;
+  onRegisterUsageSource: (sourceUrl: string) => void;
 }) {
   const medianWorkingDays = reviewTurnaround?.medianWorkingDays;
   const coverage = discoveries?.source
@@ -1162,7 +1164,12 @@ export function PortfolioReport({
           </div>
         </section>
       )}
-      {canReview && <OutsideGatewayUsage appLink={reportAppLink} />}
+      {canReview && (
+        <OutsideGatewayUsage
+          appLink={reportAppLink}
+          onRegister={onRegisterUsageSource}
+        />
+      )}
       {report?.retirementReview && (
         <section
           className="gov-panel gov-stage-report"
