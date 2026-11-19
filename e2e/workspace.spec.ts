@@ -632,6 +632,43 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   );
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Another owner’s app');
+  const teamFilter = page.getByRole('combobox', { name: 'Owning team' });
+  await teamFilter.selectOption('');
+  const accountableOwner = page.getByRole('combobox', {
+    name: 'Accountable owner',
+  });
+  await accountableOwner.selectOption('user:default/another');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Another owner’s app');
+  await page.reload();
+  await expect(accountableOwner).toHaveValue('user:default/another');
+  await expect(rows).toHaveCount(1);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Group inventory by' })
+    .selectOption('accountableOwner');
+  const byOwner = page.getByRole('region', {
+    name: 'Apps by accountable owner',
+  });
+  await expect(
+    byOwner.getByRole('link', { name: 'user:default/demo-owner: 3 apps' }),
+  ).toBeVisible();
+  await byOwner
+    .getByRole('link', { name: 'user:default/another: 1 app' })
+    .click();
+  await expect(accountableOwner).toHaveValue('user:default/another');
+  await expect(rows).toHaveCount(1);
+  const ownerExport = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download inventory CSV' }).click();
+  const ownerCsv = await readFile(await (await ownerExport).path(), 'utf8');
+  expect(ownerCsv).toContain('"user:default/another"');
+  expect(ownerCsv).not.toContain('"user:default/demo-owner"');
+  await assertWorkspace(page, 'AI app inventory', 'Inventory');
+  await teamFilter.selectOption('group:default/platform');
+  await expect(rows).toHaveCount(0);
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(accountableOwner).toHaveValue('');
+  await expect(rows).toHaveCount(4);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Group inventory by' })
