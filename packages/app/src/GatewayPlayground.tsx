@@ -254,7 +254,11 @@ function GatewayEnvironmentPanel({
           Authorization: `Bearer ${key}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model: data.get('model'), prompt }),
+        body: JSON.stringify({
+          model: data.get('model'),
+          prompt,
+          expectedEnvironment: environment,
+        }),
       });
       setReply(await readResponse<GatewayResponse>(response));
     } catch (reason) {
