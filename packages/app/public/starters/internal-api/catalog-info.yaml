@@ -1,0 +1,17 @@
+apiVersion: governance.backstage.io/v1alpha1
+kind: AIApp
+metadata:
+  name: internal-api
+spec:
+  name: Internal API
+  purpose: Describe the internal workflow the API supports and who uses it.
+  type: app
+  platform: GitHub
+  sourceUrl: https://github.com/example-org/internal-api
+  owner: user:default/guest
+  team: group:default/platform
+  lifecycle: experimental
+  deliveryStage: trial
+  audience: personal
+  classification: internal
+  usesAiAtRuntime: false
