@@ -521,17 +521,31 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         },
       }),
     );
-    await page.route(`**/api/governance/apps/${app.id}/history`, route =>
-      route.fulfill({ json: audit }),
-    );
+    let historyLoads = 0;
+    await page.route(`**/api/governance/apps/${app.id}/history`, route => {
+      historyLoads += 1;
+      return historyLoads === 1
+        ? route.fulfill({ status: 503 })
+        : route.fulfill({ json: audit });
+    });
     await page.goto(`/?app=${encodeURIComponent(app.id)}`);
     const details = page.getByRole('dialog', { name: handedOver.name });
     const guest = page.getByRole('button', { name: /enter|guest/i }).first();
     await expect(details.or(guest)).toBeVisible();
     if (await guest.isVisible()) await guest.click();
     await details.getByText('Audit history', { exact: true }).click();
+    await expect(
+      details.getByText('Audit history could not load.'),
+    ).toBeVisible();
+    const downloadAudit = details.getByRole('button', {
+      name: 'Download audit JSON',
+    });
+    await expect(downloadAudit).toHaveCount(0);
+    await details
+      .getByRole('button', { name: 'Retry loading audit history' })
+      .click();
     const downloadReady = page.waitForEvent('download');
-    await details.getByRole('button', { name: 'Download audit JSON' }).click();
+    await downloadAudit.click();
     const download = await downloadReady;
     expect(download.suggestedFilename()).toBe(
       `frontstage-audit-${app.id}.json`,
