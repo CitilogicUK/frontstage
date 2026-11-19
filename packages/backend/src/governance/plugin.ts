@@ -3127,6 +3127,21 @@ export const governancePlugin = createBackendPlugin({
                 }
               : undefined,
           );
+          if (
+            review.requestedBy.startsWith('user:') &&
+            review.requestedBy !== principal.userEntityRef &&
+            reviewers.includes(review.requestedBy)
+          ) {
+            await sendGovernanceNotification({
+              recipient: review.requestedBy,
+              title: retire
+                ? 'App retired after retirement review'
+                : 'App kept after retirement review',
+              description: 'Open the app in Inventory to view the decision.',
+              search: `?app=${encodeURIComponent(record.id)}`,
+              scope: `governance-retirement-decision-${record.id}-${decidedAt}`,
+            });
+          }
           res.json(visibleRecord(updated, principal));
         });
 
