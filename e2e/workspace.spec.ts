@@ -1768,6 +1768,20 @@ test('audit history shows production review and ownership handoff', async ({
   await expect(reviewRows).toHaveCount(1);
   await expect(reviewRows.first()).toContainText(handoff.name);
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
+  const reassessment = page.locator('.gov-report-summary > div').filter({
+    hasText: 'Apps needing risk reassessment',
+  });
+  await expect(reassessment.locator('dd')).toHaveText('1');
+  await reassessment
+    .getByRole('link', { name: 'View apps needing reassessment' })
+    .click();
+  await expect(page).toHaveURL(/review=reassess$/);
+  await expect(
+    page.getByRole('combobox', { name: 'Review status' }),
+  ).toHaveValue('reassess');
+  await expect(reviewRows).toHaveCount(1);
+  await expect(reviewRows.first()).toContainText(handoff.name);
+  await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await page.getByRole('link', { name: 'View required reviews' }).click();
   await expect(page).toHaveURL(/view=reviews&review=required$/);
   await expect(reviewRows).toHaveCount(1);

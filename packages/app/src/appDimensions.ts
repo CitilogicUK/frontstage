@@ -26,3 +26,15 @@ export function registrationSource(source?: string) {
     ? (source as keyof typeof appRegistrationSources)
     : 'unrecorded';
 }
+
+export function needsRiskReassessment(app: {
+  tier: number;
+  lifecycle: string;
+  riskAssessment?: { tier: number };
+}) {
+  return (
+    app.lifecycle !== 'retired' &&
+    app.riskAssessment !== undefined &&
+    app.riskAssessment.tier !== app.tier
+  );
+}

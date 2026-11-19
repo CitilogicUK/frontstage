@@ -6,6 +6,7 @@ import {
   appRiskTierNames,
   appRegistrationSources,
   registrationSource,
+  needsRiskReassessment,
 } from './appDimensions';
 import { deliveryStages, parseDeliveryStage } from './deliveryStages';
 import AssessmentOutlinedIcon from '@material-ui/icons/AssessmentOutlined';
@@ -35,6 +36,7 @@ type AppSummary = {
   type?: string;
   hostedAttestation?: { nextDue: string };
   tier: number;
+  riskAssessment?: { tier: number };
   lifecycle: string;
   platform: string;
   models: string[];
@@ -387,6 +389,9 @@ export function PortfolioReport({
       return unavailable.length ? [{ ...issue, unavailable }] : [];
     }) ?? [];
   const inventory = apps.filter(app => app.lifecycle !== 'retired');
+  const needsReassessment = canReview
+    ? inventory.filter(needsRiskReassessment).length
+    : 0;
   const stages = new Map(
     [...Object.entries(deliveryStages), ['unset', 'Unspecified']].map(
       ([key, label]) => [key, { label, withAi: 0, withoutAi: 0 }],
@@ -652,6 +657,22 @@ export function PortfolioReport({
             </div>
           )}
         </div>
+        {canReview && (
+          <div className="gov-panel">
+            <dt>Apps needing risk reassessment</dt>
+            <dd>{needsReassessment}</dd>
+            <small>
+              Non-retired apps whose saved tier differs from current policy.
+            </small>
+            {needsReassessment > 0 && (
+              <div>
+                <Link to="/?review=reassess">
+                  View apps needing reassessment
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
         {canReview && (
           <div className="gov-panel">
             <dt>Median time to first Tier 3 decision</dt>
