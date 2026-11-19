@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
+// eslint-disable-next-line no-restricted-imports -- The standalone starter uses Node's test runner.
 import { test } from 'node:test';
 import { readText, runModel } from './gateway.mjs';
 

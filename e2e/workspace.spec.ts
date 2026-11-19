@@ -284,6 +284,22 @@ test('workspace screens share navigation and fit the viewport', async ({
         }
       }
     }
+    if (id === 'gateway-assistant' && testInfo.project.name === 'desktop') {
+      const projectDir = await mkdtemp(join(tmpdir(), 'frontstage-gateway-'));
+      try {
+        await Promise.all(
+          ['gateway.mjs', 'gateway.test.mjs'].map(name =>
+            writeFile(join(projectDir, name), files[`${id}/${name}`]),
+          ),
+        );
+        execFileSync(process.execPath, ['--test'], {
+          cwd: projectDir,
+          timeout: 10_000,
+        });
+      } finally {
+        await rm(projectDir, { recursive: true, force: true });
+      }
+    }
     if (usesAi) {
       expect(brief).toContain('Configured model: `gpt-4.1-mini`');
       expect(descriptor).toContain('models: ["gpt-4.1-mini"]');
