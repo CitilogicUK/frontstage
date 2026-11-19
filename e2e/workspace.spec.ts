@@ -1,4 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { unzipSync, strFromU8 } from 'fflate';
 import { expect, test, type Page } from '@playwright/test';
 import { workspaceBackendUrl, workspaceUrl } from './workspaceUrls';
@@ -51,7 +54,7 @@ async function assertWorkspace(page: Page, heading: string, active?: string) {
 test('workspace screens share navigation and fit the viewport', async ({
   page,
   request,
-}) => {
+}, testInfo) => {
   await expect
     .poll(
       async () => {
@@ -193,6 +196,7 @@ test('workspace screens share navigation and fit the viewport', async ({
     ['gateway-agent', 'agent', true],
     ['gateway-automation', 'automation', true],
     ['ai-assisted-software', 'AI-assisted software', false],
+    ['internal-api', 'internal API', false],
   ] as const) {
     const pending = page.waitForEvent('download');
     await page
@@ -224,6 +228,34 @@ test('workspace screens share navigation and fit the viewport', async ({
     expect(descriptor).toContain('classification: restricted');
     expect(descriptor).toContain('backupOwner: user:default/backup');
     expect(brief).toContain('Highest data classification: restricted');
+    if (id === 'internal-api') {
+      expect(descriptor).not.toMatch(/^\s+models:/m);
+      const appPackage = JSON.parse(strFromU8(files[`${id}/package.json`]));
+      expect(appPackage.scripts).toEqual({
+        start: 'node server.mjs',
+        test: 'node --test',
+      });
+      expect(files[`${id}/server.mjs`]).toBeDefined();
+      expect(files[`${id}/server.test.mjs`]).toBeDefined();
+      if (testInfo.project.name === 'desktop') {
+        const projectDir = await mkdtemp(
+          join(tmpdir(), 'frontstage-internal-api-'),
+        );
+        try {
+          await Promise.all(
+            ['package.json', 'server.mjs', 'server.test.mjs'].map(name =>
+              writeFile(join(projectDir, name), files[`${id}/${name}`]),
+            ),
+          );
+          execFileSync(process.execPath, ['--test'], {
+            cwd: projectDir,
+            timeout: 10_000,
+          });
+        } finally {
+          await rm(projectDir, { recursive: true, force: true });
+        }
+      }
+    }
     if (usesAi) {
       expect(brief).toContain('Configured model: `gpt-4.1-mini`');
       expect(descriptor).toContain('models: ["gpt-4.1-mini"]');
@@ -239,9 +271,7 @@ test('workspace screens share navigation and fit the viewport', async ({
       );
     }
   }
-  await page
-    .getByRole('link', { name: 'Register from ai-assisted software' })
-    .click();
+  await page.getByRole('link', { name: 'Register from internal api' }).click();
   await expect(page.getByLabel('Does the app use AI at runtime?')).toHaveValue(
     'no',
   );
