@@ -10,6 +10,7 @@ import AssessmentOutlinedIcon from '@material-ui/icons/AssessmentOutlined';
 import { isReviewOverdue, requiresCriticalReview } from './reviewDue';
 import {
   renewalExceptionUtc,
+  useRenewalClock,
   type RenewalException,
 } from './AppRenewalException';
 import {
@@ -340,6 +341,9 @@ export function PortfolioReport({
           (a, b) => a.expiry - b.expiry || a.app.name.localeCompare(b.app.name),
         )
     : [];
+  const exceptionNow = useRenewalClock(
+    renewalExceptions.map(item => item.expiry),
+  );
   const reviewable = inventory.filter(app => app.tier === 2 || app.tier === 3);
   const overdue = reviewable.filter(app => isReviewOverdue(app, now)).length;
   const critical = inventory.filter(app => requiresCriticalReview(app, now));
@@ -916,7 +920,7 @@ export function PortfolioReport({
                   <li key={app.id}>
                     <Link to={reportAppLink(app.id)}>{app.name}</Link>
                     <p>
-                      {expiry <= now ? 'Expired ' : 'Expires '}
+                      {expiry <= exceptionNow ? 'Expired ' : 'Expires '}
                       <time dateTime={exception.expiresAt}>
                         {renewalExceptionUtc(exception.expiresAt)}
                       </time>

@@ -2423,6 +2423,12 @@ test('an independent reviewer can grant and revoke a renewal exception', async (
     updatedAt: new Date(+start + 1).toISOString(),
     renewalException: exception,
   };
+  const expiredApp = {
+    ...grantedApp,
+    id: 'expired-renewal-demo',
+    name: 'Expired renewal app',
+    renewalException: { ...exception, expiresAt: dateAfterDays(-1) },
+  };
   let current: typeof app | typeof grantedApp = app;
   let actor = reviewer;
   let split = false;
@@ -2433,7 +2439,7 @@ test('an independent reviewer can grant and revoke a renewal exception', async (
         canReview: actor === reviewer,
         reviewTracks: split ? ['security', 'dataProtection'] : [],
         reviewerTracks: split ? ['security'] : [],
-        apps: [current],
+        apps: [current, expiredApp],
       },
     }),
   );
@@ -2498,15 +2504,21 @@ test('an independent reviewer can grant and revoke a renewal exception', async (
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   const exceptions = page.getByRole('region', { name: 'Renewal exceptions' });
   await expect(exceptions.getByText(/Expires/)).toBeVisible();
-  await expect(exceptions.locator('time')).toHaveAttribute('datetime', expiry);
+  await expect(exceptions.getByRole('link')).toHaveText([
+    expiredApp.name,
+    app.name,
+  ]);
+  await expect(exceptions.getByText(/Expired .*UTC/)).toBeVisible();
+  await expect(exceptions.locator('time').last()).toHaveAttribute(
+    'datetime',
+    expiry,
+  );
   await exceptions.getByRole('link', { name: app.name }).click();
   await revoke.click();
   await expect(details.getByText('Renewal exception revoked.')).toBeVisible();
   await expect(grant).toBeVisible();
   await closeDetails.click();
-  await expect(
-    exceptions.getByText('No renewal exceptions on active Tier 3 apps.'),
-  ).toBeVisible();
+  await expect(exceptions.getByRole('link')).toHaveText([expiredApp.name]);
 
   actor = app.owner;
   current = {
