@@ -1663,6 +1663,19 @@ test('a hosted app owner can correct and attest to the declared workspace', asyn
     'Workspace confirmation missing',
   );
   await expect(inventory.getByRole('row')).toHaveCount(3);
+  const ownership = inventory.getByRole('combobox', {
+    name: 'Ownership',
+    exact: true,
+  });
+  const statusFilter = inventory.getByRole('combobox', {
+    name: 'Review status',
+    exact: true,
+  });
+  await ownership.selectOption('backup');
+  await expect(statusFilter).toHaveValue('');
+  await statusFilter.selectOption('workspace');
+  await expect(ownership).toHaveValue('me');
+  await expect(inventory.getByRole('row')).toHaveCount(3);
 
   await page.getByRole('link', { name: 'Reports', exact: true }).click();
   await missing.click();

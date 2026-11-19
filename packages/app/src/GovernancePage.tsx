@@ -342,6 +342,9 @@ export function GovernancePage() {
       const next = new URLSearchParams(previous);
       if (value === 'me' || value === 'backup') next.set('owner', value);
       else next.delete('owner');
+      if (value !== 'me' && next.get('review') === 'workspace') {
+        next.delete('review');
+      }
       return next;
     });
   }
@@ -1045,6 +1048,7 @@ export function GovernancePage() {
       const next = new URLSearchParams(previous);
       if (value) next.set(key, value);
       else next.delete(key);
+      if (key === 'review' && value === 'workspace') next.set('owner', 'me');
       return next;
     });
   }
