@@ -392,7 +392,25 @@ test('workspace screens share navigation and fit the viewport', async ({
 
 test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   page,
+  request,
 }) => {
+  test.setTimeout(60_000);
+  await expect
+    .poll(
+      async () => {
+        const response = await request
+          .get(`${workspaceBackendUrl}/.backstage/health/v1/readiness`, {
+            timeout: 2_000,
+          })
+          .catch(() => undefined);
+        if (!response) return 0;
+        const status = response.status();
+        await response.dispose();
+        return status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(200);
   const actor = 'user:default/demo-owner';
   let viewer = actor;
   const base = {
