@@ -5142,7 +5142,8 @@ describe('governance record access', () => {
       .mockResolvedValueOnce(
         new Response(
           "[project]\ndependencies = ['anthropic']\n" +
-            "[project.optional-dependencies]\nresearch = ['litellm']",
+            "[project.optional-dependencies]\nresearch = ['litellm']\n" +
+            "[tool.poetry.group.experiments.dependencies]\nlangchain-openai = '^0.3'",
           { headers: { 'Content-Type': 'application/vnd.github.raw+json' } },
         ),
       );
@@ -5163,7 +5164,7 @@ describe('governance record access', () => {
           {
             path: 'pyproject.toml',
             status: 'checked',
-            packages: ['anthropic', 'litellm'],
+            packages: ['anthropic', 'langchain-openai', 'litellm'],
           },
         ],
       });

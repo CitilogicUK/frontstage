@@ -44,6 +44,18 @@ const packageManifest = z.object({
   peerDependencies: dependencyMap,
 });
 
+const poetryDependencyTable = z.record(z.string(), z.unknown());
+const poetryDependencies = z
+  .record(
+    z.string(),
+    z.union([
+      z.string(),
+      poetryDependencyTable,
+      z.array(poetryDependencyTable),
+    ]),
+  )
+  .optional();
+
 const pyprojectManifest = z.object({
   project: z
     .object({
@@ -53,19 +65,39 @@ const pyprojectManifest = z.object({
         .optional(),
     })
     .optional(),
+  tool: z
+    .object({
+      poetry: z
+        .object({
+          dependencies: poetryDependencies,
+          'dev-dependencies': poetryDependencies,
+          group: z
+            .record(z.string(), z.object({ dependencies: poetryDependencies }))
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
-function pythonSdkPackages(requirements: string[]) {
-  const packages = new Set<string>();
-  for (const requirement of requirements) {
+function pythonRequirementNames(requirements: string[]) {
+  return requirements.flatMap(requirement => {
     const match =
       /^([a-z0-9][a-z0-9._-]*)(?:\[[a-z0-9.,_ -]+\])?\s*(?:[<>=!~;@#]|$)/i.exec(
         requirement.trim(),
       );
-    const name = match?.[1].toLowerCase().replace(/[-_.]+/g, '-');
-    if (name && pythonSdkNames.has(name)) packages.add(name);
-  }
-  return [...packages].sort();
+    return match ? [match[1]] : [];
+  });
+}
+
+function pythonSdkPackages(names: string[]) {
+  return [
+    ...new Set(
+      names
+        .map(name => name.toLowerCase().replace(/[-_.]+/g, '-'))
+        .filter(name => pythonSdkNames.has(name)),
+    ),
+  ].sort();
 }
 
 export function sdkPackages(
@@ -91,7 +123,9 @@ export function sdkPackages(
   }
 
   if (path === 'requirements.txt')
-    return pythonSdkPackages(content.split(/\r\n|\r|\n/));
+    return pythonSdkPackages(
+      pythonRequirementNames(content.split(/\r\n|\r|\n/)),
+    );
 
   let value: unknown;
   try {
@@ -101,9 +135,17 @@ export function sdkPackages(
   }
   const manifest = pyprojectManifest.safeParse(value);
   if (!manifest.success) return undefined;
-  const { project } = manifest.data;
+  const { project, tool } = manifest.data;
+  const poetry = tool?.poetry;
   return pythonSdkPackages([
-    ...(project?.dependencies ?? []),
-    ...Object.values(project?.['optional-dependencies'] ?? {}).flat(),
+    ...pythonRequirementNames([
+      ...(project?.dependencies ?? []),
+      ...Object.values(project?.['optional-dependencies'] ?? {}).flat(),
+    ]),
+    ...Object.keys(poetry?.dependencies ?? {}),
+    ...Object.keys(poetry?.['dev-dependencies'] ?? {}),
+    ...Object.values(poetry?.group ?? {}).flatMap(group =>
+      Object.keys(group.dependencies ?? {}),
+    ),
   ]);
 }
