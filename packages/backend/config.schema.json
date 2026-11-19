@@ -35,6 +35,12 @@
           "maximum": 365,
           "description": "Optional number of overdue calendar days before escalating a Tier 2 or Tier 3 renewal to the owner's active Catalog manager after an owner reminder."
         },
+        "reviewGatewayPauseDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "description": "Optional overdue calendar days before pausing Tier 2 gateway requests after manager notification. Requires scheduled owner reminders and manager escalation."
+        },
         "graduationGroups": {
           "type": "array",
           "description": "Active catalog Group entity references allowed to receive Tier 3 ownership transfers. An empty or unset list disables graduation.",

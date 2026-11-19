@@ -384,6 +384,10 @@ describe('governance record access', () => {
     const nextOwner = 'user:default/next';
     const inactiveOwner = 'user:default/inactive';
     const manager = 'user:default/manager';
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NODE_ENV: 'development',
+    });
     const reviewer = 'user:default/reviewer';
     const backupOwner = 'user:default/backup';
     const inactive = new Set<string>();
@@ -424,9 +428,18 @@ describe('governance record access', () => {
         mockServices.rootConfig.factory({
           data: {
             app: { baseUrl: 'https://portal.example.com/internal/' },
+            backend: { listen: { host: '127.0.0.1' } },
             governance: {
               reviewReminderIntervalMinutes: 15,
               reviewManagerEscalationDays: 14,
+              reviewGatewayPauseDays: 30,
+              gateway: {
+                enabled: true,
+                mode: 'simulation',
+                models: {
+                  'test-model': { allowedClassifications: ['internal'] },
+                },
+              },
               approvedHostedWorkspaces: [
                 { provider: 'Example AI', workspace: 'Company' },
                 { provider: 'Example AI', workspace: 'Company 2' },
@@ -793,6 +806,56 @@ describe('governance record access', () => {
     await run();
     await run();
     expect(managerMessages()).toHaveLength(2);
+
+    const laterPath = `/api/governance/apps/${later.id}`;
+    const { body: active } = await api
+      .patch(`${laterPath}/lifecycle`)
+      .set('Authorization', ownerAuth)
+      .send({ lifecycle: 'active' })
+      .expect(200);
+    const { body: credential } = await api
+      .post(`${laterPath}/gateway-key`)
+      .set('Authorization', ownerAuth)
+      .expect(201);
+    const call = () =>
+      api
+        .post('/api/governance/gateway/chat')
+        .set('Authorization', `Bearer ${credential.key}`)
+        .send({ model: 'test-model', prompt: 'Synthetic test prompt' });
+
+    const pauseAt = now + 38 * day;
+    clock.mockReturnValue(pauseAt);
+    await call().expect(200);
+    clock.mockReturnValue(pauseAt - 1);
+    await run();
+    expect(managerMessages()).toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          link: `https://portal.example.com/internal/?app=${later.id}`,
+        }),
+      }),
+    );
+    await call().expect(200);
+    clock.mockReturnValue(pauseAt);
+    await call()
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.error.message).toContain('overdue attestation');
+      });
+    const usage = await api
+      .get(`${laterPath}/usage`)
+      .set('Authorization', ownerAuth)
+      .expect(200);
+    expect(usage.body.blocks).toContainEqual({
+      reason: 'attestation-overdue',
+      calls: 1,
+    });
+    await api
+      .post(`${laterPath}/attestation`)
+      .set('Authorization', ownerAuth)
+      .send({ confirmed: true, expectedUpdatedAt: active.updatedAt })
+      .expect(200);
+    await call().expect(200);
   });
 
   it('summarizes only the current owner’s active scorecard issues', async () => {

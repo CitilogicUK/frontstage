@@ -8,6 +8,7 @@ import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import {
+  managerRenewalReminderWasSent,
   reviewRemindersMigration,
   sendReviewReminders,
 } from './reviewReminders';
@@ -395,6 +396,23 @@ export const governancePlugin = createBackendPlugin({
           .max(365)
           .optional()
           .parse(config.getOptional('governance.reviewManagerEscalationDays'));
+        const reviewGatewayPauseDays = z
+          .number()
+          .int()
+          .min(1)
+          .max(365)
+          .optional()
+          .parse(config.getOptional('governance.reviewGatewayPauseDays'));
+        if (
+          reviewGatewayPauseDays !== undefined &&
+          (reviewReminderIntervalMinutes === undefined ||
+            reviewManagerEscalationDays === undefined ||
+            reviewGatewayPauseDays < reviewManagerEscalationDays)
+        ) {
+          throw new Error(
+            'Gateway attestation pauses require scheduled reminders and a pause delay at least as long as the manager escalation delay.',
+          );
+        }
         const graduationGroups = graduationGroupsInput
           .default([])
           .parse(config.getOptional('governance.graduationGroups'));
@@ -3049,6 +3067,24 @@ export const governancePlugin = createBackendPlugin({
           assertCanEdit,
           meetsLaunchRequirements,
           meetsGatewayReviewRequirements,
+          attestationPaused:
+            reviewGatewayPauseDays === undefined
+              ? undefined
+              : async (record, transaction) => {
+                  if (record.tier !== 2 || !record.nextReview) return false;
+                  const due = Date.parse(record.nextReview);
+                  if (
+                    !Number.isFinite(due) ||
+                    due + reviewGatewayPauseDays * 86_400_000 > Date.now()
+                  )
+                    return false;
+                  return managerRenewalReminderWasSent(
+                    transaction,
+                    record.id,
+                    record.owner,
+                    new Date(due).toISOString(),
+                  );
+                },
           evaluateTier,
           ownersAreActive,
           batchCatalogOwnership: async apps => {

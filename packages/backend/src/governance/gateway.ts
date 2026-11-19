@@ -567,6 +567,10 @@ export function registerGatewayRoutes(options: {
   ) => void;
   meetsLaunchRequirements: (app: GovernanceRecord) => boolean;
   meetsGatewayReviewRequirements: (app: GovernanceRecord) => boolean;
+  attestationPaused?: (
+    app: GovernanceRecord,
+    transaction: Database,
+  ) => Promise<boolean>;
   evaluateTier: (app: GovernanceRecord) => number;
   ownersAreActive: (app: GovernanceRecord) => Promise<boolean>;
   batchCatalogOwnership: (
@@ -585,6 +589,7 @@ export function registerGatewayRoutes(options: {
     assertCanEdit,
     meetsLaunchRequirements,
     meetsGatewayReviewRequirements,
+    attestationPaused,
     isReviewer,
     evaluateTier,
     ownersAreActive,
@@ -685,6 +690,11 @@ export function registerGatewayRoutes(options: {
 
   const inactiveGatewayAppMessage =
     'Set the app lifecycle to active before using the gateway.';
+  const attestationBlock = {
+    reason: 'attestation-overdue',
+    message:
+      'Gateway access is paused until the app owner completes the overdue attestation.',
+  };
 
   function launchBlock(app: GovernanceRecord) {
     if (app.usesAiAtRuntime === false)
@@ -1179,6 +1189,11 @@ export function registerGatewayRoutes(options: {
         );
       }
 
+      if (await attestationPaused?.(record, db)) {
+        await recordBlock(record.id, attestationBlock.reason, mode);
+        throw new NotAllowedError(attestationBlock.message);
+      }
+
       const requestsPerMinute = limitFor(record);
       if (requestsPerMinute) {
         const reservation = await reserveGatewayRequest(
@@ -1222,6 +1237,8 @@ export function registerGatewayRoutes(options: {
           );
         const blockAtForwarding = launchBlock(current.record);
         if (blockAtForwarding) return blockAtForwarding;
+        if (await attestationPaused?.(current.record, transaction))
+          return attestationBlock;
         const spend = appSpendThresholds.get(appSourceKey(record.sourceUrl));
         if (!simulated && spend?.stopAtThreshold) {
           const cost = await monthlyLiveCost(

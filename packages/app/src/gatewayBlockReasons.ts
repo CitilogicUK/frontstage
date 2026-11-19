@@ -2,6 +2,7 @@ const blockReasons: Record<string, string> = {
   'provider-hosted': 'Provider-hosted app',
   review: 'Review required',
   'tier-drift': 'Risk reassessment required',
+  'attestation-overdue': 'Overdue owner attestation',
   lifecycle: 'App inactive',
   ownership: 'Inactive or missing catalog ownership',
   model: 'Model or data policy',
@@ -16,6 +17,8 @@ export function gatewayBlockReason(reason: string) {
 }
 
 const nextSteps: Record<string, string> = {
+  'attestation-overdue':
+    'Ask the accountable owner to complete the overdue attestation before retrying.',
   'key-environment':
     'Use a gateway key issued for the environment requested by the app.',
   environment:
