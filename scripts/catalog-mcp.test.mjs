@@ -89,6 +89,33 @@ test(
         maxCompletionTokens: 2_048,
       },
     ];
+    const connectors = [
+      {
+        id: 'mcp-internal',
+        name: 'Internal MCP',
+        kind: 'mcp',
+        description: 'Read internal fixture records.',
+        access: 'read',
+        maxClassification: 'internal',
+      },
+      {
+        id: 'mcp-restricted',
+        name: 'Restricted MCP',
+        kind: 'mcp',
+        description: 'Read restricted fixture records.',
+        access: 'read',
+        maxClassification: 'restricted',
+        docsUrl: 'https://example.invalid/connectors/restricted-mcp',
+      },
+      {
+        id: 'data-restricted',
+        name: 'Restricted data',
+        kind: 'data',
+        description: 'Write restricted fixture records.',
+        access: 'write',
+        maxClassification: 'restricted',
+      },
+    ];
     const server = createServer(async (request, response) => {
       requests.push({
         path: request.url,
@@ -102,6 +129,18 @@ test(
         return;
       }
       switch (request.url) {
+        case '/workspace/api/governance/approved-connectors':
+          response.end(
+            JSON.stringify({
+              configured: true,
+              ...hiddenFields,
+              connectors: connectors.map(connector => ({
+                ...connector,
+                ...hiddenFields,
+              })),
+            }),
+          );
+          break;
         case '/workspace/api/governance/gateway/models':
           response.end(
             JSON.stringify({
@@ -167,6 +206,7 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'list_approved_connectors',
         'list_approved_models',
         'preview_risk',
         'search_apps',
@@ -207,6 +247,27 @@ test(
           enabled: true,
           productionAvailable: false,
           models: expected,
+        });
+        assert.deepEqual(
+          JSON.parse(listed.content[0].text),
+          listed.structuredContent,
+        );
+        assertPrivateFieldsAbsent(listed);
+      }
+      const invalidConnectors = await call('list_approved_connectors', {
+        kind: 'invalid',
+      });
+      assert.equal(invalidConnectors.isError, true);
+      assert.equal(requests.length, 3);
+      for (const [args, expected] of [
+        [{}, connectors],
+        [{ kind: 'mcp', classification: 'confidential' }, [connectors[1]]],
+      ]) {
+        const listed = await call('list_approved_connectors', args);
+        assert.equal(listed.isError ?? false, false);
+        assert.deepEqual(listed.structuredContent, {
+          configured: true,
+          connectors: expected,
         });
         assert.deepEqual(
           JSON.parse(listed.content[0].text),
@@ -278,6 +339,8 @@ test(
           '/workspace/api/governance/tier-preview',
           '/workspace/api/governance/gateway/models',
           '/workspace/api/governance/gateway/models',
+          '/workspace/api/governance/approved-connectors',
+          '/workspace/api/governance/approved-connectors',
           '/workspace/api/governance/apps',
           '/workspace/api/governance/apps/order-workflow',
           '/workspace/api/governance/apps/missing',
@@ -288,7 +351,7 @@ test(
       );
       assert.deepEqual(
         requests.map(request => request.method),
-        ['POST', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET', 'GET'],
+        ['POST', ...Array(10).fill('GET')],
       );
       assert.ok(
         requests.every(request => request.bearer === `Bearer ${token}`),
@@ -386,6 +449,7 @@ test(
       const { tools } = await client.listTools();
       assert.deepEqual(tools.map(tool => tool.name).sort(), [
         'get_app',
+        'list_approved_connectors',
         'list_approved_models',
         'preview_descriptor',
         'preview_risk',
