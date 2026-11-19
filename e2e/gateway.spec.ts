@@ -555,9 +555,23 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
       appId: app.id,
       ...audit,
     });
+    const displayedRecordDigest = details.getByRole('textbox', {
+      name: 'Final record digest (SHA-256)',
+    });
+    const displayedKeyDigest = details.getByRole('textbox', {
+      name: 'Final key event digest (SHA-256)',
+    });
+    await expect(displayedRecordDigest).toHaveValue(head);
+    await expect(displayedKeyDigest).toHaveValue(audit.keyEvents.at(-1).digest);
     const verification = spawnSync(
       process.execPath,
-      [verifier, exportPath, head],
+      [
+        verifier,
+        exportPath,
+        await displayedRecordDigest.inputValue(),
+        '--key-head',
+        await displayedKeyDigest.inputValue(),
+      ],
       { encoding: 'utf8' },
     );
     expect(verification.status, verification.stderr).toBe(0);
