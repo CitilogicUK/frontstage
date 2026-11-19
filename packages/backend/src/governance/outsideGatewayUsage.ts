@@ -176,8 +176,28 @@ export async function saveOutsideGatewayUsage(
   return { created: false, receipt: receipt(saved) };
 }
 
-export async function listOutsideGatewayUsage(db: Database) {
-  const rows = await db<ReconciliationRow>(reconciliationTable)
+export async function listOutsideGatewayUsage(db: Database, before: unknown) {
+  const pageSize = 20;
+  const query = db<ReconciliationRow>(reconciliationTable);
+  if (before !== undefined) {
+    const id = z.uuid().safeParse(before);
+    const cursor = id.success
+      ? await db<ReconciliationRow>(reconciliationTable)
+          .where({ id: id.data })
+          .first('id', 'confirmed_at')
+      : undefined;
+    if (!cursor) throw new InputError('Invalid reconciliation cursor.');
+    query.where(older =>
+      older
+        .where('confirmed_at', '<', cursor.confirmed_at)
+        .orWhere(tie =>
+          tie
+            .where('confirmed_at', cursor.confirmed_at)
+            .andWhere('id', '<', cursor.id),
+        ),
+    );
+  }
+  const rows = await query
     .select(
       'id',
       'confirmed_at',
@@ -188,8 +208,8 @@ export async function listOutsideGatewayUsage(db: Database) {
     )
     .orderBy('confirmed_at', 'desc')
     .orderBy('id', 'desc')
-    .limit(20);
-  return rows.map(row => ({
+    .limit(pageSize + 1);
+  const reconciliations = rows.slice(0, pageSize).map(row => ({
     id: row.id,
     confirmedAt: row.confirmed_at,
     confirmedBy: row.confirmed_by,
@@ -197,6 +217,12 @@ export async function listOutsideGatewayUsage(db: Database) {
     to: row.period_to,
     rowCount: row.row_count,
   }));
+  return {
+    reconciliations,
+    ...(rows.length > pageSize && {
+      nextCursor: reconciliations[pageSize - 1].id,
+    }),
+  };
 }
 
 export async function readOutsideGatewayUsage(db: Database, id: string) {

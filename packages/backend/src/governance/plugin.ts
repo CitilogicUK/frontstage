@@ -1053,9 +1053,9 @@ export const governancePlugin = createBackendPlugin({
             });
             if (!reviewers.includes(principal.userEntityRef))
               throw new NotAllowedError('Reviewer access is required.');
-            res.set('Cache-Control', 'no-store').json({
-              reconciliations: await listOutsideGatewayUsage(db),
-            });
+            res
+              .set('Cache-Control', 'no-store')
+              .json(await listOutsideGatewayUsage(db, req.query.before));
           },
         );
 

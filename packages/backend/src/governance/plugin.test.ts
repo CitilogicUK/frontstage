@@ -2896,6 +2896,35 @@ describe('governance record access', () => {
     expect(await db('governance_history').select('*')).toEqual([]);
     expect(await db('governance_gateway_usage').select('*')).toEqual([]);
     expect(await db('governance_gateway_blocks').select('*')).toEqual([]);
+
+    const tied = Array.from({ length: 21 }, (_, index) => ({
+      id: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      digest: index.toString(16).padStart(64, '0'),
+      confirmed_at: '2099-01-01T00:00:00.000Z',
+      confirmed_by: reviewer,
+      period_from: from,
+      period_to: to,
+      row_count: 2,
+      payload: JSON.stringify(saved.preview),
+    })).reverse();
+    await db('governance_outside_gateway_reconciliations').insert(tied);
+    const { body: firstPage } = await list().expect(200);
+    const ids = (body: { reconciliations: Array<{ id: string }> }) =>
+      body.reconciliations.map(row => row.id);
+    expect(ids(firstPage)).toEqual(tied.slice(0, 20).map(row => row.id));
+    expect(firstPage.nextCursor).toBe(tied[19].id);
+
+    const { body: secondPage } = await list()
+      .query({ before: firstPage.nextCursor })
+      .expect(200);
+    expect(ids(secondPage)[0]).toBe(tied[20].id);
+    expect(ids(secondPage).slice(1).sort()).toEqual(
+      [saved.id, concurrent[0].body.id].sort(),
+    );
+    expect(secondPage).not.toHaveProperty('nextCursor');
+    for (const before of ['invalid', '00000000-0000-4000-8000-000000000000']) {
+      await list().query({ before }).expect(400);
+    }
   });
 
   it('records outside-gateway provenance only for authorized registrations', async () => {

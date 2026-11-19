@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 import {
   configApiRef,
   discoveryApiRef,
@@ -26,6 +32,11 @@ type ReconciliationSummary = Omit<SavedReconciliation, 'preview'> & {
   from: string;
   to: string;
   rowCount: number;
+};
+
+type ReconciliationPage = {
+  reconciliations: ReconciliationSummary[];
+  nextCursor?: string;
 };
 
 function usageInput({ from, to, rows }: OutsideGatewayUsagePreview) {
@@ -58,34 +69,72 @@ export function OutsideGatewayUsage({
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File>();
   const [saved, setSaved] = useState<SavedReconciliation>();
-  const [history, setHistory] = useState<ReconciliationSummary[] | null>();
+  const [history, setHistory] = useState<ReconciliationPage | null>();
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController>();
+  const historyRequest = useRef<AbortController>();
   useEffect(() => () => request.current?.abort(), []);
+  const readHistory = useCallback(
+    async (signal: AbortSignal, before?: string) => {
+      const base = await discovery.getBaseUrl('governance');
+      const query = before ? `?${new URLSearchParams({ before })}` : '';
+      const response = await fetch(base + reconciliationPath + query, {
+        signal,
+      });
+      if (!response.ok) throw new Error('Reconciliation history unavailable');
+      return (await response.json()) as ReconciliationPage;
+    },
+    [discovery, fetch],
+  );
   useEffect(() => {
     const controller = new AbortController();
-    discovery
-      .getBaseUrl('governance')
-      .then(base =>
-        fetch(base + reconciliationPath, { signal: controller.signal }),
-      )
-      .then(async response => {
-        if (!response.ok) throw new Error('Reconciliation history unavailable');
-        const result: { reconciliations: ReconciliationSummary[] } =
-          await response.json();
-        if (!controller.signal.aborted) setHistory(result.reconciliations);
+    setHistory(undefined);
+    setLoadingOlder(false);
+    setOlderError(false);
+    readHistory(controller.signal)
+      .then(result => {
+        if (!controller.signal.aborted) setHistory(result);
       })
       .catch(() => {
         if (!controller.signal.aborted) setHistory(null);
       });
-    return () => controller.abort();
-  }, [discovery, fetch, historyVersion]);
+    return () => {
+      controller.abort();
+      historyRequest.current?.abort();
+    };
+  }, [readHistory, historyVersion]);
   const sampleUrl = `${config
     .getString('app.baseUrl')
     .replace(/\/$/, '')}/examples/outside-gateway-usage.json`;
   const preview = saved?.preview ?? livePreview;
   const callCount = preview?.rows.reduce((total, row) => total + row.calls, 0);
+
+  async function loadOlder(before: string) {
+    historyRequest.current?.abort();
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    setLoadingOlder(true);
+    setOlderError(false);
+    try {
+      const result = await readHistory(controller.signal, before);
+      if (!controller.signal.aborted) {
+        setHistory(previous => ({
+          ...result,
+          reconciliations: [
+            ...(previous?.reconciliations ?? []),
+            ...result.reconciliations,
+          ],
+        }));
+      }
+    } catch {
+      if (!controller.signal.aborted) setOlderError(true);
+    } finally {
+      if (!controller.signal.aborted) setLoadingOlder(false);
+    }
+  }
 
   function clearPreview() {
     setSaved(undefined);
@@ -294,10 +343,12 @@ export function OutsideGatewayUsage({
         <p role="status">Loading saved reconciliations…</p>
       )}
       {history === null && <p>Saved reconciliations could not load.</p>}
-      {history?.length === 0 && <p>No saved reconciliations.</p>}
-      {!!history?.length && (
+      {history?.reconciliations.length === 0 && (
+        <p>No saved reconciliations.</p>
+      )}
+      {!!history?.reconciliations.length && (
         <ul>
-          {history.map(item => (
+          {history.reconciliations.map(item => (
             <li key={item.id}>
               <button
                 type="button"
@@ -311,6 +362,20 @@ export function OutsideGatewayUsage({
           ))}
         </ul>
       )}
+      {history?.nextCursor && (
+        <button
+          type="button"
+          disabled={loadingOlder}
+          onClick={() => {
+            if (history.nextCursor) void loadOlder(history.nextCursor);
+          }}
+        >
+          {loadingOlder
+            ? 'Loading older reconciliations…'
+            : 'Load older reconciliations'}
+        </button>
+      )}
+      {olderError && <p role="alert">Older reconciliations could not load.</p>}
       {preview && (
         <>
           {saved ? (

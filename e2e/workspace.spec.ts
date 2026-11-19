@@ -715,9 +715,17 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
       ],
     },
   };
+  const olderReconciliation = {
+    id: 'reconciliation-older',
+    confirmedAt: '2026-05-25T10:00:00.000Z',
+    confirmedBy: reviewer,
+    from: '2026-05-18T00:00:00Z',
+    to: '2026-05-24T00:00:00Z',
+    rowCount: 1,
+  };
   let reconciliationSaved = false;
   await page.route(
-    '**/api/governance/reports/outside-gateway/reconciliations',
+    /\/api\/governance\/reports\/outside-gateway\/reconciliations(?:\?|$)/,
     route => {
       const request = route.request();
       if (request.method() === 'POST') {
@@ -726,8 +734,16 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
         return route.fulfill({ status: 201, json: reconciliation });
       }
       expect(request.method()).toBe('GET');
+      const before = new URL(request.url()).searchParams.get('before');
+      if (before) {
+        expect(before).toBe(reconciliation.id);
+        return route.fulfill({
+          json: { reconciliations: [olderReconciliation] },
+        });
+      }
       return route.fulfill({
         json: {
+          nextCursor: reconciliationSaved ? reconciliation.id : undefined,
           reconciliations: reconciliationSaved
             ? [
                 {
@@ -864,9 +880,22 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   await page.reload();
   await expect(report.or(guest)).toBeVisible();
   if (await guest.isVisible()) await guest.click();
-  await report
-    .getByRole('button', { name: /Open saved reconciliation/ })
-    .click();
+  const openOriginal = report.getByRole('button', {
+    name: `Open saved reconciliation from ${snapshot.from} to ${snapshot.to}`,
+  });
+  const loadOlder = report.getByRole('button', {
+    name: 'Load older reconciliations',
+  });
+  await expect(openOriginal).toBeVisible();
+  await loadOlder.click();
+  await expect(
+    report.getByRole('button', {
+      name: `Open saved reconciliation from ${olderReconciliation.from} to ${olderReconciliation.to}`,
+    }),
+  ).toBeVisible();
+  await expect(openOriginal).toBeVisible();
+  await expect(loadOlder).toHaveCount(0);
+  await openOriginal.click();
   await expect(report.getByText(/^Saved reconciliation\b/)).toBeVisible();
   await expect(
     report.getByRole('row', { name: new RegExp(app.name) }),
