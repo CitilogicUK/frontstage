@@ -221,7 +221,7 @@ Set `governance.retirementReviewIntervalMinutes` to an integer from 15 to 10,080
 
 ### Review usage outside the gateway
 
-In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and counts unmatched rows. Download its CSV to share the reporting window, call totals, and matched app IDs for follow-up. The preview does not contact the provider or save the export. Select **Save reconciliation** to record the reporting window, usage rows, and app matches at save time. Open a result under **Saved reconciliations** to review or download it later. The list shows the 20 most recent saves. Equivalent submissions reopen the original save.
+In **Reports → Outside-gateway usage**, reviewers can preview an export of calls already identified by their provider or billing records as outside Frontstage. Map each row to a registered app’s source URL when known. The preview links matches to Inventory and counts unmatched rows. Download its CSV to share the reporting window, call totals, and matched app IDs for follow-up. The preview does not contact the provider or save the export. Select **Save reconciliation** to record the reporting window, usage rows, and app matches at save time. Open a result under **Saved reconciliations** to review or download it later. Select **Recheck against current Inventory** to see today’s matches and act on unmatched rows. Rechecking leaves the saved result available as originally recorded. The list shows the 20 most recent saves. Equivalent submissions reopen the original save.
 
 ```json
 {
