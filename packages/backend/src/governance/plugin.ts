@@ -8,7 +8,7 @@ import { isHttpsUrlWithoutCredentials } from './httpsUrl';
 import { approvedConnectorsInput } from './approvedConnectors';
 import { reviewTurnaround } from './reviewTurnaround';
 import {
-  managerRenewalReminderWasSent,
+  findAppsWithSentManagerRenewalReminders,
   reviewRemindersMigration,
   sendReviewReminders,
 } from './reviewReminders';
@@ -3297,22 +3297,30 @@ export const governancePlugin = createBackendPlugin({
           assertCanEdit,
           meetsLaunchRequirements,
           meetsGatewayReviewRequirements,
-          attestationPaused:
+          pausedAttestations:
             reviewGatewayPauseDays === undefined
               ? undefined
-              : async (record, transaction) => {
-                  if (record.tier !== 2 || !record.nextReview) return false;
-                  const due = Date.parse(record.nextReview);
-                  if (
-                    !Number.isFinite(due) ||
-                    due + reviewGatewayPauseDays * 86_400_000 > Date.now()
-                  )
-                    return false;
-                  return managerRenewalReminderWasSent(
+              : async (records, transaction) => {
+                  const now = Date.now();
+                  const candidates = records.flatMap(record => {
+                    if (record.tier !== 2 || !record.nextReview) return [];
+                    const due = Date.parse(record.nextReview);
+                    if (
+                      !Number.isFinite(due) ||
+                      due + reviewGatewayPauseDays * 86_400_000 > now
+                    )
+                      return [];
+                    return [
+                      {
+                        appId: record.id,
+                        owner: record.owner,
+                        due: new Date(due).toISOString(),
+                      },
+                    ];
+                  });
+                  return findAppsWithSentManagerRenewalReminders(
                     transaction,
-                    record.id,
-                    record.owner,
-                    new Date(due).toISOString(),
+                    candidates,
                   );
                 },
           evaluateTier,
