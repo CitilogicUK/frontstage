@@ -377,6 +377,10 @@ export function GovernancePage() {
     daysParam === '1' || daysParam === '7' ? Number(daysParam) : 30;
   const [reviewTurnaround, setReviewTurnaround] =
     useState<ReviewTurnaroundReport | null>();
+  const [reviewTurnaroundAttempt, setReviewTurnaroundAttempt] = useState(0);
+  function retryReviewTurnaround() {
+    setReviewTurnaroundAttempt(attempt => attempt + 1);
+  }
   const [ownershipReport, setOwnershipReport] =
     useState<OwnershipReport | null>();
   const [ownershipLoadAttempt, setOwnershipLoadAttempt] = useState(0);
@@ -747,7 +751,7 @@ export function GovernancePage() {
     return () => {
       active = false;
     };
-  }, [api, apps, canReview, firstDecisionQueue, view]);
+  }, [api, apps, canReview, firstDecisionQueue, reviewTurnaroundAttempt, view]);
 
   useEffect(() => {
     if (view !== 'Reports' || !canReview) return undefined;
@@ -1779,9 +1783,12 @@ export function GovernancePage() {
                 </p>
               )}
             {firstDecisionQueue && reviewTurnaround === null && (
-              <p className="gov-empty" role="alert">
-                First decisions could not be loaded.
-              </p>
+              <div className="gov-notice">
+                <p role="alert">First decisions could not be loaded.</p>
+                <button type="button" onClick={retryReviewTurnaround}>
+                  Retry loading first decisions
+                </button>
+              </div>
             )}
             {!loading &&
               actor &&
@@ -2877,6 +2884,7 @@ export function GovernancePage() {
           }
           hostedWorkspaces={hostedWorkspaceReport}
           reviewTurnaround={reviewTurnaround}
+          onRetryReviewTurnaround={retryReviewTurnaround}
           canReview={canReview}
           loading={loading}
           error={reportError}
