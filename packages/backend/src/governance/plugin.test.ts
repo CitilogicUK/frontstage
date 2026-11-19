@@ -1349,6 +1349,51 @@ describe('governance record access', () => {
       apps: [],
       unavailableRequests: [{ ...unavailableEntry, requestStatus: 'declined' }],
     });
+    const { body: audit } = await api
+      .get(`${path}/history`)
+      .set('Authorization', auth(reviewer))
+      .expect(200);
+    const auditEvents = (
+      audit.events as Array<{ event: string; digest: string }>
+    ).map(({ event, digest }) => ({
+      event,
+      digest,
+      parsed: JSON.parse(event),
+    }));
+    const decisionEvents = auditEvents.filter(({ parsed }) =>
+      parsed.action.startsWith('directory-access-'),
+    );
+    expect(decisionEvents.map(({ parsed }) => parsed)).toMatchObject([
+      {
+        action: 'directory-access-approved',
+        actor: owner,
+        at: approved.decidedAt,
+        record: { id: app.id },
+      },
+      {
+        action: 'directory-access-declined',
+        actor: reviewer,
+        at: declined.decidedAt,
+        record: { id: app.id },
+      },
+    ]);
+    for (const { event, digest, parsed } of decisionEvents) {
+      expect(digest).toBe(createHash('sha256').update(event).digest('hex'));
+      expect(parsed.previousDigest).toBe(
+        auditEvents.find(item => item.parsed.revision === parsed.revision - 1)
+          ?.digest,
+      );
+      for (const privateValue of [
+        created.id,
+        pending.id,
+        requester,
+        otherRequester,
+        requestMessage,
+        'Second private message.',
+      ]) {
+        expect(event).not.toContain(privateValue);
+      }
+    }
     const { body: decidedInventory } = await api
       .get(collection)
       .set('Authorization', auth(owner))

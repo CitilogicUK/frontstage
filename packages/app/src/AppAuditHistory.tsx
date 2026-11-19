@@ -70,7 +70,13 @@ function keyEnvironmentLabel(event?: string) {
   return undefined;
 }
 
-export function AppAuditHistory({ appId }: { appId: string }) {
+export function AppAuditHistory({
+  appId,
+  refreshVersion,
+}: {
+  appId: string;
+  refreshVersion: number;
+}) {
   const discovery = useApi(discoveryApiRef);
   const { fetch } = useApi(fetchApiRef);
   const [open, setOpen] = useState(false);
@@ -99,7 +105,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
-  }, [appId, discovery, fetch, loadAttempt, open]);
+  }, [appId, discovery, fetch, loadAttempt, open, refreshVersion]);
 
   function download() {
     const url = URL.createObjectURL(
@@ -120,6 +126,7 @@ export function AppAuditHistory({ appId }: { appId: string }) {
       const entry: {
         action: string;
         actor: string;
+        at?: string;
         record: AuditRecord;
         lifecycleReason?: string;
         renewalException?: RenewalException;
@@ -284,13 +291,17 @@ export function AppAuditHistory({ appId }: { appId: string }) {
         action = 'Directory listing published';
       if (entry.action === 'directory-unpublished')
         action = 'Directory listing unpublished';
+      if (entry.action === 'directory-access-approved')
+        action = 'Directory access approved';
+      if (entry.action === 'directory-access-declined')
+        action = 'Directory access declined';
       previous = record;
       return {
         id: digest,
         action,
         actor: entry.actor,
         details,
-        at: new Date(entry.record.updatedAt),
+        at: new Date(entry.at ?? record.updatedAt),
       };
     }) ?? [];
   const keyEvents =
@@ -334,7 +345,16 @@ export function AppAuditHistory({ appId }: { appId: string }) {
                 <strong>{event.action}</strong>
                 {event.details.length > 0 && <p>{event.details.join(' · ')}</p>}
                 <p>
-                  {event.actor} · {event.at.toLocaleString()}
+                  {event.actor} ·{' '}
+                  <time
+                    dateTime={
+                      Number.isNaN(+event.at)
+                        ? undefined
+                        : event.at.toISOString()
+                    }
+                  >
+                    {event.at.toLocaleString()}
+                  </time>
                 </p>
               </li>
             ))}

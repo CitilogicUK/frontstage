@@ -123,11 +123,13 @@ export function DirectoryRequestQueue({
   listingMeetsLaunchRequirements,
   appRevision,
   onPendingChange,
+  onDecisionSaved,
 }: {
   appId: string;
   listingMeetsLaunchRequirements: boolean;
   appRevision: string;
   onPendingChange: (appId: string, hasPending: boolean) => void;
+  onDecisionSaved: () => void;
 }) {
   const api = useDirectoryRequestApi(appId);
   const [open, setOpen] = useState(false);
@@ -173,6 +175,7 @@ export function DirectoryRequestQueue({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
+      onDecisionSaved();
       setQueueVersion(version => version + 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));

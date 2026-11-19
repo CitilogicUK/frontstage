@@ -353,6 +353,7 @@ function CopyAppLink({ appId }: { appId: string }) {
 }
 
 export function GovernancePage() {
+  const [auditVersion, setAuditVersion] = useState(0);
   const analytics = useAnalytics();
   const config = useApi(configApiRef);
   const discovery = useApi(discoveryApiRef);
@@ -2806,6 +2807,7 @@ export function GovernancePage() {
                 appId={selected.id}
                 appRevision={selected.updatedAt}
                 onPendingChange={updatePendingAccessRequests}
+                onDecisionSaved={() => setAuditVersion(version => version + 1)}
                 listingMeetsLaunchRequirements={
                   selected.lifecycle === 'active' &&
                   selected.directoryLaunchEligible !== false &&
@@ -3103,6 +3105,7 @@ export function GovernancePage() {
               <AppAuditHistory
                 key={`audit-${selected.updatedAt}`}
                 appId={selected.id}
+                refreshVersion={auditVersion}
               />
             )}
             {gatewayEnabled &&
