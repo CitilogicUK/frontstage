@@ -50,21 +50,29 @@ export function HostedSnapshotPreview({
       setError('Choose a snapshot file no larger than 1 MB.');
       return;
     }
+    await runPreview(async () => {
+      const raw = file ? await file.text() : pasted;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        throw new Error('Enter a valid JSON snapshot.');
+      }
+    }, form);
+  }
+
+  async function runPreview(
+    readSnapshot: () => unknown | Promise<unknown>,
+    form?: HTMLFormElement,
+  ) {
     const controller = new AbortController();
     request.current = controller;
+    setError('');
     setPending(true);
     try {
-      const raw = file ? await file.text() : pasted;
+      const snapshot = await readSnapshot();
       if (controller.signal.aborted) return;
-      let snapshot: unknown;
-      try {
-        snapshot = JSON.parse(raw);
-      } catch {
-        setError('Enter a valid JSON snapshot.');
-        return;
-      }
       await onPreview(snapshot, controller.signal);
-      if (!controller.signal.aborted) form.reset();
+      if (!controller.signal.aborted) form?.reset();
     } catch (reason) {
       if (controller.signal.aborted) return;
       setError(
@@ -125,6 +133,25 @@ export function HostedSnapshotPreview({
         <p role="status">
           {apps.length} {apps.length === 1 ? 'app' : 'apps'} in preview.
         </p>
+      )}
+      {apps && (
+        <button
+          className="gov-button"
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            runPreview(() => ({
+              apps: apps.map(({ name, provider, workspace, sourceUrl }) => ({
+                name,
+                provider,
+                workspace,
+                sourceUrl,
+              })),
+            }))
+          }
+        >
+          Recheck snapshot
+        </button>
       )}
       {!!apps?.length && (
         <div className="governance-table">
