@@ -684,6 +684,9 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
       },
     });
   });
+  const invalidCsv = 'invalid usage export';
+  const csvError =
+    'Usage row 2 needs a whole call count from 1 to 1,000,000,000.';
   await page.route(
     '**/api/governance/reports/outside-gateway/preview',
     route => {
@@ -691,6 +694,12 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
       expect(request.method()).toBe('POST');
       const contentType = request.headers()['content-type'];
       if (contentType?.startsWith('text/csv')) {
+        if (request.postData() === invalidCsv) {
+          return route.fulfill({
+            status: 400,
+            json: { error: { name: 'InputError', message: csvError } },
+          });
+        }
         expect(sampleCsv).toBeDefined();
         expect(request.postData()).toBe(sampleCsv);
       } else {
@@ -802,6 +811,14 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
     report.getByText('15 reported calls · 2 rows · 1 unmatched'),
   ).toBeVisible();
   const upload = report.getByLabel('Upload usage file');
+  await usageJson.clear();
+  await upload.setInputFiles({
+    name: 'invalid.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(invalidCsv),
+  });
+  await preview.click();
+  await expect(report.getByRole('alert')).toHaveText(csvError);
   const pendingCsvSample = page.waitForEvent('download');
   await report.getByRole('link', { name: 'Download sample usage CSV' }).click();
   const csvSample = await pendingCsvSample;
@@ -809,7 +826,6 @@ test('reviewers can match outside-gateway usage to registered apps', async ({
   sampleCsv = await readFile(csvSamplePath, 'utf8');
   expect(sampleCsv).toContain(app.sourceUrl);
   expect(sampleCsv).toContain(snapshot.rows[1].sourceUrl);
-  await usageJson.clear();
   await upload.setInputFiles({
     name: csvSample.suggestedFilename(),
     mimeType: 'text/csv',

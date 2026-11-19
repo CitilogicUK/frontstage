@@ -2815,6 +2815,18 @@ describe('governance record access', () => {
       to,
       rows: [{ ...matching, appId: app.id, appName: 'Known app' }],
     });
+    const invalidCallCount = await previewCsv(
+      `${csvHeader}\n${csvRow}\n${from},${to},${unmatched.sourceUrl},fixture-model,5e0`,
+    ).expect(400);
+    expect(invalidCallCount.body.error.message).toBe(
+      'Usage row 2 needs a whole call count from 1 to 1,000,000,000.',
+    );
+    const duplicateUsage = await previewCsv(
+      `${csvHeader}\n${csvRow}\n${from},${to},${app.source_key},fixture-model,3`,
+    ).expect(400);
+    expect(duplicateUsage.body.error.message).toBe(
+      'Usage row 2 duplicates the source and model in usage row 1.',
+    );
     for (const malformed of [
       csvHeader,
       `${csvHeader.replace('calls', 'model')}\n${csvRow}`,
