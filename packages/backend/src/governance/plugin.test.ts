@@ -836,10 +836,23 @@ describe('governance record access', () => {
         ({ name }: { name: string }) => name === 'Gateway access',
       );
     };
+    const ownerChecks = async () => {
+      const { body } = await api
+        .get('/api/governance/owner-scorecard')
+        .set('Authorization', ownerAuth)
+        .expect(200);
+      return (
+        body.issues.find(({ appId }: { appId: string }) => appId === later.id)
+          ?.checks ?? []
+      );
+    };
     const pauseAt = now + 38 * day;
     clock.mockReturnValue(pauseAt);
     await call().expect(200);
     expect(await gatewayAccess()).toBeUndefined();
+    const beforeEscalation = await ownerChecks();
+    expect(beforeEscalation).toContain('Review status');
+    expect(beforeEscalation).not.toContain('Gateway access');
     clock.mockReturnValue(pauseAt - 1);
     await run();
     expect(managerMessages()).toContainEqual(
@@ -850,6 +863,7 @@ describe('governance record access', () => {
       }),
     );
     await call().expect(200);
+    expect(await ownerChecks()).not.toContain('Gateway access');
     clock.mockReturnValue(pauseAt);
     await call()
       .expect(403)
@@ -862,6 +876,7 @@ describe('governance record access', () => {
       detail:
         'Gateway access is paused until the app owner completes the overdue attestation.',
     });
+    expect(await ownerChecks()).toContain('Gateway access');
     const usage = await api
       .get(`${laterPath}/usage`)
       .set('Authorization', ownerAuth)
@@ -878,6 +893,7 @@ describe('governance record access', () => {
       .expect(200);
     await call().expect(200);
     expect(await gatewayAccess()).toBeUndefined();
+    expect(await ownerChecks()).not.toContain('Gateway access');
     await api
       .get(`${laterPath}/usage`)
       .set('Authorization', ownerAuth)

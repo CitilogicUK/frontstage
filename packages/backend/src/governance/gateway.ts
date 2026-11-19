@@ -600,10 +600,10 @@ export function registerGatewayRoutes(options: {
   ) => void;
   meetsLaunchRequirements: (app: GovernanceRecord) => boolean;
   meetsGatewayReviewRequirements: (app: GovernanceRecord) => boolean;
-  attestationPaused?: (
-    app: GovernanceRecord,
+  pausedAttestations?: (
+    apps: GovernanceRecord[],
     transaction: Database,
-  ) => Promise<boolean>;
+  ) => Promise<Set<string>>;
   evaluateTier: (app: GovernanceRecord) => number;
   ownersAreActive: (app: GovernanceRecord) => Promise<boolean>;
   batchCatalogOwnership: (
@@ -622,7 +622,7 @@ export function registerGatewayRoutes(options: {
     assertCanEdit,
     meetsLaunchRequirements,
     meetsGatewayReviewRequirements,
-    attestationPaused,
+    pausedAttestations,
     isReviewer,
     evaluateTier,
     ownersAreActive,
@@ -792,12 +792,24 @@ export function registerGatewayRoutes(options: {
     return undefined;
   }
 
+  function canHaveActiveAttestationPause(record: GovernanceRecord) {
+    return isScorecardGatewayApp(record) && !launchBlock(record);
+  }
+
+  async function isAttestationPaused(
+    record: GovernanceRecord,
+    database: Database,
+  ) {
+    return (
+      (await pausedAttestations?.([record], database))?.has(record.id) ?? false
+    );
+  }
+
   async function hasActiveAttestationPause(record: GovernanceRecord) {
     return Boolean(
-      attestationPaused &&
-        isScorecardGatewayApp(record) &&
-        !launchBlock(record) &&
-        (await attestationPaused(record, db)),
+      pausedAttestations &&
+        canHaveActiveAttestationPause(record) &&
+        (await isAttestationPaused(record, db)),
     );
   }
 
@@ -824,6 +836,7 @@ export function registerGatewayRoutes(options: {
       issuedKey: boolean;
       recentModes?: { execution_mode: string | null }[];
       monthlyLiveSpend?: number;
+      accessPaused?: boolean;
     },
   ) {
     const { ownership, issuedKey, recentModes, monthlyLiveSpend } = evidence;
@@ -981,6 +994,13 @@ export function registerGatewayRoutes(options: {
           : 'Gateway evidence is unavailable for this app.',
       });
     }
+    if (evidence.accessPaused) {
+      checks.push({
+        name: 'Gateway access',
+        status: false,
+        detail: attestationBlock.message,
+      });
+    }
     return checks.map(check => ({
       ...check,
       status: getCheckStatus(check.status),
@@ -1028,14 +1048,8 @@ export function registerGatewayRoutes(options: {
       monthlyLiveSpend: scorecardSpendThreshold(record)
         ? await monthlyLiveCost(db, record.id, currentUtcMonthStart())
         : undefined,
+      accessPaused,
     });
-    if (accessPaused) {
-      checks.push({
-        name: 'Gateway access',
-        status: 'attention',
-        detail: attestationBlock.message,
-      });
-    }
     res.set('Cache-Control', 'no-store').json({ checks });
   });
 
@@ -1074,11 +1088,16 @@ export function registerGatewayRoutes(options: {
         costs.forEach((cost, appId) => monthlySpend.set(appId, cost));
       }
     }
+    const pausedIds = await pausedAttestations?.(
+      apps.filter(canHaveActiveAttestationPause),
+      db,
+    );
     const issues = apps.flatMap(app => {
       const checks = scorecardChecks(app, {
         ownership: ownership?.get(app.id),
         issuedKey: issuedKeys.has(app.id),
         monthlyLiveSpend: monthlySpend.get(app.id) ?? 0,
+        accessPaused: pausedIds?.has(app.id),
       })
         .filter(check => check.status === 'attention')
         .map(check => check.name);
@@ -1298,7 +1317,7 @@ export function registerGatewayRoutes(options: {
         );
       }
 
-      if (await attestationPaused?.(record, db)) {
+      if (await isAttestationPaused(record, db)) {
         await recordBlock(record.id, attestationBlock.reason, mode);
         throw new NotAllowedError(attestationBlock.message);
       }
@@ -1346,7 +1365,7 @@ export function registerGatewayRoutes(options: {
           );
         const blockAtForwarding = launchBlock(current.record);
         if (blockAtForwarding) return blockAtForwarding;
-        if (await attestationPaused?.(current.record, transaction))
+        if (await isAttestationPaused(current.record, transaction))
           return attestationBlock;
         const spend = appSpendThresholds.get(appSourceKey(record.sourceUrl));
         if (!simulated && spend?.stopAtThreshold) {
