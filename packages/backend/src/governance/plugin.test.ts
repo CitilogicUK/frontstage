@@ -6585,6 +6585,31 @@ describe('governance record access', () => {
         'The configured model provider is temporarily unavailable.',
       );
     }
+    const cancelOversizedResponse = jest.fn();
+    provider.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(2 * 1024 * 1024));
+            controller.enqueue(new Uint8Array(2 * 1024 * 1024 + 1));
+          },
+          cancel: cancelOversizedResponse,
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const oversized = await call().expect(503);
+    expect(oversized.body.error.message).toBe(
+      'The configured model provider is temporarily unavailable.',
+    );
+    expect(cancelOversizedResponse).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenLastCalledWith('Model provider request failed', {
+      appId: app.body.id,
+      model: 'test-model',
+      kind: 'response-too-large',
+      upstreamStatus: undefined,
+      elapsedMs: expect.any(Number),
+    });
     await call()
       .expect('Server-Timing', /^frontstage;dur=\d+, provider;dur=\d+$/)
       .expect(200, {
@@ -6643,9 +6668,9 @@ describe('governance record access', () => {
     await keyStatus(sandboxPath).expect(200, { issued: true });
     await keyStatus(productionPath).expect(200, { issued: false });
     await call().expect(401);
-    expect(provider).toHaveBeenCalledTimes(7);
-    expect(warn).toHaveBeenCalledTimes(5);
-    expect(JSON.parse(String(provider.mock.calls[5][1]?.body))).toMatchObject({
+    expect(provider).toHaveBeenCalledTimes(8);
+    expect(warn).toHaveBeenCalledTimes(6);
+    expect(JSON.parse(String(provider.mock.calls[6][1]?.body))).toMatchObject({
       max_completion_tokens: 128,
     });
 
@@ -6698,7 +6723,7 @@ describe('governance record access', () => {
       appId: alertOnlyApp.id,
       checks: expect.arrayContaining(['Monthly gateway spend']),
     });
-    expect(provider).toHaveBeenCalledTimes(7);
+    expect(provider).toHaveBeenCalledTimes(8);
 
     await issue(productionPath).expect(201);
     await api

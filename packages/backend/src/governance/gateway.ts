@@ -1,3 +1,4 @@
+import { readBoundedResponseText } from './boundedResponse';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type {
   BackstageUserPrincipal,
@@ -165,6 +166,7 @@ export async function readRetirementCandidates(
 }
 
 const chatPath = '/gateway/chat';
+const providerResponseByteLimit = 4 * 1024 * 1024;
 const nanosPerDollar = 1_000_000_000;
 const rate = z.number().finite().nonnegative().max(1_000_000).default(0);
 const requestLimit = z.number().int().min(1).max(10_000);
@@ -549,7 +551,15 @@ async function callOpenai(
       throw new Error('Provider request was unsuccessful.');
     }
     kind = 'invalid-response';
-    const result = openaiResult.parse(await response.json());
+    const body = await readBoundedResponseText(
+      response,
+      providerResponseByteLimit,
+    );
+    if (body === undefined) {
+      kind = 'response-too-large';
+      throw new Error('Provider response exceeded the size limit.');
+    }
+    const result = openaiResult.parse(JSON.parse(body));
     const { content, refusal } = result.choices[0].message;
     const refusalText = refusal?.trim();
     const output = refusalText || content;

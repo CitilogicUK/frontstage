@@ -1,3 +1,4 @@
+import { readBoundedResponseText } from './boundedResponse';
 import type { DatabaseService } from '@backstage/backend-plugin-api';
 import { ConflictError, ServiceUnavailableError } from '@backstage/errors';
 import { z } from 'zod';
@@ -54,35 +55,6 @@ function repositoryPublicFlag(
 }
 
 const rootFileByteLimit = 100_000;
-
-async function readRootFile(response: Response) {
-  if (Number(response.headers.get('content-length')) > rootFileByteLimit) {
-    await response.body?.cancel();
-    return undefined;
-  }
-  if (!response.body) return '';
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  let bytes = 0;
-  let content = '';
-  try {
-    let chunk = await reader.read();
-    while (!chunk.done) {
-      bytes += chunk.value.byteLength;
-      if (bytes > rootFileByteLimit) return undefined;
-      content += decoder.decode(chunk.value, { stream: true });
-      chunk = await reader.read();
-    }
-    return content + decoder.decode();
-  } finally {
-    try {
-      await reader.cancel();
-    } finally {
-      reader.releaseLock();
-    }
-  }
-}
 
 export function discoveryMigration() {
   return {
@@ -291,7 +263,10 @@ export function githubDiscovery(
         await response.body?.cancel();
         return { status: 'unavailable' };
       }
-      const content = await readRootFile(response);
+      const content = await readBoundedResponseText(
+        response,
+        rootFileByteLimit,
+      );
       if (content !== undefined) return { status: 'checked', content };
     } catch {
       return { status: 'unavailable' };
