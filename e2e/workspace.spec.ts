@@ -88,6 +88,11 @@ test('workspace screens share navigation and fit the viewport', async ({
       },
     }),
   );
+  await page.route(
+    /\/api\/catalog\/entities(?:\?|$)/,
+    route => route.fulfill({ status: 503 }),
+    { times: 1 },
+  );
   await page.goto(catalogPath);
   const heading = page.getByRole('heading', {
     level: 1,
@@ -101,6 +106,18 @@ test('workspace screens share navigation and fit the viewport', async ({
   await expect(
     page.getByRole('button', { name: 'Components', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
+
+  const catalogSearch = page.getByRole('searchbox', { name: 'Search catalog' });
+  await expect(page.getByRole('alert')).toHaveText(
+    'The catalog could not load.',
+  );
+  await catalogSearch.fill('component fixture');
+  await page.getByRole('button', { name: 'Retry loading Catalog' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'No matching records' }),
+  ).toBeVisible();
+  await expect(catalogSearch).toHaveValue('component fixture');
+  await expect(page).toHaveURL(`${workspaceUrl}${catalogPath}`);
 
   const navigation = page.getByRole('navigation', { name: 'AI governance' });
   for (const destination of destinations) {

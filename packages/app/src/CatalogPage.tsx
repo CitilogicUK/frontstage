@@ -45,6 +45,7 @@ export function CatalogPage() {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'failed'>(
     'loading',
   );
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const limit = Math.min(
@@ -88,7 +89,7 @@ export function CatalogPage() {
     return () => {
       active = false;
     };
-  }, [catalogApi]);
+  }, [catalogApi, loadAttempt]);
 
   function chooseFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -138,8 +139,17 @@ export function CatalogPage() {
           </div>
         )}
         {status === 'failed' && (
-          <div className="gov-empty" role="alert">
-            The catalog could not load. Refresh the page to try again.
+          <div className="gov-empty">
+            <p role="alert">The catalog could not load.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setStatus('loading');
+                setLoadAttempt(attempt => attempt + 1);
+              }}
+            >
+              Retry loading Catalog
+            </button>
           </div>
         )}
         {status === 'loaded' && matches.length === 0 && (
