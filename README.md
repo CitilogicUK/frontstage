@@ -51,6 +51,8 @@ Use `preview_risk` while drafting an app to check the effective data classificat
 
 Use `list_approved_models` with a Backstage user credential to read the gateway's approved model list and live output limits. Pass `classification` to see only models allowed for that data. The response also tells you whether the gateway is enabled and whether it supports production calls.
 
+Use `list_approved_connectors` with a Backstage user credential to look up vetted MCP servers and data connectors. Pass `kind` as `mcp` or `data`, and pass the app's `classification` to filter by the connector's allowed data limit. Results include each connector's approved access and any configured documentation link.
+
 Set `FRONTSTAGE_MCP_WRITE_ENABLED=true` in the MCP process environment to add the descriptor tools. Pass the YAML from a repository descriptor as `content` to `preview_descriptor` to check ownership, calculated tier, and source URL conflicts. After reviewing the preview, use `register_descriptor` with the same content to create the record. The MCP client controls interactive approval for `register_descriptor`. Backstage applies the same authentication, validation, and audit rules as the repository registration endpoint.
 
 Set optional risk floors in `governance.tierPolicy`. The keys are `audience`, `classification`, `hostedSharing`, and `connection`. Values 1 through 3 can raise the built-in requirements. For example, set `governance.tierPolicy.classification.confidential: 3` to require critical review for confidential data. The live questionnaire uses `POST /api/governance/tier-preview`.

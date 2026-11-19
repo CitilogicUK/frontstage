@@ -1297,6 +1297,32 @@ test('a Tier 3 app needs approval and activation before its model calls are mete
         ],
       });
 
+      const internalConnectors = await catalogMcp.callTool({
+        name: 'list_approved_connectors',
+        arguments: { kind: 'mcp', classification: 'internal' },
+      });
+      expect(internalConnectors.isError).not.toBe(true);
+      expect(internalConnectors.structuredContent).toMatchObject({
+        configured: true,
+        connectors: [
+          {
+            id: 'catalog-sandbox',
+            kind: 'mcp',
+            access: 'read',
+            maxClassification: 'internal',
+          },
+        ],
+      });
+      const confidentialConnectors = await catalogMcp.callTool({
+        name: 'list_approved_connectors',
+        arguments: { kind: 'mcp', classification: 'confidential' },
+      });
+      expect(confidentialConnectors.isError).not.toBe(true);
+      expect(confidentialConnectors.structuredContent).toMatchObject({
+        configured: true,
+        connectors: [],
+      });
+
       const personalApp = { audience: 'personal', classification: 'internal' };
       const baselineRisk = await catalogMcp.callTool({
         name: 'preview_risk',

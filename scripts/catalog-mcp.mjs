@@ -30,6 +30,10 @@ function readConfig() {
     repositoryUrl: new URL('api/governance/repository', backend),
     tierPreviewUrl: new URL('api/governance/tier-preview', backend),
     gatewayModelsUrl: new URL('api/governance/gateway/models', backend),
+    approvedConnectorsUrl: new URL(
+      'api/governance/approved-connectors',
+      backend,
+    ),
     token,
     writeEnabled: process.env.FRONTSTAGE_MCP_WRITE_ENABLED === 'true',
   };
@@ -99,6 +103,21 @@ const modelPolicy = z.object({
       id: z.string(),
       allowedClassifications: z.array(classification),
       maxCompletionTokens: z.number().int().positive(),
+    }),
+  ),
+});
+const connectorKind = z.enum(['mcp', 'data']);
+const connectorsPolicy = z.object({
+  configured: z.boolean(),
+  connectors: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      kind: connectorKind,
+      description: z.string(),
+      access: z.enum(['read', 'write']),
+      maxClassification: classification,
+      docsUrl: z.string().optional(),
     }),
   ),
 });
@@ -207,6 +226,7 @@ async function start() {
     repositoryUrl,
     tierPreviewUrl,
     gatewayModelsUrl,
+    approvedConnectorsUrl,
     token,
     writeEnabled,
   } = readConfig();
@@ -290,6 +310,39 @@ async function start() {
               model.allowedClassifications.includes(appClassification),
             )
           : policy.models,
+      });
+    },
+  );
+  server.registerTool(
+    'list_approved_connectors',
+    {
+      description:
+        'List approved connectors, optionally filtered by kind and data classification.',
+      inputSchema: z.object({
+        kind: connectorKind.optional(),
+        classification: classification.optional(),
+      }),
+      outputSchema: connectorsPolicy,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ kind, classification: appClassification }) => {
+      const policy = await fetchCatalog(
+        approvedConnectorsUrl,
+        token,
+        connectorsPolicy,
+      );
+      const minimum =
+        appClassification === undefined
+          ? -1
+          : classification.options.indexOf(appClassification);
+      return toolResult({
+        ...policy,
+        connectors: policy.connectors.filter(
+          connector =>
+            (!kind || connector.kind === kind) &&
+            classification.options.indexOf(connector.maxClassification) >=
+              minimum,
+        ),
       });
     },
   );
