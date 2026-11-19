@@ -235,3 +235,131 @@ test('catalog MCP refuses a plaintext remote backend without exposing the token'
   assert.match(child.stderr, /HTTPS/i);
   assert.ok(!child.stderr.includes(token));
 });
+
+test(
+  'catalog MCP explicitly opts in to previewing and registering bounded descriptors',
+  { timeout: 15_000 },
+  async () => {
+    const content = 'kind: AIApp\nspec:\n  name: Order workflow\n';
+    const requests = [];
+    const previewApp = {
+      name: records[0].name,
+      tier: records[0].tier,
+      owner: records[0].owner,
+      team: records[0].team,
+      starterId: 'internal-api',
+    };
+    const server = createServer(async (request, response) => {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      requests.push({
+        path: request.url,
+        method: request.method,
+        authorization: request.headers.authorization,
+        contentType: request.headers['content-type'],
+        body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+      });
+      response.setHeader('Content-Type', 'application/json');
+      if (request.headers.authorization !== `Bearer ${token}`) {
+        response.writeHead(401);
+        response.end('{}');
+      } else if (
+        request.url === '/workspace/api/governance/repository?dryRun=true'
+      ) {
+        response.end(
+          JSON.stringify({ apps: [{ ...previewApp, ...hiddenFields }] }),
+        );
+      } else if (requests.length === 2) {
+        response.writeHead(201);
+        response.end(
+          JSON.stringify({ ...records[0], starterId: 'internal-api' }),
+        );
+      } else {
+        response.writeHead(409);
+        response.end(JSON.stringify({ message: hiddenFields.reviewNotes }));
+      }
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [script],
+      env: {
+        FRONTSTAGE_MCP_BACKEND_URL: `http://127.0.0.1:${
+          server.address().port
+        }/workspace`,
+        FRONTSTAGE_MCP_TOKEN: token,
+        FRONTSTAGE_MCP_WRITE_ENABLED: 'true',
+      },
+    });
+    const client = new Client({ name: 'catalog-write-test', version: '1.0.0' });
+    const call = (name, args) => client.callTool({ name, arguments: args });
+    try {
+      await client.connect(transport);
+      const { tools } = await client.listTools();
+      assert.deepEqual(tools.map(tool => tool.name).sort(), [
+        'get_app',
+        'preview_descriptor',
+        'register_descriptor',
+        'search_apps',
+      ]);
+      for (const name of ['preview_descriptor', 'register_descriptor']) {
+        const { inputSchema } = tools.find(tool => tool.name === name);
+        assert.equal(inputSchema.properties.content.type, 'string');
+        assert.deepEqual(inputSchema.required, ['content']);
+        const empty = await call(name, { content: '' });
+        assert.equal(empty.isError, true);
+        const oversized = await call(name, { content: 'é'.repeat(32_769) });
+        assert.equal(oversized.isError, true);
+      }
+      assert.equal(requests.length, 0);
+
+      const preview = await call('preview_descriptor', { content });
+      assert.equal(preview.isError ?? false, false);
+      assert.deepEqual(preview.structuredContent, { apps: [previewApp] });
+      assert.deepEqual(
+        JSON.parse(preview.content[0].text),
+        preview.structuredContent,
+      );
+      assertPrivateFieldsAbsent(preview);
+      assert.equal(requests.length, 1);
+
+      const registration = await call('register_descriptor', { content });
+      assert.equal(registration.isError ?? false, false);
+      assert.equal(registration.structuredContent.app.id, records[0].id);
+      assert.equal(
+        registration.structuredContent.app.starterId,
+        'internal-api',
+      );
+      assertPrivateFieldsAbsent(registration);
+
+      const conflict = await call('register_descriptor', { content });
+      assert.equal(conflict.isError, true);
+      assert.match(conflict.content[0].text, /conflicting app registration/);
+      assertPrivateFieldsAbsent(conflict);
+      assert.deepEqual(
+        requests,
+        [
+          '/workspace/api/governance/repository?dryRun=true',
+          '/workspace/api/governance/repository',
+          '/workspace/api/governance/repository',
+        ].map(path => ({
+          path,
+          method: 'POST',
+          authorization: `Bearer ${token}`,
+          contentType: 'application/json',
+          body: { content },
+        })),
+      );
+    } finally {
+      try {
+        await client.close();
+      } finally {
+        server.closeAllConnections();
+        await new Promise((resolve, reject) =>
+          server.close(error => (error ? reject(error) : resolve())),
+        );
+      }
+    }
+  },
+);
