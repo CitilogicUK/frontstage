@@ -2719,6 +2719,7 @@ export function GovernancePage() {
               <AppScorecard
                 key={`scorecard-${selected.updatedAt}`}
                 appId={selected.id}
+                refreshVersion={scorecardLoadAttempt}
               />
             )}
             {canReview && (
