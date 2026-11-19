@@ -2467,6 +2467,24 @@ describe('governance record access', () => {
     await evidence(400, reviewer).expect(404);
     expect(github).not.toHaveBeenCalled();
 
+    jest
+      .spyOn(CatalogClient.prototype, 'getEntitiesByRefs')
+      .mockImplementation(async ({ entityRefs }) => ({
+        items: entityRefs.map(ref => ({
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: ref.startsWith('group:') ? 'Group' : 'User',
+          metadata: { name: ref.split('/')[1] },
+        })),
+      }));
+    await api
+      .post('/api/governance/apps')
+      .set('Authorization', auth(owner))
+      .send({
+        ...descriptor.spec,
+        sourceUrl: 'https://github.com/example/private',
+      })
+      .expect(201);
+    await evidence(200, owner).expect(404);
     await api
       .post('/api/governance/apps')
       .set('Authorization', auth(owner))
