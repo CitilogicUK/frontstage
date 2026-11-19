@@ -147,11 +147,17 @@ function appOwner(ref: string) {
   return ref.replace(/^user:default\//, '');
 }
 
+function isAcceptedEngineeringCoOwner(app: App, actor: string) {
+  return (
+    app.graduation?.status === 'accepted' && actor === app.graduation.nominee
+  );
+}
+
 function isIndependentReviewer(app: App, actor: string) {
   return (
     actor !== app.owner &&
     actor !== app.backupOwner &&
-    (app.graduation?.status !== 'accepted' || actor !== app.graduation.nominee)
+    !isAcceptedEngineeringCoOwner(app, actor)
   );
 }
 
@@ -354,6 +360,8 @@ export function GovernancePage() {
   const [message, setMessage] = useState('');
 
   const reviewDate = selected && scheduledReviewDate(selected);
+  const actorIsAcceptedCoOwner =
+    selected !== undefined && isAcceptedEngineeringCoOwner(selected, actor);
   const canNominateCoOwner =
     selected &&
     graduationEnabled &&
@@ -1623,6 +1631,13 @@ export function GovernancePage() {
                     new review. Moving to production also requires a new review.
                   </p>
                 )}
+                {actorIsAcceptedCoOwner && (
+                  <p id="engineering-handoff-edit-help">
+                    Ask the accountable owner or another reviewer to change the
+                    owner or delivery stage. These changes end your engineering
+                    handoff.
+                  </p>
+                )}
                 <form
                   onSubmit={event =>
                     submit(event, async data => {
@@ -1650,7 +1665,9 @@ export function GovernancePage() {
                                 .map(model => model.trim())
                                 .filter(Boolean)
                             : [],
-                          deliveryStage: data.get('deliveryStage') || undefined,
+                          deliveryStage: actorIsAcceptedCoOwner
+                            ? selected.deliveryStage
+                            : data.get('deliveryStage') || undefined,
                           reviewTicketUrl: data.get('reviewTicketUrl') || null,
                           evidence: Object.fromEntries(
                             evidenceFields.map(([field]) => [
@@ -1753,10 +1770,16 @@ export function GovernancePage() {
                       aria-labelledby="app-editor-owner-label"
                       required
                       name="owner"
+                      readOnly={actorIsAcceptedCoOwner}
                       aria-describedby={
-                        selected.usesAiAtRuntime !== false
-                          ? 'ownership-handoff-help'
-                          : undefined
+                        [
+                          actorIsAcceptedCoOwner &&
+                            'engineering-handoff-edit-help',
+                          selected.usesAiAtRuntime !== false &&
+                            'ownership-handoff-help',
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || undefined
                       }
                       defaultValue={selected.owner}
                     />
@@ -1782,6 +1805,12 @@ export function GovernancePage() {
                     Delivery stage
                     <select
                       name="deliveryStage"
+                      disabled={actorIsAcceptedCoOwner}
+                      aria-describedby={
+                        actorIsAcceptedCoOwner
+                          ? 'engineering-handoff-edit-help'
+                          : undefined
+                      }
                       defaultValue={selected.deliveryStage ?? ''}
                     >
                       <option value="">Select a stage</option>
@@ -1846,7 +1875,10 @@ export function GovernancePage() {
                 key={`graduation-${selected.updatedAt}`}
                 graduation={selected.graduation}
                 canNominate={canNominateCoOwner === true}
-                canCancel={actor === selected.owner || canReview}
+                canRemove={
+                  (actor === selected.owner || canReview) &&
+                  !actorIsAcceptedCoOwner
+                }
                 canDecide={
                   graduationEnabled &&
                   nomineeCanDecideGraduation(selected, actor)
@@ -1863,16 +1895,26 @@ export function GovernancePage() {
                     setMessage('Engineering co-owner nominated.');
                   })
                 }
-                onCancel={event =>
-                  submit(event, async () => {
+                onRemove={event =>
+                  submit(event, async data => {
+                    const ending = selected.graduation?.status === 'accepted';
                     applySavedApp(
                       await api(
                         `/apps/${selected.id}/graduation`,
-                        { expectedUpdatedAt: selected.updatedAt },
+                        {
+                          expectedUpdatedAt: selected.updatedAt,
+                          reason: ending
+                            ? String(data.get('reason') ?? '').trim()
+                            : undefined,
+                        },
                         'DELETE',
                       ),
                     );
-                    setMessage('Engineering nomination cancelled.');
+                    setMessage(
+                      ending
+                        ? 'Engineering handoff ended.'
+                        : 'Engineering nomination cancelled.',
+                    );
                   })
                 }
                 onDecide={event =>
@@ -1956,14 +1998,22 @@ export function GovernancePage() {
                 <label>
                   Lifecycle
                   <select name="lifecycle" defaultValue={selected.lifecycle}>
-                    {options(appLifecycles)}
+                    {options(
+                      actorIsAcceptedCoOwner
+                        ? appLifecycles.filter(value => value !== 'retired')
+                        : appLifecycles,
+                    )}
                   </select>
                 </label>
                 <label>
                   Reason for lifecycle change (optional)
                   <textarea name="reason" maxLength={500} />
                 </label>
-                <p>Retiring an app also revokes its gateway key.</p>
+                <p>
+                  {actorIsAcceptedCoOwner
+                    ? 'Ask the owner or another reviewer to retire this app.'
+                    : 'Retiring an app also revokes its gateway key.'}
+                </p>
                 <button disabled={busy}>Update lifecycle</button>
               </form>
             )}
