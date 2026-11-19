@@ -430,6 +430,15 @@ test('the owner inventory prioritizes upcoming and overdue reviews', async ({
   await expect(
     playground.getByRole('option', { name: 'gpt-4.1-mini' }),
   ).toHaveCount(1);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'Copy app link' }).click();
+  await expect(
+    page.getByText('App link copied.', { exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    `${workspaceUrl}/?app=overdue`,
+  );
+
   const reminderPending = page.waitForEvent('download');
   await page
     .getByRole('button', { name: 'Download calendar reminder' })

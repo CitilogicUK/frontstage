@@ -406,6 +406,18 @@ export function GovernancePage() {
     );
   }
 
+  async function copyAppLink(appId: string) {
+    const link = new URL(window.location.href);
+    link.search = new URLSearchParams({ app: appId }).toString();
+    link.hash = '';
+    try {
+      await navigator.clipboard.writeText(link.href);
+      setMessage('App link copied.');
+    } catch {
+      setMessage('Copy the app URL from your address bar.');
+    }
+  }
+
   function closeApp() {
     setSelected(undefined);
     setError('');
@@ -1506,6 +1518,9 @@ export function GovernancePage() {
             </div>
             <h2 id="gov-detail-title">{selected.name}</h2>
             <p>{selected.purpose}</p>
+            <button type="button" onClick={() => copyAppLink(selected.id)}>
+              Copy app link
+            </button>
             {error && (
               <p className="gov-notice" role="alert">
                 {error}
