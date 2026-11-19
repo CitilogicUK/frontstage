@@ -8449,7 +8449,7 @@ describe('governance record access', () => {
       appId: alertOnlyApp.id,
       checks: expect.arrayContaining(['Monthly gateway spend']),
     });
-    expect(provider).toHaveBeenCalledTimes(8);
+    expect(provider).toHaveBeenCalledTimes(9);
 
     await issue(productionPath).expect(201);
     await api
