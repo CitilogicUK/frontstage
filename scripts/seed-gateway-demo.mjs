@@ -1,9 +1,15 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
-const origin = 'http://localhost:3000';
-const backendPort = Number(process.env.FRONTSTAGE_DEMO_BACKEND_PORT ?? 7007);
-if (!Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535)
-  throw new Error('Set FRONTSTAGE_DEMO_BACKEND_PORT to a valid local port.');
+function localPort(variable, fallback) {
+  const port = Number(process.env[variable] ?? fallback);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error(`Set ${variable} to a valid local port.`);
+  return port;
+}
+
+const appPort = localPort('FRONTSTAGE_DEMO_APP_PORT', 3000);
+const backendPort = localPort('FRONTSTAGE_DEMO_BACKEND_PORT', 7007);
+const origin = `http://localhost:${appPort}`;
 const backend = `http://localhost:${backendPort}`;
 const governance = `${backend}/api/governance`;
 

@@ -51,7 +51,7 @@ For apps that call AI at runtime, choose the assistant, agent, or automation sta
 
 ## Gateway demo
 
-Run this walkthrough with synthetic data. Follow [Run locally](#run-locally) for prerequisites, then start the reviewer profile against a fresh database. Stop any other local Frontstage server first so the demo can use ports 3000 and 7007.
+Run this walkthrough with synthetic data. Follow [Run locally](#run-locally) for prerequisites, then start the reviewer profile against a fresh database. The default ports are 3000 and 7007. Use the parallel setup below if those ports are occupied.
 
 ```sh
 export APP_CONFIG_backend_database_connection_directory="$(mktemp -d)"
@@ -67,6 +67,25 @@ In a second terminal at the repository root, run `yarn demo:seed` after the back
 To check the hosted-app path, open **Hosted workspace demo** and check its scorecard. Activation is blocked while the declared workspace is **Personal sandbox**. Change it to **Company sandbox** under **Edit app details**, then activate the app. The demo uses a fictional provider and workspace.
 
 The gateway checks active catalog ownership before issuing or rotating keys and before forwarding calls. The simulation uses the same key, lifecycle, review, and model checks as the live adapter. Seeding again preserves existing records. Restart with a fresh temporary database to replay from the initial state.
+
+### Run a second demo in a worktree
+
+Use separate ports and a fresh database directory in the second worktree.
+
+```sh
+export APP_CONFIG_app_baseUrl=http://localhost:3414
+export APP_CONFIG_backend_baseUrl=http://localhost:7414
+export APP_CONFIG_backend_listen_port=7414
+export APP_CONFIG_backend_cors_origin=http://localhost:3414
+export APP_CONFIG_backend_database_connection_directory="$(mktemp -d)"
+yarn start --config ../../app-config.reviewer.yaml
+```
+
+From another terminal in that worktree, seed the same port pair and open the app on port 3414.
+
+```sh
+FRONTSTAGE_DEMO_APP_PORT=3414 FRONTSTAGE_DEMO_BACKEND_PORT=7414 yarn demo:seed
+```
 
 ### Live OpenAI call
 
