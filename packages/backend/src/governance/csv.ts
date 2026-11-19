@@ -12,6 +12,7 @@ const textFields = [
   'team',
   'lifecycle',
   'deliveryStage',
+  'starterId',
   'audience',
   'classification',
   'actionDescription',

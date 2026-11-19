@@ -2454,7 +2454,7 @@ describe('governance record access', () => {
     expect(ownerEnded.body).not.toHaveProperty('graduation');
   });
 
-  it('preserves known starter provenance from intake and repository registrations', async () => {
+  it('preserves known starter provenance from intake, repository, and CSV registrations', async () => {
     const owner = 'user:default/owner';
     const reviewer = 'user:default/reviewer';
     jest
@@ -2560,6 +2560,55 @@ describe('governance record access', () => {
     expect((await edit(legacy, 'internal-api')).body).not.toHaveProperty(
       'starterId',
     );
+
+    const csvRow = (name: string, starterId: string) =>
+      [
+        ...Object.values({ ...registration, name }),
+        `https://github.com/example/${name}`,
+        starterId,
+      ].join(',');
+    const csvHeader = [
+      ...Object.keys(registration),
+      'sourceUrl',
+      'starterId',
+    ].join(',');
+    const importCsv = (rows: string[], dryRun = false) =>
+      api
+        .post(`/api/governance/imports${dryRun ? '?dryRun=true' : ''}`)
+        .set('Authorization', mockCredentials.user.header(reviewer))
+        .send({ csv: [csvHeader, ...rows].join('\n') });
+    const validRow = csvRow('csv-starter', 'internal-api');
+    const legacyRow = csvRow('csv-legacy', '');
+    await importCsv([
+      validRow,
+      csvRow('csv-invalid', 'unknown-starter'),
+    ]).expect(400);
+    const { body: preview } = await importCsv(
+      [validRow, legacyRow],
+      true,
+    ).expect(200);
+    expect(preview.apps).toMatchObject([
+      { name: 'csv-starter', starterId: 'internal-api', tier: 1 },
+      { name: 'csv-legacy', tier: 1 },
+    ]);
+    expect(preview.apps[1]).not.toHaveProperty('starterId');
+    const { body: imported } = await importCsv([validRow, legacyRow]).expect(
+      201,
+    );
+    expect(imported).toMatchObject([
+      {
+        name: 'csv-starter',
+        starterId: 'internal-api',
+        discoverySource: 'bulk import',
+      },
+      { name: 'csv-legacy', discoverySource: 'bulk import' },
+    ]);
+    expect(imported[1]).not.toHaveProperty('starterId');
+    await api
+      .get(`${apps}/${imported[0].id}`)
+      .set('Authorization', auth)
+      .expect(200)
+      .expect(({ body }) => expect(body.starterId).toBe('internal-api'));
 
     const { body: history } = await api
       .get(`${apps}/${repository.id}/history`)

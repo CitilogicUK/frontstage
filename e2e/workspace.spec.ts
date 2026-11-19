@@ -1429,6 +1429,7 @@ test('reviewers can download the spreadsheet import sample', async ({
         apps: [
           {
             name: 'Imported sample',
+            starterId: 'internal-api',
             tier: 2,
             deliveryStage: 'poc',
             usesAiAtRuntime: false,
@@ -1476,6 +1477,9 @@ test('reviewers can download the spreadsheet import sample', async ({
   ).toContainText(
     'Owner: user:default/demo-owner · Backup owner: user:default/backup · Team: group:default/platform',
   );
+  await expect(
+    page.getByRole('region', { name: 'Import preview' }),
+  ).toContainText('Starter: Internal API');
   expect(importWrites).toBe(0);
   await page.getByRole('button', { name: 'Import apps' }).click();
   await expect(page.getByText('Import complete.')).toBeVisible();
